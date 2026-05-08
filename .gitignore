@@ -1,0 +1,128 @@
+# =========================
+# Rust build artifacts
+# =========================
+
+/target/
+
+
+# =========================
+# Local environment files
+# =========================
+
+.env
+.env.local
+.env.*.local
+
+
+
+# =========================
+# SQLite files
+# =========================
+
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+
+# =========================
+# Secrets and keys
+# =========================
+
+/secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+
+
+# =========================
+# Uploads and temporary files
+# =========================
+
+/uploads/
+/tmp/
+/temp/
+*.upload
+*.tmp
+*.temp
+
+
+# =========================
+# Logs
+# =========================
+
+/logs/
+*.log
+
+
+# =========================
+# Coverage / profiling
+# =========================
+
+/coverage/
+/tarpaulin-report.html
+*.profraw
+*.profdata
+
+
+# =========================
+# IDE / editor files
+# =========================
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+
+# =========================
+# OS files
+# =========================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+
+# =========================
+# Docker / local compose override
+# =========================
+
+docker-compose.override.yml
+
+
+# =========================
+# Generated archives
+# =========================
+
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+
+# =========================
+# Backup files
+# =========================
+
+*.bak
+*.backup
+*.old
+
+
+# =========================
+# Cargo config
+# =========================
+
+.cargo/config.toml
