@@ -2,7 +2,9 @@ use axum::Router;
 
 use crate::state::AppState;
 
+pub mod response;
 pub mod v1;
+
 
 pub fn router() -> Router<AppState> {
     Router::new()
