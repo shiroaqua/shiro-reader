@@ -1,13 +1,13 @@
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
-    #[error("directory not found")]
-    DirectoryNotFound,
+    #[error("folder not found")]
+    FolderNotFound,
 
-    #[error("parent directory not found")]
-    ParentDirectoryNotFound,
+    #[error("parent folder not found")]
+    ParentFolderNotFound,
 
-    #[error("directory name conflict")]
-    DirectoryNameConflict,
+    #[error("folder name conflict")]
+    FolderNameConflict,
 
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

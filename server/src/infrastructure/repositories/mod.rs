@@ -1,2 +1,2 @@
 pub mod errors;
-pub mod sqlite_directory_repository;
+pub mod sqlite_folder_repository;

@@ -7,7 +7,7 @@ use serde::Serialize;
 use tracing::error;
 
 
-use crate::application::bookshelf::errors::DirectoryApplicationError;
+use crate::application::library::bookshelf::folder::errors::FolderApplicationError;
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
@@ -57,37 +57,34 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From<DirectoryApplicationError> for AppError {
-    fn from(value: DirectoryApplicationError) -> Self {
-        use DirectoryApplicationError::*;
+impl From<FolderApplicationError> for AppError {
+    fn from(value: FolderApplicationError) -> Self {
+        use FolderApplicationError::*;
 
         match value {
-            InvalidDirectoryId => AppError::BadRequest {
-                message: "bookshelf.invalid_directory_id",
+            InvalidFolderId => AppError::BadRequest {
+                message: "library.bookshelf.folder.invalid_id",
             },
             InvalidParentId => AppError::BadRequest {
-                message: "bookshelf.invalid_parent_id"
+                message: "library.bookshelf.folder.invalid_parent_id"
             },
-            DirectoryIdRequired => AppError::BadRequest {
-                message: "bookshelf.directory_id_required",
+            FolderIdRequired => AppError::BadRequest {
+                message: "library.bookshelf.folder.id_required",
             },
-            DirectoryNameRequired => AppError::BadRequest {
-                message: "bookshelf.directory_name_required",
+            FolderNameRequired => AppError::BadRequest {
+                message: "library.bookshelf.folder.name_required",
             },
-            DirectoryNameReserved => AppError::BadRequest {
-                message: "bookshelf.directory_name_reserved",
+            FolderNameInvalidFormat => AppError::BadRequest {
+                message: "library.bookshelf.folder.name_invaild_format",
             },
-            DirectoryNameInvalidFormat => AppError::BadRequest {
-                message: "bookshelf.directory_name_invaild_format",
+            FolderNotFound => AppError::NotFound {
+                message: "library.bookshelf.folder.not_found",
             },
-            DirectoryNotFound => AppError::NotFound {
-                message: "bookshelf.directory_not_found",
+            ParentFolderNotFound => AppError::NotFound {
+                message: "library.bookshelf.folder.parent_not_found",
             },
-            ParentDirectoryNotFound => AppError::NotFound {
-                message: "bookshelf.parent_directory_not_found",
-            },
-            DirectoryNameConflict => AppError::Conflict {
-                message: "bookshelf.directory_name_conflict",
+            FolderNameConflict => AppError::Conflict {
+                message: "library.bookshelf.folder.name_conflict",
             },
             Storage(error) => AppError::Internal(error),
         }
