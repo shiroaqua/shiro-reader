@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -28,12 +29,12 @@ pub struct DirectoryContentsQuery {
 #[derive(Debug, Serialize)]
 pub struct CreateDirectoryResponse {
     pub id: String,
-    pub created_at: String,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct MoveDirectoryResponse {
-    pub updated_at: String,
+    pub updated_at: DateTime<Utc>,
 }
 
 

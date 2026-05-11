@@ -1,13 +1,16 @@
+use std::sync::Arc;
 use std::path::PathBuf;
 
 use crate::{
+    application::bookshelf::{ports::DirectoryRepository, service::DirectoryService},
     config::Config,
-    infrastructure::db,
+    infrastructure::{db, repositories::sqlite_directory_repository::SqliteDirectoryRepository},
 };
+
 
 #[derive(Clone)]
 pub struct AppState {
-
+    pub directory_service: Arc<DirectoryService>,
 }
 
 impl AppState {
@@ -18,6 +21,10 @@ impl AppState {
         let pool = db::pool::connect(&config.database).await?;
         db::migrate(&pool).await?;
 
-        Ok(Self {})
+        let directory_repository: Arc<dyn DirectoryRepository> =
+            Arc::new(SqliteDirectoryRepository::new(pool));
+        let directory_service = Arc::new(DirectoryService::new(directory_repository));
+
+        Ok(Self { directory_service })
     }
 }
