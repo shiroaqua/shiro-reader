@@ -13,7 +13,7 @@ impl FolderId {
         Self(Uuid::new_v4().to_string())
     }
 
-    pub fn parse_directory_id(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
+    pub fn parse_folder_id(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
         Self::parse(value).map_err(|_| FolderDomainError::InvalidFolderId)
     }
 

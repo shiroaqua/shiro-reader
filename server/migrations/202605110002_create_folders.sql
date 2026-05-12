@@ -54,17 +54,32 @@ CREATE TABLE IF NOT EXISTS folders (
             updated_at > 0
             AND updated_at >= created_at
         ),
-
-    -- 同一父集下不允许两个同名文件夹。
-    CONSTRAINT uq_folders_parent_name
-        UNIQUE (bookshelf_id, parent_id, name),
-
-    CONSTRAINT fk_folders_parent
-        FOREIGN KEY (parent_id)
+        
+    
+    CONSTRAINT fk_bookshelf
+        FOREIGN KEY (bookshelf_id)
         REFERENCES bookshelves(id)
         ON UPDATE CASCADE
         ON DELETE CASCADE
+
+    CONSTRAINT fk_folders_parent
+        FOREIGN KEY (parent_id)
+        REFERENCES folders(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
 );
+
+-- 禁止重复文件名
+
+-- 1. 处理 parent_id 不为 NULL 的情况
+CREATE UNIQUE INDEX uq_folders_parent_name_not_null 
+ON folders (bookshelf_id, parent_id, name) 
+WHERE parent_id IS NOT NULL;
+
+-- 2. 处理根目录（parent_id 为 NULL）的情况
+CREATE UNIQUE INDEX uq_folders_parent_name_null 
+ON folders (bookshelf_id, name) 
+WHERE parent_id IS NULL;
 
 
 -- 禁止修改文件夹 id 和 created_at。

@@ -8,6 +8,13 @@ pub struct CreateFolderCommand {
 }
 
 #[derive(Debug)]
+pub struct DeleteFolderCommand {
+    pub bookshelf_id: String,
+    pub folder_id: String
+}
+
+
+#[derive(Debug)]
 pub struct CreateFolderOutput {
     pub id: FolderId,
     pub created_at: i64,
