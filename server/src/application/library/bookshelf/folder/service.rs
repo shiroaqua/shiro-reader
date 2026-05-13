@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use derive_new::new;
+
 use crate::{
     application::library::{
         bookshelf::folder::{
@@ -21,20 +23,18 @@ use crate::{
     shared::time::now_ms,
 };
 
+
+#[derive(new)]
 pub struct FolderService {
     repository: Arc<dyn FolderRepository>,
 }
 
 impl FolderService {
-    pub fn new(repository: Arc<dyn FolderRepository>) -> Self {
-        Self { repository }
-    }
-
     pub async fn create_folder(
         &self,
         command: CreateFolderCommand,
     ) -> Result<CreateFolderOutput, LibraryApplicationError> {
-        let bookshelf_id = BookshelfId::parse_bookshelf_id(command.bookshelf_id)?;
+        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
         let parent_id = command
             .parent_id
             .map(FolderId::parse_parent_id)
@@ -59,7 +59,7 @@ impl FolderService {
         &self,
         commmand: DeleteFolderCommand,
     ) -> Result<(), LibraryApplicationError> {
-        let bookshelf_id = BookshelfId::parse_bookshelf_id(commmand.bookshelf_id)?;
+        let bookshelf_id = BookshelfId::parse(commmand.bookshelf_id)?;
         let folder_id = FolderId::parse_folder_id(commmand.folder_id)?;
         self.repository
             .delete(&bookshelf_id, &folder_id)
@@ -88,6 +88,7 @@ impl From<RepositoryError> for FolderApplicationError {
             RepositoryError::ParentFolderNotFound => Self::ParentFolderNotFound,
             RepositoryError::FolderNameConflict => Self::FolderNameConflict,
             RepositoryError::Storage(error) => Self::Storage(error),
+            _ => Self::Storage(anyhow::anyhow!("unrelated error")),
         }
     }
 }

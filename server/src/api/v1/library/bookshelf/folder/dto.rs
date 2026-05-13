@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateFolderRequest {
@@ -14,3 +13,4 @@ pub struct CreateFolderResponse {
     pub id: String,
     pub created_at: DateTime<Utc>,
 }
+

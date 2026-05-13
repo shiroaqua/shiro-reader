@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use derive_more::{Display, From, AsRef, Deref};
+use derive_more::{AsRef, Deref, Display, From};
 use uuid::Uuid;
 
 use crate::domain::library::bookshelf::errors::BookshelfDomainError;
@@ -13,13 +13,7 @@ impl BookshelfId {
         Self(Uuid::new_v4().to_string())
     }
 
-    pub fn parse_bookshelf_id(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
-        Self::parse(value).map_err(|_| BookshelfDomainError::InvalidBookshelfId)
-    }
-}
-
-impl BookshelfId {
-    fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
+    pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
             return Err(BookshelfDomainError::InvalidBookshelfId);
@@ -29,26 +23,6 @@ impl BookshelfId {
         Ok(Self(parsed.to_string()))
     }
 }
-
-
-#[derive(Debug, Clone, PartialEq, Eq, Display, From, AsRef, Deref)]
-pub struct BookshelfName(String);
-
-impl BookshelfName {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
-        let raw = value.as_ref();
-        if raw.is_empty() {
-            return Err(BookshelfDomainError::MissingBookshelfName);
-        }
-
-        if !raw.chars().all(|c| c.is_alphanumeric())  {
-            return Err(BookshelfDomainError::InvalidBookshelfNameFormat);
-        }
-
-        Ok(Self(raw.to_string()))
-    }
-}
-
 
 impl Default for BookshelfId {
     fn default() -> Self {
@@ -64,6 +38,23 @@ impl FromStr for BookshelfId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Display, From, AsRef, Deref)]
+pub struct BookshelfName(String);
+
+impl BookshelfName {
+    pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
+        let raw = value.as_ref();
+        if raw.is_empty() {
+            return Err(BookshelfDomainError::MissingBookshelfName);
+        }
+
+        if !raw.chars().all(|c| c.is_alphanumeric()) {
+            return Err(BookshelfDomainError::InvalidBookshelfNameFormat);
+        }
+
+        Ok(Self(raw.to_string()))
+    }
+}
 
 impl FromStr for BookshelfName {
     type Err = BookshelfDomainError;
