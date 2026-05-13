@@ -3,16 +3,15 @@ pub enum FolderDomainError {
     #[error("invalid folder id")]
     InvalidFolderId,
 
-    #[error("invalid parent id")]
-    InvalidParentId,
+    #[error("invalid parent folder id")]
+    InvalidParentFolderId,
 
-    #[error("folder id is required")]
-    FolderIdRequired,
+    #[error("missing folder id")]
+    MissingFolderId,
 
-    #[error("folder name is required")]
-    FolderNameRequired,
+    #[error("missing folder name")]
+    MissingFolderName,
 
-    #[error("folder Name is invalid format")]
-    FolderNameInvalidFormat,
-    
+    #[error("invalid folder name format")]
+    InvalidFolderNameFormat,
 }

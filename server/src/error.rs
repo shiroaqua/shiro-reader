@@ -7,7 +7,8 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::application::library::{
-    bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError}, errors::LibraryApplicationError,
+    bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError},
+    errors::LibraryApplicationError,
 };
 
 #[derive(Debug, Serialize)]
@@ -55,43 +56,47 @@ impl IntoResponse for AppError {
 
 impl From<LibraryApplicationError> for AppError {
     fn from(value: LibraryApplicationError) -> Self {
-        use FolderApplicationError::*;
         use BookshelfApplicationError::*;
+        use FolderApplicationError::*;
 
         match value {
             LibraryApplicationError::Folder(f) => match f {
                 InvalidFolderId => AppError::BadRequest {
-                    message: "library.bookshelf.folder.invalid_id",
+                    message: "library.folder.invalid_id",
                 },
-                InvalidParentId => AppError::BadRequest {
-                    message: "library.bookshelf.folder.invalid_parent_id",
+                InvalidParentFolderId => AppError::BadRequest {
+                    message: "library.folder.invalid_parent_id",
                 },
-                FolderIdRequired => AppError::BadRequest {
-                    message: "library.bookshelf.folder.id_required",
+                MissingFolderId => AppError::BadRequest {
+                    message: "library.folder.missing_id",
                 },
-                FolderNameRequired => AppError::BadRequest {
-                    message: "library.bookshelf.folder.name_required",
+                MissingFolderName => AppError::BadRequest {
+                    message: "library.folder.missing_name",
                 },
-                FolderNameInvalidFormat => AppError::BadRequest {
-                    message: "library.bookshelf.folder.name_invaild_format",
+                InvalidFolderNameFormat => AppError::BadRequest {
+                    message: "library.folder.invalid_name_format",
                 },
                 FolderNotFound => AppError::NotFound {
-                    message: "library.bookshelf.folder.not_found",
+                    message: "library.folder.not_found",
                 },
                 ParentFolderNotFound => AppError::NotFound {
-                    message: "library.bookshelf.folder.parent_not_found",
+                    message: "library.folder.parent_not_found",
                 },
                 FolderNameConflict => AppError::Conflict {
-                    message: "library.bookshelf.folder.name_conflict",
+                    message: "library.folder.name_conflict",
                 },
                 Storage(error) => AppError::Internal(error),
             },
-            LibraryApplicationError::Bookshelf(b) => {
-                match b {
-                    InvalidBookshelfId => AppError::BadRequest { message: "library.bookshelf.invalid_id" },      
-                    BookshelfNameRequired => AppError::BadRequest { message: "library.bookshelf.folder.name_required" },
-                    BookshelfNameInvalidFormat => AppError::BadRequest { message: "library.bookshelf.name_invaild_forma" },
-                }
+            LibraryApplicationError::Bookshelf(b) => match b {
+                InvalidBookshelfId => AppError::BadRequest {
+                    message: "library.bookshelf.invalid_id",
+                },
+                MissingBookshelfName => AppError::BadRequest {
+                    message: "library.bookshelf.missing_name",
+                },
+                InvalidBookshelfNameFormat => AppError::BadRequest {
+                    message: "library.bookshelf.invalid_name_format",
+                },
             },
         }
     }

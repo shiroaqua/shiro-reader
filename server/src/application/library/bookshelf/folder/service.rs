@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
 use crate::{
-    application::library::{bookshelf::folder::{
-        commands::{CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand},
-        errors::FolderApplicationError,
-        ports::FolderRepository,
-    }, errors::LibraryApplicationError},
+    application::library::{
+        bookshelf::folder::{
+            commands::{CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand},
+            errors::FolderApplicationError,
+            ports::FolderRepository,
+        },
+        errors::LibraryApplicationError,
+    },
     domain::library::bookshelf::{
         folder::{
             entity::Folder,
@@ -31,7 +34,7 @@ impl FolderService {
         &self,
         command: CreateFolderCommand,
     ) -> Result<CreateFolderOutput, LibraryApplicationError> {
-        let bookshelf_id = BookshelfId::new();
+        let bookshelf_id = BookshelfId::parse_bookshelf_id(command.bookshelf_id)?;
         let parent_id = command
             .parent_id
             .map(FolderId::parse_parent_id)
@@ -40,7 +43,11 @@ impl FolderService {
         let now = now_ms();
 
         let folder = Folder::new(FolderId::new(), bookshelf_id, parent_id, name, now, now);
-        let created = self.repository.create(folder).await.map_err(FolderApplicationError::from)?;
+        let created = self
+            .repository
+            .create(folder)
+            .await
+            .map_err(FolderApplicationError::from)?;
 
         Ok(CreateFolderOutput {
             id: created.id,
@@ -54,21 +61,22 @@ impl FolderService {
     ) -> Result<(), LibraryApplicationError> {
         let bookshelf_id = BookshelfId::parse_bookshelf_id(commmand.bookshelf_id)?;
         let folder_id = FolderId::parse_folder_id(commmand.folder_id)?;
-        self.repository.delete(&bookshelf_id, &folder_id).await.map_err(FolderApplicationError::from)?;
+        self.repository
+            .delete(&bookshelf_id, &folder_id)
+            .await
+            .map_err(FolderApplicationError::from)?;
         Ok(())
     }
 }
-
-
 
 impl From<FolderDomainError> for FolderApplicationError {
     fn from(value: FolderDomainError) -> Self {
         match value {
             FolderDomainError::InvalidFolderId => Self::InvalidFolderId,
-            FolderDomainError::InvalidParentId => Self::InvalidParentId,
-            FolderDomainError::FolderIdRequired => Self::FolderIdRequired,
-            FolderDomainError::FolderNameRequired => Self::FolderNameRequired,
-            FolderDomainError::FolderNameInvalidFormat => Self::FolderNameInvalidFormat,
+            FolderDomainError::InvalidParentFolderId => Self::InvalidParentFolderId,
+            FolderDomainError::MissingFolderId => Self::MissingFolderId,
+            FolderDomainError::MissingFolderName => Self::MissingFolderName,
+            FolderDomainError::InvalidFolderNameFormat => Self::InvalidFolderNameFormat,
         }
     }
 }

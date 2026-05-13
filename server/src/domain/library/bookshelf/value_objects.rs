@@ -38,11 +38,11 @@ impl BookshelfName {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(BookshelfDomainError::BookshelfNameRequired);
+            return Err(BookshelfDomainError::MissingBookshelfName);
         }
 
         if !raw.chars().all(|c| c.is_alphanumeric())  {
-            return Err(BookshelfDomainError::BookshelfNameInvalidFormat);
+            return Err(BookshelfDomainError::InvalidBookshelfNameFormat);
         }
 
         Ok(Self(raw.to_string()))

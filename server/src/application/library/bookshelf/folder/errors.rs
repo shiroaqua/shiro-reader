@@ -4,16 +4,16 @@ pub enum FolderApplicationError {
     InvalidFolderId,
 
     #[error("invalid parent folder id")]
-    InvalidParentId,
+    InvalidParentFolderId,
 
-    #[error("folder id is required")]
-    FolderIdRequired,
+    #[error("missing folder id")]
+    MissingFolderId,
 
-    #[error("folder name is required")]
-    FolderNameRequired,
+    #[error("missing folder name")]
+    MissingFolderName,
 
-    #[error("folder name format is invaild")]
-    FolderNameInvalidFormat,
+    #[error("invalid folder name format")]
+    InvalidFolderNameFormat,
 
     #[error("folder not found")]
     FolderNotFound,
