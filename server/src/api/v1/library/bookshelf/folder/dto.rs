@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateFolderRequest {
-    pub bookshelf_id: String,
     pub parent_id: Option<String>,
     pub name: String,
 }

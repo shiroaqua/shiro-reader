@@ -14,12 +14,14 @@ use crate::{
 
 pub async fn create_folder(
     State(state): State<AppState>,
+    
+    Path(bookshelf_id): Path<String>,
     Json(request): Json<CreateFolderRequest>,
 ) -> Result<(StatusCode, Json<DataResponse<CreateFolderResponse>>), AppError> {
     let output = state
         .folder_service
         .create_folder(CreateFolderCommand {
-            bookshelf_id: request.bookshelf_id,
+            bookshelf_id: bookshelf_id,
             parent_id: request.parent_id,
             name: request.name,
         })
