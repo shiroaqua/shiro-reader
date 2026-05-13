@@ -46,5 +46,6 @@ pub async fn delete_folder(
             folder_id,
         })
         .await?;
-    todo!();
+    
+    Ok(StatusCode::NO_CONTENT)
 }
