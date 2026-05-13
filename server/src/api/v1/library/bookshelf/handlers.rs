@@ -12,7 +12,7 @@ use crate::{
     shared::time,
 };
 
-pub async fn create_bookshlef(
+pub async fn create_bookshelf(
     State(state): State<AppState>,
     Json(request): Json<CreateBookshelfRequest>,
 ) -> Result<(StatusCode, Json<DataResponse<CreateBookshelfResponse>>), AppError> {
@@ -20,7 +20,7 @@ pub async fn create_bookshlef(
         .bookshelf_service
         .create_bookshelf(CreateBookshelfCommand { name: request.name })
         .await?;
-    
+
     Ok((
         StatusCode::CREATED,
         Json(DataResponse::new(CreateBookshelfResponse {
@@ -30,7 +30,7 @@ pub async fn create_bookshlef(
     ))
 }
 
-pub async fn delete_bookshlef(
+pub async fn delete_bookshelf(
     State(state): State<AppState>,
     Path(bookshelf_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
