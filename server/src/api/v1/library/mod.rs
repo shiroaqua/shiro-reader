@@ -14,7 +14,9 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/bookshelves/{bookshelf_id}",
-            get(bookshelf::handlers::get_bookshelf).delete(bookshelf::handlers::delete_bookshelf),
+            get(bookshelf::handlers::get_bookshelf)
+                .delete(bookshelf::handlers::delete_bookshelf)
+                .patch(bookshelf::handlers::rename_bookshelf),
         )
         .route(
             "/bookshelves/{bookshelf_id}/folders",
@@ -22,6 +24,6 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/bookshelves/{bookshelf_id}/folders/{folder_id}",
-            delete(bookshelf::folder::handlers::delete_folder),
+            delete(bookshelf::folder::handlers::delete_folder)
         )
 }

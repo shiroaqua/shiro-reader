@@ -26,7 +26,7 @@ impl SqliteBookshelfRepository {
 
 #[async_trait]
 impl BookshelfRepository for SqliteBookshelfRepository {
-    async fn create(&self, bookshelf: Bookshelf) -> Result<Bookshelf, RepositoryError> {
+    async fn create(&self, bookshelf: &Bookshelf) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::insert()
             .into_table(Bookshelves::Table)
             .columns([
@@ -48,13 +48,18 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .await
             .map_err(map_sqlx_error)?;
 
-        Ok(bookshelf)
+        Ok(bookshelf.clone())
     }
 
-    async fn delete(&self, bookshelf_id: &BookshelfId) -> Result<(), RepositoryError> {
-        let (sql, values) = Query::delete()
-            .from_table(Bookshelves::Table)
-            .and_where(Expr::col(Bookshelves::Id).eq(bookshelf_id.as_str()))
+    async fn rename(
+        &self,
+        id: &BookshelfId,
+        new_name: &BookshelfName,
+    ) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::update()
+            .table(Bookshelves::Table)
+            .value(Bookshelves::Name, new_name.as_str())
+            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
 
         let result = sqlx::query_with(&sql, values)
@@ -69,7 +74,25 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         Ok(())
     }
 
-    async fn get(&self, bookshelf_id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
+    async fn delete(&self, id: &BookshelfId) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::delete()
+            .from_table(Bookshelves::Table)
+            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        let result = sqlx::query_with(&sql, values)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(RepositoryError::BookshelfNotFound);
+        }
+
+        Ok(())
+    }
+
+    async fn get(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::select()
             .columns([
                 Bookshelves::Id,
@@ -78,7 +101,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
                 Bookshelves::UpdatedAt,
             ])
             .from(Bookshelves::Table)
-            .and_where(Expr::col(Bookshelves::Id).eq(bookshelf_id.as_str()))
+            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
 
         Ok(Bookshelf::try_from(

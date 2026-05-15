@@ -8,6 +8,7 @@ use crate::{
             commands::{
                 CreateBookshelfCommand, CreateBookshelfOutput, DeleteBookshelfCommand,
                 GetAllBookshelfOutput, GetBookshelfCommand, GetBookshelfOutput,
+                RenameBookshelfCommand,
             },
             errors::BookshelfApplicationError,
             ports::BookshelfRepository,
@@ -39,7 +40,7 @@ impl BookshelfService {
 
         let result = self
             .repositories
-            .create(Bookshelf::new(id, name, now, now))
+            .create(&Bookshelf::new(id, name, now, now))
             .await
             .map_err(BookshelfApplicationError::from)?;
 
@@ -47,6 +48,18 @@ impl BookshelfService {
             id: result.id,
             created_at: result.created_at,
         })
+    }
+    pub async fn rename_bookshelf(
+        &self,
+        command: RenameBookshelfCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookshelfId::parse(command.id)?;
+        let name = BookshelfName::parse(command.name)?;
+        self.repositories
+            .rename(&id, &name)
+            .await
+            .map_err(BookshelfApplicationError::from)?;
+        Ok(())
     }
 
     pub async fn delete_bookshelf(
@@ -62,6 +75,7 @@ impl BookshelfService {
 
         Ok(())
     }
+
     pub async fn get_bookshelf(
         &self,
         command: GetBookshelfCommand,

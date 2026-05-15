@@ -9,6 +9,12 @@ pub struct CreateBookshelfCommand {
 
 
 #[derive(Debug)]
+pub struct RenameBookshelfCommand {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug)]
 pub struct GetBookshelfCommand {
     pub id: String,
 }

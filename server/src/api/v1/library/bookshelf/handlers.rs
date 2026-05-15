@@ -8,11 +8,59 @@ use crate::{
     api::{response::DataResponse, v1::library::bookshelf::dto::*},
     application::library::bookshelf::commands::{
         CreateBookshelfCommand, DeleteBookshelfCommand, GetBookshelfCommand, GetBookshelfOutput,
+        RenameBookshelfCommand,
     },
     error::AppError,
     shared::time,
     state::AppState,
 };
+
+pub async fn create_bookshelf(
+    State(state): State<AppState>,
+    Json(request): Json<CreateBookshelfRequest>,
+) -> Result<(StatusCode, Json<DataResponse<CreateBookshelfResponse>>), AppError> {
+    let output = state
+        .bookshelf_service
+        .create_bookshelf(CreateBookshelfCommand { name: request.name })
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(DataResponse::new(CreateBookshelfResponse {
+            id: output.id.to_string(),
+            created_at: time::ms_to_datetime(output.created_at),
+        })),
+    ))
+}
+
+pub async fn rename_bookshelf(
+    State(state): State<AppState>,
+    Path(bookshelf_id): Path<String>,
+    Json(request): Json<RenameBookshelfRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .bookshelf_service
+        .rename_bookshelf(RenameBookshelfCommand {
+            id: bookshelf_id,
+            name: request.name,
+        })
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_bookshelf(
+    State(state): State<AppState>,
+    Path(bookshelf_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .bookshelf_service
+        .delete_bookshelf(DeleteBookshelfCommand { id: bookshelf_id })
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 
 pub async fn get_bookshelf(
     State(state): State<AppState>,
@@ -36,36 +84,6 @@ pub async fn list_bookshelf(
             output.0.into_iter().map(Into::into).collect(),
         ))),
     ))
-}
-
-pub async fn create_bookshelf(
-    State(state): State<AppState>,
-    Json(request): Json<CreateBookshelfRequest>,
-) -> Result<(StatusCode, Json<DataResponse<CreateBookshelfResponse>>), AppError> {
-    let output = state
-        .bookshelf_service
-        .create_bookshelf(CreateBookshelfCommand { name: request.name })
-        .await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(DataResponse::new(CreateBookshelfResponse {
-            id: output.id.to_string(),
-            created_at: time::ms_to_datetime(output.created_at),
-        })),
-    ))
-}
-
-pub async fn delete_bookshelf(
-    State(state): State<AppState>,
-    Path(bookshelf_id): Path<String>,
-) -> Result<StatusCode, AppError> {
-    state
-        .bookshelf_service
-        .delete_bookshelf(DeleteBookshelfCommand { id: bookshelf_id })
-        .await?;
-
-    Ok(StatusCode::NO_CONTENT)
 }
 
 impl From<GetBookshelfOutput> for GetBookshelfResponse {
