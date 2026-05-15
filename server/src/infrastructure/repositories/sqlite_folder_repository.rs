@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
+use sea_query_binder::SqlxBinder;
 use sqlx::SqlitePool;
 
 use crate::{
@@ -22,37 +24,49 @@ impl SqliteFolderRepository {
 #[async_trait]
 impl FolderRepository for SqliteFolderRepository {
     async fn create(&self, folder: Folder) -> Result<Folder, RepositoryError> {
-        sqlx::query(
-            r#"
-            INSERT INTO folders (id, bookshelf_id, parent_id, name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(folder.id.as_str())
-        .bind(folder.bookshelf_id.as_str())
-        .bind(folder.parent_id.as_deref())
-        .bind(folder.name.as_str())
-        .bind(folder.created_at)
-        .bind(folder.updated_at)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
+        let (sql, values) = Query::insert()
+            .into_table(Folders::Table)
+            .columns([
+                Folders::Id,
+                Folders::BookshelfId,
+                Folders::ParentId,
+                Folders::Name,
+                Folders::CreatedAt,
+                Folders::UpdatedAt,
+            ])
+            .values_panic([
+                folder.id.as_str().into(),
+                folder.bookshelf_id.as_str().into(),
+                folder.parent_id.as_deref().map(|id| id.as_str()).into(),
+                folder.name.as_str().into(),
+                folder.created_at.into(),
+                folder.updated_at.into(),
+            ])
+            .build_sqlx(SqliteQueryBuilder);
+
+        sqlx::query_with(&sql, values)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
         Ok(folder)
     }
 
-    async fn delete(&self, bookshelf_id: &BookshelfId, folder_id: &FolderId) -> Result<(), RepositoryError> {
-        let result = sqlx::query(
-            r#"
-            DELETE FROM folders
-            WHERE id = ? AND bookshelf_id = ?
-        "#,
-        )
-        .bind(folder_id.as_str())
-        .bind(bookshelf_id.as_str())
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx_error)?;
+    async fn delete(
+        &self,
+        bookshelf_id: &BookshelfId,
+        folder_id: &FolderId,
+    ) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::delete()
+            .from_table(Folders::Table)
+            .and_where(Expr::col(Folders::Id).eq(folder_id.as_str()))
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        let result = sqlx::query_with(&sql, values)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
 
         if result.rows_affected() == 0 {
             return Err(RepositoryError::FolderNotFound);
@@ -62,12 +76,25 @@ impl FolderRepository for SqliteFolderRepository {
     }
 }
 
+#[derive(Iden)]
+enum Folders {
+    #[iden = "folders"]
+    Table,
+    Id,
+    BookshelfId,
+    ParentId,
+    Name,
+    CreatedAt,
+    UpdatedAt,
+}
+
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
     match &error {
         sqlx::Error::Database(database_error) => {
             let message = database_error.message();
             let is_unique_failed = message.contains("UNIQUE constraint failed");
-            let is_folder_conflict = message.contains("folders.bookshelf_id, folders.parent_id, folders.name")
+            let is_folder_conflict = message
+                .contains("folders.bookshelf_id, folders.parent_id, folders.name")
                 || message.contains("folders.bookshelf_id, folders.name");
 
             if is_unique_failed && is_folder_conflict {
