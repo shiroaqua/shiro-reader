@@ -5,7 +5,9 @@ use derive_new::new;
 use crate::{
     application::library::{
         bookshelf::folder::{
-            commands::{CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand},
+            commands::{
+                CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand, RenameFolderCommand,
+            },
             errors::FolderApplicationError,
             ports::FolderRepository,
         },
@@ -22,7 +24,6 @@ use crate::{
     infrastructure::repositories::errors::RepositoryError,
     shared::time::now_ms,
 };
-
 
 #[derive(new)]
 pub struct FolderService {
@@ -53,6 +54,21 @@ impl FolderService {
             id: created.id,
             created_at: created.created_at,
         })
+    }
+
+    pub async fn rename_folder(
+        &self,
+        command: RenameFolderCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
+        let folder_id = FolderId::parse_folder_id(command.folder_id)?;
+        let new_name = FolderName::parse(command.name)?;
+        self.repository
+            .rename(&bookshelf_id, &folder_id, &new_name)
+            .await
+            .map_err(FolderApplicationError::from)?;
+
+        Ok(())
     }
 
     pub async fn delete_folder(

@@ -7,10 +7,18 @@ pub struct CreateFolderCommand {
     pub name: String,
 }
 
+
+#[derive(Debug)]
+pub struct RenameFolderCommand {
+    pub bookshelf_id: String,
+    pub folder_id: String,
+    pub name: String,
+}
+
 #[derive(Debug)]
 pub struct DeleteFolderCommand {
     pub bookshelf_id: String,
-    pub folder_id: String
+    pub folder_id: String,
 }
 
 

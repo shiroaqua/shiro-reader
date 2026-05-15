@@ -5,8 +5,13 @@ use sqlx::SqlitePool;
 
 use crate::{
     application::library::bookshelf::folder::ports::FolderRepository,
-    domain::library::bookshelf::folder::{entity::Folder, value_objects::FolderId},
-    domain::library::bookshelf::value_objects::BookshelfId,
+    domain::library::bookshelf::{
+        folder::{
+            entity::Folder,
+            value_objects::{FolderId, FolderName},
+        },
+        value_objects::BookshelfId,
+    },
     infrastructure::repositories::errors::RepositoryError,
 };
 
@@ -18,6 +23,17 @@ pub struct SqliteFolderRepository {
 impl SqliteFolderRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+
+    async fn execute(
+        &self,
+        sql: &str,
+        values: sea_query_binder::SqlxValues,
+    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
+        sqlx::query_with(&sql, values)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)
     }
 }
 
@@ -44,12 +60,26 @@ impl FolderRepository for SqliteFolderRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        self.execute(&sql, values).await?;
 
         Ok(folder)
+    }
+
+    async fn rename(
+        &self,
+        bookshelf_id: &BookshelfId,
+        folder_id: &FolderId,
+        new_name: &FolderName,
+    ) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::update()
+            .table(Folders::Table)
+            .value(Folders::Name, new_name.as_str())
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
+            .and_where(Expr::col(Folders::Id).eq(folder_id.as_str()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.execute(&sql, values).await?;
+        Ok(())
     }
 
     async fn delete(
@@ -63,10 +93,7 @@ impl FolderRepository for SqliteFolderRepository {
             .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
 
-        let result = sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        let result = self.execute(&sql, values).await?;
 
         if result.rows_affected() == 0 {
             return Err(RepositoryError::FolderNotFound);

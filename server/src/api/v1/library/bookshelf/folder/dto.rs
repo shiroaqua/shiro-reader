@@ -7,6 +7,11 @@ pub struct CreateFolderRequest {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RenameFolderRequest {
+    pub name: String
+}
+
 #[derive(Debug, Serialize)]
 pub struct CreateFolderResponse {
     pub id: String,

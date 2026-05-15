@@ -6,7 +6,9 @@ use axum::{
 
 use crate::{
     api::{response::DataResponse, v1::library::bookshelf::folder::dto::*},
-    application::library::bookshelf::folder::commands::{CreateFolderCommand, DeleteFolderCommand},
+    application::library::bookshelf::folder::commands::{
+        CreateFolderCommand, DeleteFolderCommand, RenameFolderCommand,
+    },
     error::AppError,
     shared::time,
     state::AppState,
@@ -14,7 +16,6 @@ use crate::{
 
 pub async fn create_folder(
     State(state): State<AppState>,
-    
     Path(bookshelf_id): Path<String>,
     Json(request): Json<CreateFolderRequest>,
 ) -> Result<(StatusCode, Json<DataResponse<CreateFolderResponse>>), AppError> {
@@ -36,10 +37,26 @@ pub async fn create_folder(
     ))
 }
 
+pub async fn rename_folder(
+    State(state): State<AppState>,
+    Path((bookshelf_id, folder_id)): Path<(String, String)>,
+    Json(request): Json<RenameFolderRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .folder_service
+        .rename_folder(RenameFolderCommand {
+            bookshelf_id: bookshelf_id,
+            folder_id: folder_id,
+            name: request.name,
+        })
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn delete_folder(
     State(state): State<AppState>,
-    Path(bookshelf_id): Path<String>,
-    Path(folder_id): Path<String>,
+    Path((bookshelf_id, folder_id)): Path<(String, String)>,
 ) -> Result<StatusCode, AppError> {
     state
         .folder_service
@@ -48,6 +65,6 @@ pub async fn delete_folder(
             folder_id,
         })
         .await?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
