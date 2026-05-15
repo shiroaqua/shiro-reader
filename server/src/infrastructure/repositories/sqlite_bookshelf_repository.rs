@@ -22,6 +22,23 @@ impl SqliteBookshelfRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    async fn execute(
+        &self,
+        sql: &str,
+        values: sea_query_binder::SqlxValues,
+    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
+        let result = sqlx::query_with(&sql, values)
+            .execute(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(RepositoryError::BookshelfNotFound);
+        }
+
+        Ok(result)
+    }
 }
 
 #[async_trait]
@@ -43,10 +60,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
+        self.execute(&sql, values).await?;
 
         Ok(bookshelf.clone())
     }
@@ -62,14 +76,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
 
-        let result = sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::BookshelfNotFound);
-        }
+        self.execute(&sql, values).await?;
 
         Ok(())
     }
@@ -79,15 +86,8 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .from_table(Bookshelves::Table)
             .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
-
-        let result = sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::BookshelfNotFound);
-        }
+        
+        self.execute(&sql, values).await?;
 
         Ok(())
     }

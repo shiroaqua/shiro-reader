@@ -30,10 +30,16 @@ impl SqliteFolderRepository {
         sql: &str,
         values: sea_query_binder::SqlxValues,
     ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
-        sqlx::query_with(&sql, values)
+        let result = sqlx::query_with(&sql, values)
             .execute(&self.pool)
             .await
-            .map_err(map_sqlx_error)
+            .map_err(map_sqlx_error)?;
+
+        if result.rows_affected() == 0 {
+            return Err(RepositoryError::FolderNotFound);
+        }
+
+        Ok(result)
     }
 }
 
@@ -93,12 +99,7 @@ impl FolderRepository for SqliteFolderRepository {
             .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
             .build_sqlx(SqliteQueryBuilder);
 
-        let result = self.execute(&sql, values).await?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::FolderNotFound);
-        }
-
+        self.execute(&sql, values).await?;
         Ok(())
     }
 }
