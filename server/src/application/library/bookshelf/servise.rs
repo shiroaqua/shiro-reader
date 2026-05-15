@@ -5,7 +5,10 @@ use derive_new::new;
 use crate::{
     application::library::{
         bookshelf::{
-            commands::{CreateBookshelfCommand, CreateBookshelfOutput, DeleteBookshelfCommand},
+            commands::{
+                CreateBookshelfCommand, CreateBookshelfOutput, DeleteBookshelfCommand,
+                GetAllBookshelfOutput, GetBookshelfCommand, GetBookshelfOutput,
+            },
             errors::BookshelfApplicationError,
             ports::BookshelfRepository,
         },
@@ -34,15 +37,15 @@ impl BookshelfService {
         let name = BookshelfName::parse(command.name)?;
         let now = now_ms();
 
-        let create = self
+        let result = self
             .repositories
             .create(Bookshelf::new(id, name, now, now))
             .await
             .map_err(BookshelfApplicationError::from)?;
 
         Ok(CreateBookshelfOutput {
-            id: create.id,
-            created_at: create.created_at,
+            id: result.id,
+            created_at: result.created_at,
         })
     }
 
@@ -58,6 +61,32 @@ impl BookshelfService {
             .map_err(BookshelfApplicationError::from)?;
 
         Ok(())
+    }
+    pub async fn get_bookshelf(
+        &self,
+        command: GetBookshelfCommand,
+    ) -> Result<GetBookshelfOutput, LibraryApplicationError> {
+        let id = BookshelfId::parse(command.id)?;
+        Ok(self
+            .repositories
+            .get(&id)
+            .await
+            .map_err(BookshelfApplicationError::from)?
+            .into())
+    }
+
+    pub async fn get_all_bookshelf(
+        &self,
+    ) -> Result<GetAllBookshelfOutput, LibraryApplicationError> {
+        Ok(GetAllBookshelfOutput(
+            self.repositories
+                .get_all()
+                .await
+                .map_err(BookshelfApplicationError::from)?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ))
     }
 }
 

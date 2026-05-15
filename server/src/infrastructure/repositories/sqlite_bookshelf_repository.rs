@@ -1,9 +1,12 @@
 use async_trait::async_trait;
-use sqlx::SqlitePool;
+use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 
 use crate::{
     application::library::bookshelf::ports::BookshelfRepository,
-    domain::library::bookshelf::{entity::Bookshelf, value_objects::BookshelfId},
+    domain::library::bookshelf::{
+        entity::Bookshelf,
+        value_objects::{BookshelfId, BookshelfName},
+    },
     infrastructure::repositories::errors::RepositoryError,
 };
 
@@ -20,7 +23,6 @@ impl SqliteBookshelfRepository {
         Self { pool }
     }
 }
-
 
 #[async_trait]
 impl BookshelfRepository for SqliteBookshelfRepository {
@@ -66,8 +68,63 @@ impl BookshelfRepository for SqliteBookshelfRepository {
 
         Ok(())
     }
+
+    async fn get(&self, bookshelf_id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
+        let (sql, values) = Query::select()
+            .columns([
+                Bookshelves::Id,
+                Bookshelves::Name,
+                Bookshelves::CreatedAt,
+                Bookshelves::UpdatedAt,
+            ])
+            .from(Bookshelves::Table)
+            .and_where(Expr::col(Bookshelves::Id).eq(bookshelf_id.as_str()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        Ok(Bookshelf::try_from(
+            &sqlx::query_with(&sql, values)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(map_sqlx_error)?
+                .ok_or(RepositoryError::BookshelfNotFound)?,
+        )?)
+    }
+
+    async fn get_all(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
+        let (sql, values) = Query::select()
+            .columns([
+                Bookshelves::Id,
+                Bookshelves::Name,
+                Bookshelves::CreatedAt,
+                Bookshelves::UpdatedAt,
+            ])
+            .from(Bookshelves::Table)
+            .build_sqlx(SqliteQueryBuilder);
+
+        let rows = sqlx::query_with(&sql, values)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_sqlx_error)?;
+
+        Ok(rows
+            .iter()
+            .map(|r| r.try_into())
+            .collect::<Result<Vec<Bookshelf>, _>>()?)
+    }
 }
 
+impl TryFrom<&SqliteRow> for Bookshelf {
+    type Error = RepositoryError;
+
+    fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        Ok(Bookshelf {
+            id: BookshelfId::from(row.try_get::<String, _>("id").map_err(map_sqlx_error)?),
+            name: BookshelfName::from(row.try_get::<String, _>("name").map_err(map_sqlx_error)?),
+            created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+            updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        })
+    }
+}
 
 #[derive(Iden)]
 enum Bookshelves {

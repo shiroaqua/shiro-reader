@@ -12,6 +12,7 @@ chrono = { version = "0.4.44", features = ["serde"] }
 derive-new = "0.7.0"
 derive_more = { version = "2.1.1", features = ["as_ref", "deref", "display", "from"] }
 dotenvy = "0.15.7"
+o2o = "0.5.4"
 sea-query = "0.32.7"
 sea-query-binder = { version = "0.7.0", features = ["sqlx-sqlite"] }
 serde = { version = "1.0.228", features = ["derive"] }

@@ -1,6 +1,6 @@
 use crate::state::AppState;
 use axum::{
-    routing::{delete, post},
+    routing::{delete, get, post},
     Router,
 };
 
@@ -8,10 +8,13 @@ pub mod bookshelf;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/bookshelves", post(bookshelf::handlers::create_bookshelf))
+        .route(
+            "/bookshelves",
+            get(bookshelf::handlers::list_bookshelf).post(bookshelf::handlers::create_bookshelf),
+        )
         .route(
             "/bookshelves/{bookshelf_id}",
-            delete(bookshelf::handlers::delete_bookshelf),
+            get(bookshelf::handlers::get_bookshelf).delete(bookshelf::handlers::delete_bookshelf),
         )
         .route(
             "/bookshelves/{bookshelf_id}/folders",

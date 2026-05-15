@@ -11,3 +11,15 @@ pub struct CreateBookshelfResponse {
     pub id: String,
     pub created_at: DateTime<Utc>
 }
+
+
+#[derive(Debug, Serialize)]
+pub struct ListBookshelfResponse(pub Vec<GetBookshelfResponse>);
+
+#[derive(Debug, Serialize)]
+pub struct GetBookshelfResponse {
+    pub id: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>
+}
