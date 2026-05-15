@@ -5,7 +5,7 @@ use crate::{
     application::library::bookshelf::{
         folder::{ports::FolderRepository, service::FolderService},
         ports::BookshelfRepository,
-        servise::BookshelfService,
+        service::BookshelfService,
     },
     config::Config,
     infrastructure::{

@@ -54,9 +54,9 @@ impl BookshelfService {
         command: RenameBookshelfCommand,
     ) -> Result<(), LibraryApplicationError> {
         let id = BookshelfId::parse(command.id)?;
-        let name = BookshelfName::parse(command.name)?;
+        let new_name = BookshelfName::parse(command.name)?;
         self.repositories
-            .rename(&id, &name)
+            .rename(&id, &new_name)
             .await
             .map_err(BookshelfApplicationError::from)?;
         Ok(())
