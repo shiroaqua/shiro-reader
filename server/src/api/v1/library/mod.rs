@@ -10,12 +10,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/bookshelves",
-            get(bookshelf::handlers::list_bookshelf).post(bookshelf::handlers::create_bookshelf),
+            get(bookshelf::handlers::get_bookshelves).post(bookshelf::handlers::create_bookshelf),
         )
         .route(
             "/bookshelves/{bookshelf_id}",
-            get(bookshelf::handlers::get_bookshelf)
-                .delete(bookshelf::handlers::delete_bookshelf)
+            delete(bookshelf::handlers::delete_bookshelf)
                 .patch(bookshelf::handlers::rename_bookshelf),
         )
         .route(

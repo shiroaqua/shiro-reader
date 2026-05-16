@@ -12,6 +12,11 @@ pub struct RenameBookshelfRequest {
     pub name: String
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BookshelvesQuery {
+    pub id: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GetBookshelfResponse {
     pub id: String,
@@ -19,10 +24,6 @@ pub struct GetBookshelfResponse {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>
 }
-
-#[derive(Debug, Serialize)]
-pub struct ListBookshelfResponse(pub Vec<GetBookshelfResponse>);
-
 
 #[derive(Debug, Serialize)]
 pub struct CreateBookshelfResponse {
