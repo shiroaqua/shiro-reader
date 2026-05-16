@@ -10,7 +10,6 @@ use crate::{
         CreateFolderCommand, DeleteFolderCommand, RenameFolderCommand,
     },
     error::AppError,
-    shared::time,
     state::AppState,
 };
 
@@ -30,10 +29,7 @@ pub async fn create_folder(
 
     Ok((
         StatusCode::CREATED,
-        Json(DataResponse::new(CreateFolderResponse {
-            id: output.id.to_string(),
-            created_at: time::ms_to_datetime(output.created_at),
-        })),
+        Json(DataResponse::new(output.into())),
     ))
 }
 

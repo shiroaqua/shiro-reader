@@ -7,11 +7,10 @@ use axum::{
 use crate::{
     api::{response::DataResponse, v1::library::bookshelf::dto::*},
     application::library::bookshelf::commands::{
-        CreateBookshelfCommand, DeleteBookshelfCommand, GetBookshelfCommand, GetBookshelfOutput,
+        CreateBookshelfCommand, DeleteBookshelfCommand, GetBookshelfCommand,
         RenameBookshelfCommand,
     },
     error::AppError,
-    shared::time,
     state::AppState,
 };
 
@@ -26,10 +25,7 @@ pub async fn create_bookshelf(
 
     Ok((
         StatusCode::CREATED,
-        Json(DataResponse::new(CreateBookshelfResponse {
-            id: output.id.to_string(),
-            created_at: time::ms_to_datetime(output.created_at),
-        })),
+        Json(DataResponse::new(output.into())),
     ))
 }
 
@@ -84,15 +80,4 @@ pub async fn list_bookshelf(
             output.0.into_iter().map(Into::into).collect(),
         ))),
     ))
-}
-
-impl From<GetBookshelfOutput> for GetBookshelfResponse {
-    fn from(output: GetBookshelfOutput) -> Self {
-        Self {
-            id: output.id.to_string(),
-            name: output.name.to_string(),
-            created_at: time::ms_to_datetime(output.created_at),
-            updated_at: time::ms_to_datetime(output.updated_at),
-        }
-    }
 }
