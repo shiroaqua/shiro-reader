@@ -1,28 +1,28 @@
 #[derive(Debug, thiserror::Error)]
 pub enum FolderApplicationError {
     #[error("invalid folder id")]
-    InvalidFolderId,
+    InvalidId,
 
     #[error("invalid parent folder id")]
-    InvalidParentFolderId,
+    InvalidParentId,
 
     #[error("missing folder id")]
     MissingFolderId,
 
     #[error("missing folder name")]
-    MissingFolderName,
+    MissingName,
 
     #[error("invalid folder name format")]
-    InvalidFolderNameFormat,
+    InvalidNameFormat,
 
     #[error("folder not found")]
-    FolderNotFound,
+    NotFound,
 
     #[error("parent folder not found")]
-    ParentFolderNotFound,
+    ParentNotFound,
 
     #[error("folder name conflict")]
-    FolderNameConflict,
+    NameConflict,
 
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

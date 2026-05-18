@@ -88,11 +88,11 @@ impl FolderService {
 impl From<FolderDomainError> for FolderApplicationError {
     fn from(value: FolderDomainError) -> Self {
         match value {
-            FolderDomainError::InvalidFolderId => Self::InvalidFolderId,
-            FolderDomainError::InvalidParentFolderId => Self::InvalidParentFolderId,
+            FolderDomainError::InvalidFolderId => Self::InvalidId,
+            FolderDomainError::InvalidParentFolderId => Self::InvalidParentId,
             FolderDomainError::MissingFolderId => Self::MissingFolderId,
-            FolderDomainError::MissingFolderName => Self::MissingFolderName,
-            FolderDomainError::InvalidFolderNameFormat => Self::InvalidFolderNameFormat,
+            FolderDomainError::MissingFolderName => Self::MissingName,
+            FolderDomainError::InvalidFolderNameFormat => Self::InvalidNameFormat,
         }
     }
 }
@@ -100,9 +100,9 @@ impl From<FolderDomainError> for FolderApplicationError {
 impl From<RepositoryError> for FolderApplicationError {
     fn from(value: RepositoryError) -> Self {
         match value {
-            RepositoryError::FolderNotFound => Self::FolderNotFound,
-            RepositoryError::ParentFolderNotFound => Self::ParentFolderNotFound,
-            RepositoryError::FolderNameConflict => Self::FolderNameConflict,
+            RepositoryError::FolderNotFound => Self::NotFound,
+            RepositoryError::ParentFolderNotFound => Self::ParentNotFound,
+            RepositoryError::FolderNameConflict => Self::NameConflict,
             RepositoryError::Storage(error) => Self::Storage(error),
             _ => Self::Storage(anyhow::anyhow!("unrelated error")),
         }

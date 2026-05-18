@@ -71,51 +71,48 @@ impl IntoResponse for AppError {
 
 impl From<LibraryApplicationError> for AppError {
     fn from(value: LibraryApplicationError) -> Self {
-        use BookshelfApplicationError::*;
-        use FolderApplicationError::*;
-
         match value {
             LibraryApplicationError::Bookshelf(b) => match b {
-                InvalidBookshelfId => AppError::BadRequest {
+                BookshelfApplicationError::InvalidId => AppError::BadRequest {
                     message: "library.bookshelf.invalid_id",
                 },
-                MissingBookshelfName => AppError::BadRequest {
+                BookshelfApplicationError::MissingName => AppError::BadRequest {
                     message: "library.bookshelf.missing_name",
                 },
-                InvalidBookshelfNameFormat => AppError::BadRequest {
+                BookshelfApplicationError::InvalidNameFormat => AppError::BadRequest {
                     message: "library.bookshelf.invalid_name_format",
                 },
-                BookshelfNotFound => AppError::NotFound {
+                BookshelfApplicationError::NotFound => AppError::NotFound {
                     message: "library.bookshelf.not_found",
                 },
-                BookshelfNameConflict => AppError::Conflict {
+                BookshelfApplicationError::NameConflict => AppError::Conflict {
                     message: "library.bookshelf.name_conflict",
                 },
                 BookshelfApplicationError::Storage(error) => AppError::Internal(error),
             },
             LibraryApplicationError::Folder(f) => match f {
-                InvalidFolderId => AppError::BadRequest {
+                FolderApplicationError::InvalidId => AppError::BadRequest {
                     message: "library.bookshelf.folder.invalid_id",
                 },
-                InvalidParentFolderId => AppError::BadRequest {
+                FolderApplicationError::InvalidParentId => AppError::BadRequest {
                     message: "library.bookshelf.folder.invalid_parent_id",
                 },
-                MissingFolderId => AppError::BadRequest {
+                FolderApplicationError::MissingFolderId => AppError::BadRequest {
                     message: "library.bookshelf.folder.missing_id",
                 },
-                MissingFolderName => AppError::BadRequest {
+                FolderApplicationError::MissingName => AppError::BadRequest {
                     message: "library.bookshelf.folder.missing_name",
                 },
-                InvalidFolderNameFormat => AppError::BadRequest {
+                FolderApplicationError::InvalidNameFormat => AppError::BadRequest {
                     message: "library.bookshelf.folder.invalid_name_format",
                 },
-                FolderNotFound => AppError::NotFound {
+                FolderApplicationError::NotFound => AppError::NotFound {
                     message: "library.bookshelf.folder.not_found",
                 },
-                ParentFolderNotFound => AppError::NotFound {
+                FolderApplicationError::ParentNotFound => AppError::NotFound {
                     message: "library.bookshelf.folder.parent_not_found",
                 },
-                FolderNameConflict => AppError::Conflict {
+                FolderApplicationError::NameConflict => AppError::Conflict {
                     message: "library.bookshelf.folder.name_conflict",
                 },
                 FolderApplicationError::Storage(error) => AppError::Internal(error),

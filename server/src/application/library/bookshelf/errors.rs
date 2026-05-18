@@ -1,19 +1,19 @@
 #[derive(Debug, thiserror::Error)]
 pub enum BookshelfApplicationError {
     #[error("invalid bookshelf id")]
-    InvalidBookshelfId,
+    InvalidId,
 
     #[error("missing bookshelf name")]
-    MissingBookshelfName,
+    MissingName,
 
     #[error("invalid bookshelf name format")]
-    InvalidBookshelfNameFormat,
+    InvalidNameFormat,
 
     #[error("bookshelf not found")]
-    BookshelfNotFound,
+    NotFound,
 
     #[error("bookshelf name conflict")]
-    BookshelfNameConflict,
+    NameConflict,
     
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

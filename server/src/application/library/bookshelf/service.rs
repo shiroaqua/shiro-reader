@@ -83,7 +83,7 @@ impl BookshelfService {
         let id = BookshelfId::parse(command.id)?;
         Ok(self
             .repositories
-            .get(&id)
+            .find_by_id(&id)
             .await
             .map_err(BookshelfApplicationError::from)?
             .into())
@@ -94,7 +94,7 @@ impl BookshelfService {
     ) -> Result<GetAllBookshelfOutput, LibraryApplicationError> {
         Ok(GetAllBookshelfOutput(
             self.repositories
-                .get_all()
+                .list()
                 .await
                 .map_err(BookshelfApplicationError::from)?
                 .into_iter()
@@ -107,9 +107,9 @@ impl BookshelfService {
 impl From<BookshelfDomainError> for BookshelfApplicationError {
     fn from(value: BookshelfDomainError) -> Self {
         match value {
-            BookshelfDomainError::InvalidBookshelfId => Self::InvalidBookshelfId,
-            BookshelfDomainError::MissingBookshelfName => Self::MissingBookshelfName,
-            BookshelfDomainError::InvalidBookshelfNameFormat => Self::InvalidBookshelfNameFormat,
+            BookshelfDomainError::InvalidBookshelfId => Self::InvalidId,
+            BookshelfDomainError::MissingBookshelfName => Self::MissingName,
+            BookshelfDomainError::InvalidBookshelfNameFormat => Self::InvalidNameFormat,
         }
     }
 }
@@ -117,8 +117,8 @@ impl From<BookshelfDomainError> for BookshelfApplicationError {
 impl From<RepositoryError> for BookshelfApplicationError {
     fn from(value: RepositoryError) -> Self {
         match value {
-            RepositoryError::BookshelfNotFound => Self::BookshelfNotFound,
-            RepositoryError::BookshelfNameConflict => Self::BookshelfNameConflict,
+            RepositoryError::BookshelfNotFound => Self::NotFound,
+            RepositoryError::BookshelfNameConflict => Self::NameConflict,
             RepositoryError::Storage(error) => Self::Storage(error),
             _ => Self::Storage(anyhow::anyhow!("unrelated error")),
         }

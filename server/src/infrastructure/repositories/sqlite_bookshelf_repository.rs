@@ -92,7 +92,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         Ok(())
     }
 
-    async fn get(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
+    async fn find_by_id(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::select()
             .columns([
                 Bookshelves::Id,
@@ -113,7 +113,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         )?)
     }
 
-    async fn get_all(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
+    async fn list(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
         let (sql, values) = Query::select()
             .columns([
                 Bookshelves::Id,
