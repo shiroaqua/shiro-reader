@@ -6,11 +6,11 @@ use uuid::Uuid;
 use crate::domain::library::bookshelf::errors::BookshelfDomainError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Deref)]
-pub struct BookshelfId(String);
+pub struct BookshelfId(Uuid);
 
 impl BookshelfId {
     pub fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+        Self(Uuid::new_v4())
     }
 
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
@@ -20,7 +20,7 @@ impl BookshelfId {
         }
 
         let parsed = Uuid::parse_str(raw).map_err(|_| BookshelfDomainError::InvalidBookshelfId)?;
-        Ok(Self(parsed.to_string()))
+        Ok(Self(parsed))
     }
 }
 

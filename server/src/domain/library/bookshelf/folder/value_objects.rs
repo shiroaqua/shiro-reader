@@ -6,11 +6,11 @@ use uuid::Uuid;
 use crate::domain::library::bookshelf::folder::errors::FolderDomainError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Deref)]
-pub struct FolderId(String);
+pub struct FolderId(Uuid);
 
 impl FolderId {
     pub fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+        Self(Uuid::new_v4())
     }
 
     pub fn parse_folder_id(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
@@ -30,7 +30,7 @@ impl FolderId {
         }
 
         let parsed = Uuid::parse_str(raw).map_err(|_| FolderDomainError::InvalidFolderId)?;
-        Ok(Self(parsed.to_string()))
+        Ok(Self(parsed))
     }
 }
 

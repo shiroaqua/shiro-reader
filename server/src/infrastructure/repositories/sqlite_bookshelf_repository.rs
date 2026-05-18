@@ -53,8 +53,8 @@ impl BookshelfRepository for SqliteBookshelfRepository {
                 Bookshelves::UpdatedAt,
             ])
             .values_panic([
-                bookshelf.id.as_str().into(),
-                bookshelf.name.as_str().into(),
+                bookshelf.id.to_string().into(),
+                bookshelf.name.to_string().into(),
                 bookshelf.created_at.into(),
                 bookshelf.updated_at.into(),
             ])
@@ -73,7 +73,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         let (sql, values) = Query::update()
             .table(Bookshelves::Table)
             .value(Bookshelves::Name, new_name.as_str())
-            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
+            .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
         self.execute(&sql, values).await?;
@@ -84,7 +84,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
     async fn delete(&self, id: &BookshelfId) -> Result<(), RepositoryError> {
         let (sql, values) = Query::delete()
             .from_table(Bookshelves::Table)
-            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
+            .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
         
         self.execute(&sql, values).await?;
@@ -101,7 +101,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
                 Bookshelves::UpdatedAt,
             ])
             .from(Bookshelves::Table)
-            .and_where(Expr::col(Bookshelves::Id).eq(id.as_str()))
+            .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
         Ok(Bookshelf::try_from(
@@ -140,8 +140,9 @@ impl TryFrom<&SqliteRow> for Bookshelf {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        let id = row.try_get::<String, _>("id").map_err(map_sqlx_error)?;
         Ok(Bookshelf {
-            id: BookshelfId::from(row.try_get::<String, _>("id").map_err(map_sqlx_error)?),
+            id: BookshelfId::from(uuid::Uuid::parse_str(&id).unwrap()),
             name: BookshelfName::from(row.try_get::<String, _>("name").map_err(map_sqlx_error)?),
             created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
             updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,

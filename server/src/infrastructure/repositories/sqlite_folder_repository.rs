@@ -57,9 +57,9 @@ impl FolderRepository for SqliteFolderRepository {
                 Folders::UpdatedAt,
             ])
             .values_panic([
-                folder.id.as_str().into(),
-                folder.bookshelf_id.as_str().into(),
-                folder.parent_id.as_deref().map(|id| id.as_str()).into(),
+                folder.id.to_string().into(),
+                folder.bookshelf_id.to_string().into(),
+                folder.parent_id.as_deref().map(|id| id.to_string()).into(),
                 folder.name.as_str().into(),
                 folder.created_at.into(),
                 folder.updated_at.into(),
@@ -80,8 +80,8 @@ impl FolderRepository for SqliteFolderRepository {
         let (sql, values) = Query::update()
             .table(Folders::Table)
             .value(Folders::Name, new_name.as_str())
-            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
-            .and_where(Expr::col(Folders::Id).eq(folder_id.as_str()))
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
         self.execute(&sql, values).await?;
@@ -95,8 +95,8 @@ impl FolderRepository for SqliteFolderRepository {
     ) -> Result<(), RepositoryError> {
         let (sql, values) = Query::delete()
             .from_table(Folders::Table)
-            .and_where(Expr::col(Folders::Id).eq(folder_id.as_str()))
-            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.as_str()))
+            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
         self.execute(&sql, values).await?;
