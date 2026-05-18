@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use shiro_reader_server::{app, config::Config, state::AppState, telemetry};
 use tokio::net::TcpListener;
 
@@ -9,7 +10,8 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init(&config.telemetry)?;
 
     let state = AppState::build(&config).await?;
-    let router = app::build_router(state);
+    let router = app::build_router(state).layer(DefaultBodyLimit::max(config.server.max_upload_size));
+    
 
     let listener = TcpListener::bind(config.server.socket_addr()).await?;
     info!(addr = %config.server.socket_addr(), "server listening");

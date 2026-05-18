@@ -11,6 +11,7 @@ pub struct Config {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    pub max_upload_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ impl Config {
         let server = ServerConfig {
             host: env_var("HOST", "127.0.0.1"),
             port: env_var("PORT", "80").parse()?,
+            max_upload_size: env_var("MAX_UPLOAD_SIZE", &(256 * 1024 * 1024 /* 256MB */).to_string()).parse::<usize>()?,
         };
 
         let database = DatabaseConfig {

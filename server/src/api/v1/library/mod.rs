@@ -4,10 +4,19 @@ use axum::{
     Router,
 };
 
+pub mod book;
 pub mod bookshelf;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/books/files",
+            get(book::file::handlers::get_book).post(book::file::handlers::upload_book),
+        )
+        .route(
+            "/books/files/{book_hash}",
+            get(book::file::handlers::download_book),
+        )
         .route(
             "/bookshelves",
             get(bookshelf::handlers::get_bookshelves).post(bookshelf::handlers::create_bookshelf),
@@ -24,6 +33,6 @@ pub fn router() -> Router<AppState> {
         .route(
             "/bookshelves/{bookshelf_id}/folders/{folder_id}",
             delete(bookshelf::folder::handlers::delete_folder)
-                .patch(bookshelf::folder::handlers::rename_folder)
+                .patch(bookshelf::folder::handlers::rename_folder),
         )
 }
