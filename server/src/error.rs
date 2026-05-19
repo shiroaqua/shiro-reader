@@ -8,7 +8,7 @@ use serde::Serialize;
 use tracing::error;
 
 use crate::application::library::{
-    bookfile::errors::BookFileError,
+    book::{errors::BookApplicationError, file::errors::BookFileError},
     bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError},
     errors::LibraryApplicationError,
 };
@@ -116,6 +116,30 @@ impl From<LibraryApplicationError> for AppError {
                     message: "library.bookshelf.folder.name_conflict",
                 },
                 FolderApplicationError::Storage(error) => AppError::Internal(error),
+            },
+            LibraryApplicationError::Book(b) => match b {
+                BookApplicationError::InvalidId => AppError::BadRequest {
+                    message: "library.book.invalid_id",
+                },
+                BookApplicationError::MissingTitle => AppError::BadRequest {
+                    message: "library.book.missing_title",
+                },
+                BookApplicationError::InvalidTitleFormat => AppError::BadRequest {
+                    message: "library.book.invalid_title_format",
+                },
+                BookApplicationError::InvalidHashFormat => AppError::BadRequest {
+                    message: "library.book.invalid_hash_format",
+                },
+                BookApplicationError::NotFound => AppError::NotFound {
+                    message: "library.book.not_found",
+                },
+                BookApplicationError::TitleConflict => AppError::Conflict {
+                    message: "library.book.title_conflict",
+                },
+                BookApplicationError::LocationNotFound => AppError::NotFound {
+                    message: "library.book.location_not_found",
+                },
+                BookApplicationError::Storage(error) => AppError::Internal(error),
             },
         }
     }

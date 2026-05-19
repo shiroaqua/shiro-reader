@@ -8,7 +8,7 @@ use crate::{
 
 #[async_trait]
 pub trait BookshelfRepository: Send + Sync {
-    async fn create(&self, bookshelf: &Bookshelf) -> Result<Bookshelf, RepositoryError>;
+    async fn create(&self, bookshelf: Bookshelf) -> Result<Bookshelf, RepositoryError>;
     async fn rename(&self, id: &BookshelfId, new_name: &BookshelfName)-> Result<(), RepositoryError>;
     async fn delete(&self, id: &BookshelfId) -> Result<(), RepositoryError>; 
     

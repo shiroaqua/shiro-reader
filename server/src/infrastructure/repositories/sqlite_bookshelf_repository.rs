@@ -43,7 +43,7 @@ impl SqliteBookshelfRepository {
 
 #[async_trait]
 impl BookshelfRepository for SqliteBookshelfRepository {
-    async fn create(&self, bookshelf: &Bookshelf) -> Result<Bookshelf, RepositoryError> {
+    async fn create(&self, bookshelf: Bookshelf) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::insert()
             .into_table(Bookshelves::Table)
             .columns([
@@ -62,7 +62,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
 
         self.execute(&sql, values).await?;
 
-        Ok(bookshelf.clone())
+        Ok(bookshelf)
     }
 
     async fn rename(
@@ -141,11 +141,15 @@ impl TryFrom<&SqliteRow> for Bookshelf {
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         let id = row.try_get::<String, _>("id").map_err(map_sqlx_error)?;
+        let name = row.try_get::<String, _>("name").map_err(map_sqlx_error)?;
+        let created_at = row.try_get("created_at").map_err(map_sqlx_error)?;
+        let updated_at = row.try_get("updated_at").map_err(map_sqlx_error)?;
+
         Ok(Bookshelf {
             id: BookshelfId::from(uuid::Uuid::parse_str(&id).unwrap()),
-            name: BookshelfName::from(row.try_get::<String, _>("name").map_err(map_sqlx_error)?),
-            created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-            updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+            name: BookshelfName::from(name),  
+            created_at: created_at,
+            updated_at: updated_at,
         })
     }
 }

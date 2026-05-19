@@ -40,14 +40,6 @@ impl Default for FolderId {
     }
 }
 
-impl FromStr for FolderId {
-    type Err = FolderDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
-    }
-}
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, From, AsRef, Deref)]
 pub struct FolderName(String);

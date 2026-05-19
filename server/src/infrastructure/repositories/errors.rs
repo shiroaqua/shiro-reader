@@ -16,6 +16,15 @@ pub enum RepositoryError {
     #[error("folder name conflict")]
     FolderNameConflict,
 
+    #[error("book not found")]
+    BookNotFound,
+
+    #[error("book title conflict")]
+    BookTitleConflict,
+
+    #[error("book location not found")]
+    BookLocationNotFound,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

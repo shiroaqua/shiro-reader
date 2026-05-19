@@ -10,6 +10,11 @@ pub mod bookshelf;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
+            "/books",
+            get(book::handers::get_book).post(book::handers::create_book),
+        )
+        .route("/books/{book_id}", delete(book::handers::delete_book))
+        .route(
             "/books/files",
             get(book::file::handlers::get_book).post(book::file::handlers::upload_book),
         )

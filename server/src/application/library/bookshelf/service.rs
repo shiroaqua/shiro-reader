@@ -26,7 +26,7 @@ use crate::{
 
 #[derive(new)]
 pub struct BookshelfService {
-    pub repositories: Arc<dyn BookshelfRepository>,
+    repositories: Arc<dyn BookshelfRepository>,
 }
 
 impl BookshelfService {
@@ -40,7 +40,7 @@ impl BookshelfService {
 
         let result = self
             .repositories
-            .create(&Bookshelf::new(id, name, now, now))
+            .create(Bookshelf::new(id, name, now, now))
             .await
             .map_err(BookshelfApplicationError::from)?;
 

@@ -1,3 +1,3 @@
-pub mod bookfile;
+pub mod book;
 pub mod bookshelf;
 pub mod errors;

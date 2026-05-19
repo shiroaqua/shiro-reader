@@ -4,15 +4,19 @@ use std::sync::Arc;
 
 
 use crate::{
-    application::library::{bookfile::service::BookFileService, bookshelf::{
-        folder::{ports::FolderRepository, service::FolderService},
-        ports::BookshelfRepository,
-        service::BookshelfService,
-    }},
+    application::library::{
+        book::{file::service::BookFileService, ports::BookRepository, service::BookService},
+        bookshelf::{
+            folder::{ports::FolderRepository, service::FolderService},
+            ports::BookshelfRepository,
+            service::BookshelfService,
+        },
+    },
     config::Config,
     infrastructure::{
         db,
         repositories::{
+            sqlite_book_repository::SqliteBookRepository,
             sqlite_bookshelf_repository::SqliteBookshelfRepository,
             sqlite_folder_repository::SqliteFolderRepository,
         }, storage::hash_file_storage::HashFileStorage,
@@ -22,6 +26,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct AppState {
+    pub book_service: Arc<BookService>,
     pub bookfile_service: Arc<BookFileService>,
     pub bookshelf_service: Arc<BookshelfService>,
     pub folder_service: Arc<FolderService>,
@@ -50,9 +55,14 @@ impl AppState {
             Arc::new(SqliteFolderRepository::new(pool.clone()));
         let folder_service = Arc::new(FolderService::new(folder_repository));
 
+        let book_repository: Arc<dyn BookRepository> =
+            Arc::new(SqliteBookRepository::new(pool.clone()));
+        let book_service = Arc::new(BookService::new(book_repository));
+
       
         Ok(Self {
             bookfile_service,
+            book_service,
             bookshelf_service,
             folder_service,
         })

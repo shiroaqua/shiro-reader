@@ -1,7 +1,7 @@
 use std::{io::ErrorKind, sync::Arc};
 
 use crate::{
-    application::library::bookfile::errors::BookFileError,
+    application::library::book::file::errors::BookFileError,
     infrastructure::storage::hash_file_storage::HashFileStorage,
 };
 use blake3::Hash;

@@ -2,7 +2,7 @@ use crate::{
     api::{
         v1::library::book::file::dto::{BookQuery},
     },
-    application::library::bookfile::errors::BookFileError,
+    application::library::book::file::errors::BookFileError,
     error::AppError,
     state::AppState,
 };
