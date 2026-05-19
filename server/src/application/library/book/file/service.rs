@@ -36,9 +36,10 @@ impl BookFileService {
             return Err(BookFileError::AlreadyExists);
         }
 
-        match self.storage.save(reader).await {
+        match self.storage.save(&guard.hash, reader).await {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(BookFileError::AlreadyExists),
+            Err(e) if e.kind() == ErrorKind::InvalidData => Err(BookFileError::HashMismatch),
             Err(e) => Err(BookFileError::Storage(anyhow::Error::new(e))),
         }
     }

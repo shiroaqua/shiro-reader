@@ -87,7 +87,7 @@ impl HashFileStorage {
         self.files.contains(&key)
     }
 
-    pub async fn save<R>(&self, mut reader: R) -> io::Result<()>
+    pub async fn save<R>(&self, hash: &Hash, mut reader: R) -> io::Result<()>
     where
         R: AsyncRead + Unpin,
     {
@@ -107,6 +107,10 @@ impl HashFileStorage {
         temp_file.as_file_mut().flush()?;
 
         let file_hash = hasher.finalize();
+        if !hash.eq(&file_hash) {
+            return Err(io::Error::from(io::ErrorKind::InvalidData));
+        }
+
         let final_path = self
             .dir
             .join(file_hash.to_hex().to_string())

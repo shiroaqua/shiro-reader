@@ -168,6 +168,9 @@ impl From<BookFileError> for AppError {
             InvalidHashFormat => AppError::BadRequest {
                 message: "library.book.file.invalid_hash_format",
             },
+            HashMismatch => AppError::BadRequest {
+                message: "library.book.file.hash_mismatch",
+            },
             NotFound => AppError::NotFound {
                 message: "library.book.file.book_not_found",
             },

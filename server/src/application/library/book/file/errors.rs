@@ -12,6 +12,9 @@ pub enum BookFileError {
     #[error("invalid hash format")]
     InvalidHashFormat,
 
+    #[error("bookfile hash mismatch")]
+    HashMismatch,
+
     #[error("bookfile not found")]
     NotFound,
 
