@@ -1,13 +1,13 @@
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
 };
 
 use crate::{
     api::{response::DataResponse, v1::library::book::dto::*},
     application::library::book::commands::{
-        CreateBookCommand, DeleteBookCommand, GetBookCommand,
+        CreateBookCommand, DeleteBookCommand, GetBookCommand, RenameBookCommand,
     },
     error::AppError,
     state::AppState,
@@ -37,6 +37,22 @@ pub async fn delete_book(
     state
         .book_service
         .delete_book(DeleteBookCommand { id: book_id })
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn rename_book(
+    State(state): State<AppState>,
+    Path(book_id): Path<String>,
+    Json(request): Json<RenameBookRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service
+        .rename_book(RenameBookCommand {
+            id: book_id,
+            title: request.title,
+        })
         .await?;
 
     Ok(StatusCode::NO_CONTENT)

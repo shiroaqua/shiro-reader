@@ -17,6 +17,12 @@ pub struct DeleteBookCommand {
 }
 
 #[derive(Debug)]
+pub struct RenameBookCommand {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug)]
 pub struct GetBookCommand {
     pub id: String,
 }

@@ -12,6 +12,12 @@ pub struct CreateBookRequest {
 
 
 #[derive(Debug, Deserialize)]
+pub struct RenameBookRequest {
+    pub title: String,
+}
+
+
+#[derive(Debug, Deserialize)]
 pub struct BooksQuery {
     pub id: String
 }

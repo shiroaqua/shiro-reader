@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
-use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
 use crate::{
     application::library::book::ports::BookRepository,
@@ -82,6 +82,18 @@ impl BookRepository for SqliteBookRepository {
         Ok(())
     }
 
+    async fn rename(&self, id: &BookId, new_title: &BookTitle) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::update()
+            .table(Books::Table)
+            .value(Books::Title, new_title.as_str())
+            .and_where(Expr::col(Books::Id).eq(id.to_string()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.execute(&sql, values).await?;
+
+        Ok(())
+    }
+
     async fn find_by_id(&self, id: &BookId) -> Result<Book, RepositoryError> {
         let (sql, values) = Query::select()
             .columns([
@@ -112,10 +124,14 @@ impl TryFrom<&SqliteRow> for Book {
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         let id = row.try_get::<String, _>("id").map_err(map_sqlx_error)?;
-        let title =row.try_get::<String, _>("title").map_err(map_sqlx_error)?;
+        let title = row.try_get::<String, _>("title").map_err(map_sqlx_error)?;
         let hash = row.try_get::<String, _>("hash").map_err(map_sqlx_error)?;
-        let bookshelf_id = row.try_get::<String, _>("bookshelf_id").map_err(map_sqlx_error)?;
-        let folder_id = row.try_get::<Option<String>, _>("folder_id").map_err(map_sqlx_error)?;
+        let bookshelf_id = row
+            .try_get::<String, _>("bookshelf_id")
+            .map_err(map_sqlx_error)?;
+        let folder_id = row
+            .try_get::<Option<String>, _>("folder_id")
+            .map_err(map_sqlx_error)?;
         let created_at = row.try_get("created_at").map_err(map_sqlx_error)?;
         let updated_at = row.try_get("updated_at").map_err(map_sqlx_error)?;
 
@@ -124,7 +140,7 @@ impl TryFrom<&SqliteRow> for Book {
             title: BookTitle::from(title),
             hash: blake3::Hash::from_hex(hash).unwrap(),
             bookshelf_id: BookshelfId::from(uuid::Uuid::parse_str(&bookshelf_id).unwrap()),
-            folder_id: folder_id.map(|id|FolderId::from(uuid::Uuid::parse_str(&id).unwrap())),
+            folder_id: folder_id.map(|id| FolderId::from(uuid::Uuid::parse_str(&id).unwrap())),
             created_at: created_at,
             updated_at: updated_at,
         })

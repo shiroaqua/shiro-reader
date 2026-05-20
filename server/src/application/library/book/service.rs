@@ -7,7 +7,7 @@ use crate::{
         book::{
             commands::{
                 CreateBookCommand, CreateBookOutput, DeleteBookCommand, GetBookCommand,
-                GetBookOutput,
+                GetBookOutput, RenameBookCommand,
             },
             errors::BookApplicationError,
             ports::BookRepository,
@@ -64,6 +64,20 @@ impl BookService {
             .delete(&id)
             .await
             .map_err(BookApplicationError::from)?;
+        Ok(())
+    }
+
+    pub async fn rename_book(
+        &self,
+        command: RenameBookCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let new_title = BookTitle::parse(command.title)?;
+        self.repository
+            .rename(&id, &new_title)
+            .await
+            .map_err(BookApplicationError::from)?;
+
         Ok(())
     }
 
