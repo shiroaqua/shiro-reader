@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+use sqlx::{sqlite::SqliteRow, SqlitePool};
 
 use crate::{
     application::library::bookshelf::ports::BookshelfRepository,
@@ -7,7 +7,10 @@ use crate::{
         entity::Bookshelf,
         value_objects::{BookshelfId, BookshelfName},
     },
-    infrastructure::repositories::errors::RepositoryError,
+    infrastructure::repositories::{
+        errors::RepositoryError,
+        sqlite::{map_database_error, SqliteExecutor, SqliteRowExt},
+    },
 };
 
 use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
@@ -15,29 +18,14 @@ use sea_query_binder::SqlxBinder;
 
 #[derive(Clone)]
 pub struct SqliteBookshelfRepository {
-    pool: SqlitePool,
+    db: SqliteExecutor,
 }
 
 impl SqliteBookshelfRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    async fn execute(
-        &self,
-        sql: &str,
-        values: sea_query_binder::SqlxValues,
-    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
-        let result = sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::BookshelfNotFound);
+        Self {
+            db: SqliteExecutor::new(pool),
         }
-
-        Ok(result)
     }
 }
 
@@ -60,7 +48,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db.execute(&sql, values, map_sqlx_error).await?;
 
         Ok(bookshelf)
     }
@@ -76,7 +64,14 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(
+                &sql,
+                values,
+                RepositoryError::BookshelfNotFound,
+                map_sqlx_error,
+            )
+            .await?;
 
         Ok(())
     }
@@ -87,7 +82,14 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
         
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(
+                &sql,
+                values,
+                RepositoryError::BookshelfNotFound,
+                map_sqlx_error,
+            )
+            .await?;
 
         Ok(())
     }
@@ -104,13 +106,14 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        Ok(Bookshelf::try_from(
-            &sqlx::query_with(&sql, values)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(map_sqlx_error)?
-                .ok_or(RepositoryError::BookshelfNotFound)?,
-        )?)
+        self.db
+            .fetch_optional(
+                &sql,
+                values,
+                RepositoryError::BookshelfNotFound,
+                map_sqlx_error,
+            )
+            .await
     }
 
     async fn list(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
@@ -124,15 +127,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .from(Bookshelves::Table)
             .build_sqlx(SqliteQueryBuilder);
 
-        let rows = sqlx::query_with(&sql, values)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        Ok(rows
-            .iter()
-            .map(|r| r.try_into())
-            .collect::<Result<Vec<Bookshelf>, _>>()?)
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
     }
 }
 
@@ -140,16 +135,11 @@ impl TryFrom<&SqliteRow> for Bookshelf {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        let id = row.try_get::<String, _>("id").map_err(map_sqlx_error)?;
-        let name = row.try_get::<String, _>("name").map_err(map_sqlx_error)?;
-        let created_at = row.try_get("created_at").map_err(map_sqlx_error)?;
-        let updated_at = row.try_get("updated_at").map_err(map_sqlx_error)?;
-
         Ok(Bookshelf {
-            id: BookshelfId::from(uuid::Uuid::parse_str(&id).unwrap()),
-            name: BookshelfName::from(name),  
-            created_at: created_at,
-            updated_at: updated_at,
+            id: row.get_uuid("id")?,
+            name: BookshelfName::from(row.get::<String>("name")?),
+            created_at: row.get("created_at")?,
+            updated_at: row.get("updated_at")?,
         })
     }
 }
@@ -165,16 +155,11 @@ enum Bookshelves {
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
-    match &error {
-        sqlx::Error::Database(database_error) => {
-            let message = database_error.message();
-
-            if message.contains("UNIQUE constraint failed: bookshelves.name") {
-                RepositoryError::BookshelfNameConflict
-            } else {
-                RepositoryError::Storage(anyhow::Error::new(error))
-            }
+    map_database_error(error, |message| {
+        if message.contains("UNIQUE constraint failed: bookshelves.name") {
+            Some(RepositoryError::BookshelfNameConflict)
+        } else {
+            None
         }
-        _ => RepositoryError::Storage(anyhow::Error::new(error)),
-    }
+    })
 }

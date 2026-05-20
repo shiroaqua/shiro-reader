@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
-use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use sqlx::{sqlite::SqliteRow, SqlitePool};
 
 use crate::{
     application::library::book::ports::BookRepository,
@@ -10,36 +10,23 @@ use crate::{
             entity::Book,
             value_objects::{BookId, BookTitle},
         },
-        bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId},
     },
-    infrastructure::repositories::errors::RepositoryError,
+    infrastructure::repositories::{
+        errors::RepositoryError,
+        sqlite::{map_database_error, map_invalid_data, SqliteExecutor, SqliteRowExt},
+    },
 };
 
 #[derive(Clone)]
 pub struct SqliteBookRepository {
-    pool: SqlitePool,
+    db: SqliteExecutor,
 }
 
 impl SqliteBookRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    async fn execute(
-        &self,
-        sql: &str,
-        values: sea_query_binder::SqlxValues,
-    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
-        let result = sqlx::query_with(sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::BookNotFound);
+        Self {
+            db: SqliteExecutor::new(pool),
         }
-
-        Ok(result)
     }
 }
 
@@ -68,7 +55,7 @@ impl BookRepository for SqliteBookRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db.execute(&sql, values, map_sqlx_error).await?;
         Ok(book)
     }
 
@@ -78,7 +65,9 @@ impl BookRepository for SqliteBookRepository {
             .and_where(Expr::col(Books::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .await?;
         Ok(())
     }
 
@@ -89,7 +78,9 @@ impl BookRepository for SqliteBookRepository {
             .and_where(Expr::col(Books::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .await?;
 
         Ok(())
     }
@@ -109,13 +100,9 @@ impl BookRepository for SqliteBookRepository {
             .and_where(Expr::col(Books::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        Ok(Book::try_from(
-            &sqlx::query_with(&sql, values)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(map_sqlx_error)?
-                .ok_or(RepositoryError::BookNotFound)?,
-        )?)
+        self.db
+            .fetch_optional(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .await
     }
 }
 
@@ -123,26 +110,14 @@ impl TryFrom<&SqliteRow> for Book {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        let id = row.try_get::<String, _>("id").map_err(map_sqlx_error)?;
-        let title = row.try_get::<String, _>("title").map_err(map_sqlx_error)?;
-        let hash = row.try_get::<String, _>("hash").map_err(map_sqlx_error)?;
-        let bookshelf_id = row
-            .try_get::<String, _>("bookshelf_id")
-            .map_err(map_sqlx_error)?;
-        let folder_id = row
-            .try_get::<Option<String>, _>("folder_id")
-            .map_err(map_sqlx_error)?;
-        let created_at = row.try_get("created_at").map_err(map_sqlx_error)?;
-        let updated_at = row.try_get("updated_at").map_err(map_sqlx_error)?;
-
         Ok(Book {
-            id: BookId::from(uuid::Uuid::parse_str(&id).unwrap()),
-            title: BookTitle::from(title),
-            hash: blake3::Hash::from_hex(hash).unwrap(),
-            bookshelf_id: BookshelfId::from(uuid::Uuid::parse_str(&bookshelf_id).unwrap()),
-            folder_id: folder_id.map(|id| FolderId::from(uuid::Uuid::parse_str(&id).unwrap())),
-            created_at: created_at,
-            updated_at: updated_at,
+            id: row.get_uuid("id")?,
+            title: BookTitle::from(row.get::<String>("title")?),
+            hash: parse_hash(row.get::<String>("hash")?)?,
+            bookshelf_id: row.get_uuid("bookshelf_id")?,
+            folder_id: row.get_optional_uuid("folder_id")?,
+            created_at: row.get("created_at")?,
+            updated_at: row.get("updated_at")?,
         })
     }
 }
@@ -161,22 +136,22 @@ enum Books {
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
-    match &error {
-        sqlx::Error::Database(database_error) => {
-            let message = database_error.message();
-            let is_unique_failed = message.contains("UNIQUE constraint failed");
-            let is_book_title_conflict = message
-                .contains("books.bookshelf_id, books.folder_id, books.title")
-                || message.contains("books.bookshelf_id, books.title");
+    map_database_error(error, |message| {
+        let is_unique_failed = message.contains("UNIQUE constraint failed");
+        let is_book_title_conflict = message
+            .contains("books.bookshelf_id, books.folder_id, books.title")
+            || message.contains("books.bookshelf_id, books.title");
 
-            if is_unique_failed && is_book_title_conflict {
-                RepositoryError::BookTitleConflict
-            } else if message.contains("FOREIGN KEY constraint failed") {
-                RepositoryError::BookLocationNotFound
-            } else {
-                RepositoryError::Storage(anyhow::Error::new(error))
-            }
+        if is_unique_failed && is_book_title_conflict {
+            Some(RepositoryError::BookTitleConflict)
+        } else if message.contains("FOREIGN KEY constraint failed") {
+            Some(RepositoryError::BookLocationNotFound)
+        } else {
+            None
         }
-        _ => RepositoryError::Storage(anyhow::Error::new(error)),
-    }
+    })
+}
+
+fn parse_hash(value: String) -> Result<blake3::Hash, RepositoryError> {
+    blake3::Hash::from_hex(value).map_err(map_invalid_data)
 }

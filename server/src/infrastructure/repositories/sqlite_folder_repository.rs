@@ -12,34 +12,22 @@ use crate::{
         },
         value_objects::BookshelfId,
     },
-    infrastructure::repositories::errors::RepositoryError,
+    infrastructure::repositories::{
+        errors::RepositoryError,
+        sqlite::{map_database_error, SqliteExecutor},
+    },
 };
 
 #[derive(Clone)]
 pub struct SqliteFolderRepository {
-    pool: SqlitePool,
+    db: SqliteExecutor,
 }
 
 impl SqliteFolderRepository {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    async fn execute(
-        &self,
-        sql: &str,
-        values: sea_query_binder::SqlxValues,
-    ) -> Result<sqlx::sqlite::SqliteQueryResult, RepositoryError> {
-        let result = sqlx::query_with(&sql, values)
-            .execute(&self.pool)
-            .await
-            .map_err(map_sqlx_error)?;
-
-        if result.rows_affected() == 0 {
-            return Err(RepositoryError::FolderNotFound);
+        Self {
+            db: SqliteExecutor::new(pool),
         }
-
-        Ok(result)
     }
 }
 
@@ -66,7 +54,7 @@ impl FolderRepository for SqliteFolderRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db.execute(&sql, values, map_sqlx_error).await?;
 
         Ok(folder)
     }
@@ -84,7 +72,9 @@ impl FolderRepository for SqliteFolderRepository {
             .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(&sql, values, RepositoryError::FolderNotFound, map_sqlx_error)
+            .await?;
         Ok(())
     }
 
@@ -99,7 +89,9 @@ impl FolderRepository for SqliteFolderRepository {
             .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.execute(&sql, values).await?;
+        self.db
+            .execute_affected(&sql, values, RepositoryError::FolderNotFound, map_sqlx_error)
+            .await?;
         Ok(())
     }
 }
@@ -117,22 +109,18 @@ enum Folders {
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
-    match &error {
-        sqlx::Error::Database(database_error) => {
-            let message = database_error.message();
-            let is_unique_failed = message.contains("UNIQUE constraint failed");
-            let is_folder_conflict = message
-                .contains("folders.bookshelf_id, folders.parent_id, folders.name")
-                || message.contains("folders.bookshelf_id, folders.name");
+    map_database_error(error, |message| {
+        let is_unique_failed = message.contains("UNIQUE constraint failed");
+        let is_folder_conflict = message
+            .contains("folders.bookshelf_id, folders.parent_id, folders.name")
+            || message.contains("folders.bookshelf_id, folders.name");
 
-            if is_unique_failed && is_folder_conflict {
-                RepositoryError::FolderNameConflict
-            } else if message.contains("FOREIGN KEY constraint failed") {
-                RepositoryError::ParentFolderNotFound
-            } else {
-                RepositoryError::Storage(anyhow::Error::new(error))
-            }
+        if is_unique_failed && is_folder_conflict {
+            Some(RepositoryError::FolderNameConflict)
+        } else if message.contains("FOREIGN KEY constraint failed") {
+            Some(RepositoryError::ParentFolderNotFound)
+        } else {
+            None
         }
-        _ => RepositoryError::Storage(anyhow::Error::new(error)),
-    }
+    })
 }
