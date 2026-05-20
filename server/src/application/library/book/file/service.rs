@@ -1,4 +1,4 @@
-use std::{io::ErrorKind, sync::Arc};
+use std::{io, io::ErrorKind, sync::Arc};
 
 use crate::{
     application::library::book::file::errors::BookFileError,
@@ -22,11 +22,7 @@ impl BookFileService {
         }
     }
 
-    pub async fn upload_book_file<R>(
-        &self,
-        hash: String,
-        reader: R,
-    ) -> Result<(), BookFileError>
+    pub async fn upload_book_file<R>(&self, hash: String, reader: R) -> Result<(), BookFileError>
     where
         R: AsyncRead + Unpin,
     {
@@ -40,19 +36,13 @@ impl BookFileService {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(BookFileError::AlreadyExists),
             Err(e) if e.kind() == ErrorKind::InvalidData => Err(BookFileError::HashMismatch),
-            Err(e) => Err(BookFileError::Storage(anyhow::Error::new(e))),
+            Err(e) => Err(e.into()),
         }
     }
     pub async fn download_book_file(&self, hash: &str) -> Result<File, BookFileError> {
         let hash = Self::to_hex(hash)?;
         if self.storage.contains(&hash) {
-            self.storage.open(&hash).await.map_err(|e| {
-                if e.kind() == ErrorKind::NotFound {
-                    BookFileError::NotFound
-                } else {
-                    BookFileError::Storage(e.into())
-                }
-            })
+            self.storage.open(&hash).await.map_err(BookFileError::from)
         } else {
             Err(BookFileError::NotFound)
         }
@@ -86,5 +76,14 @@ impl UploadGuard {
 impl Drop for UploadGuard {
     fn drop(&mut self) {
         self.set.remove(&self.hash);
+    }
+}
+
+impl From<io::Error> for BookFileError {
+    fn from(value: io::Error) -> Self {
+        match value.kind() {
+            ErrorKind::NotFound => Self::NotFound,
+            _ => Self::Storage(value.into()),
+        }
     }
 }

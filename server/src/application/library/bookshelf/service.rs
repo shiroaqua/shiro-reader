@@ -20,7 +20,6 @@ use crate::{
         errors::BookshelfDomainError,
         value_objects::{BookshelfId, BookshelfName},
     },
-    infrastructure::repositories::errors::RepositoryError,
     shared::time::now_ms,
 };
 
@@ -41,8 +40,7 @@ impl BookshelfService {
         let result = self
             .repositories
             .create(Bookshelf::new(id, name, now, now))
-            .await
-            .map_err(BookshelfApplicationError::from)?;
+            .await?;
 
         Ok(CreateBookshelfOutput {
             id: result.id,
@@ -55,10 +53,7 @@ impl BookshelfService {
     ) -> Result<(), LibraryApplicationError> {
         let id = BookshelfId::parse(command.id)?;
         let new_name = BookshelfName::parse(command.name)?;
-        self.repositories
-            .rename(&id, &new_name)
-            .await
-            .map_err(BookshelfApplicationError::from)?;
+        self.repositories.rename(&id, &new_name).await?;
         Ok(())
     }
 
@@ -68,10 +63,7 @@ impl BookshelfService {
     ) -> Result<(), LibraryApplicationError> {
         let id = BookshelfId::parse(command.id)?;
 
-        self.repositories
-            .delete(&id)
-            .await
-            .map_err(BookshelfApplicationError::from)?;
+        self.repositories.delete(&id).await?;
 
         Ok(())
     }
@@ -81,12 +73,7 @@ impl BookshelfService {
         command: GetBookshelfCommand,
     ) -> Result<GetBookshelfOutput, LibraryApplicationError> {
         let id = BookshelfId::parse(command.id)?;
-        Ok(self
-            .repositories
-            .find_by_id(&id)
-            .await
-            .map_err(BookshelfApplicationError::from)?
-            .into())
+        Ok(self.repositories.find_by_id(&id).await?.into())
     }
 
     pub async fn get_all_bookshelf(
@@ -95,8 +82,7 @@ impl BookshelfService {
         Ok(GetAllBookshelfOutput(
             self.repositories
                 .list()
-                .await
-                .map_err(BookshelfApplicationError::from)?
+                .await?
                 .into_iter()
                 .map(Into::into)
                 .collect(),
@@ -110,17 +96,6 @@ impl From<BookshelfDomainError> for BookshelfApplicationError {
             BookshelfDomainError::InvalidId => Self::InvalidId,
             BookshelfDomainError::MissingName => Self::MissingName,
             BookshelfDomainError::InvalidNameFormat => Self::InvalidNameFormat,
-        }
-    }
-}
-
-impl From<RepositoryError> for BookshelfApplicationError {
-    fn from(value: RepositoryError) -> Self {
-        match value {
-            RepositoryError::BookshelfNotFound => Self::NotFound,
-            RepositoryError::BookshelfNameConflict => Self::NameConflict,
-            RepositoryError::Storage(error) => Self::Storage(error),
-            _ => Self::Storage(anyhow::anyhow!("unrelated error")),
         }
     }
 }

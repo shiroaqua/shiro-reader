@@ -21,7 +21,6 @@ use crate::{
         },
         value_objects::BookshelfId,
     },
-    infrastructure::repositories::errors::RepositoryError,
     shared::time::now_ms,
 };
 
@@ -44,11 +43,7 @@ impl FolderService {
         let now = now_ms();
 
         let folder = Folder::new(FolderId::new(), bookshelf_id, parent_id, name, now, now);
-        let created = self
-            .repository
-            .create(folder)
-            .await
-            .map_err(FolderApplicationError::from)?;
+        let created = self.repository.create(folder).await?;
 
         Ok(CreateFolderOutput {
             id: created.id,
@@ -65,9 +60,7 @@ impl FolderService {
         let new_name = FolderName::parse(command.name)?;
         self.repository
             .rename(&bookshelf_id, &folder_id, &new_name)
-            .await
-            .map_err(FolderApplicationError::from)?;
-
+            .await?;
         Ok(())
     }
 
@@ -77,10 +70,7 @@ impl FolderService {
     ) -> Result<(), LibraryApplicationError> {
         let bookshelf_id = BookshelfId::parse(commmand.bookshelf_id)?;
         let folder_id = FolderId::parse_folder_id(commmand.folder_id)?;
-        self.repository
-            .delete(&bookshelf_id, &folder_id)
-            .await
-            .map_err(FolderApplicationError::from)?;
+        self.repository.delete(&bookshelf_id, &folder_id).await?;
         Ok(())
     }
 }
@@ -93,18 +83,6 @@ impl From<FolderDomainError> for FolderApplicationError {
             FolderDomainError::MissingId => Self::MissingFolderId,
             FolderDomainError::MissingName => Self::MissingName,
             FolderDomainError::InvalidNameFormat => Self::InvalidNameFormat,
-        }
-    }
-}
-
-impl From<RepositoryError> for FolderApplicationError {
-    fn from(value: RepositoryError) -> Self {
-        match value {
-            RepositoryError::FolderNotFound => Self::NotFound,
-            RepositoryError::ParentFolderNotFound => Self::ParentNotFound,
-            RepositoryError::FolderNameConflict => Self::NameConflict,
-            RepositoryError::Storage(error) => Self::Storage(error),
-            _ => Self::Storage(anyhow::anyhow!("unrelated error")),
         }
     }
 }
