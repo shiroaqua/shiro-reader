@@ -1,14 +1,14 @@
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BookDomainError {
     #[error("invalid book id")]
-    InvalidBookId,
+    InvalidId,
 
     #[error("missing book title")]
-    MissingBookTitle,
+    MissingTitle,
 
     #[error("invalid book title format")]
-    InvalidBookTitleFormat,
+    InvalidTitleFormat,
 
     #[error("invalid book hash")]
-    InvalidBookHash,
+    InvalidHash,
 }

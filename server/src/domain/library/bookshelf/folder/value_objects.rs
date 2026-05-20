@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use derive_more::{Display, From, AsRef, Deref};
 use uuid::Uuid;
 
@@ -14,11 +12,11 @@ impl FolderId {
     }
 
     pub fn parse_folder_id(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
-        Self::parse(value).map_err(|_| FolderDomainError::InvalidFolderId)
+        Self::parse(value).map_err(|_| FolderDomainError::InvalidId)
     }
 
     pub fn parse_parent_id(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
-        Self::parse(value).map_err(|_| FolderDomainError::InvalidParentFolderId)
+        Self::parse(value).map_err(|_| FolderDomainError::InvalidParentId)
     }
 }
 
@@ -26,10 +24,10 @@ impl FolderId {
     fn parse(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(FolderDomainError::InvalidFolderId);
+            return Err(FolderDomainError::InvalidId);
         }
 
-        let parsed = Uuid::parse_str(raw).map_err(|_| FolderDomainError::InvalidFolderId)?;
+        let parsed = Uuid::parse_str(raw).map_err(|_| FolderDomainError::InvalidId)?;
         Ok(Self(parsed))
     }
 }
@@ -48,21 +46,13 @@ impl FolderName {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, FolderDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(FolderDomainError::MissingFolderName);
+            return Err(FolderDomainError::MissingName);
         }
 
         if !raw.chars().all(|c| c.is_alphanumeric())  {
-            return Err(FolderDomainError::InvalidFolderNameFormat);
+            return Err(FolderDomainError::InvalidNameFormat);
         }
 
         Ok(Self(raw.to_string()))
-    }
-}
-
-impl FromStr for FolderName {
-    type Err = FolderDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
     }
 }

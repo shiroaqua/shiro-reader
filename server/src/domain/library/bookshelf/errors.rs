@@ -1,11 +1,11 @@
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BookshelfDomainError {
     #[error("invalid bookshelf id")]
-    InvalidBookshelfId,
+    InvalidId,
 
     #[error("missing bookshelf name")]
-    MissingBookshelfName,
+    MissingName,
 
     #[error("invalid bookshelf name format")]
-    InvalidBookshelfNameFormat,
+    InvalidNameFormat,
 }

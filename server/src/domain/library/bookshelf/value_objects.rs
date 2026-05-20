@@ -16,10 +16,10 @@ impl BookshelfId {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(BookshelfDomainError::InvalidBookshelfId);
+            return Err(BookshelfDomainError::InvalidId);
         }
 
-        let parsed = Uuid::parse_str(raw).map_err(|_| BookshelfDomainError::InvalidBookshelfId)?;
+        let parsed = Uuid::parse_str(raw).map_err(|_| BookshelfDomainError::InvalidId)?;
         Ok(Self(parsed))
     }
 }
@@ -30,13 +30,6 @@ impl Default for BookshelfId {
     }
 }
 
-impl FromStr for BookshelfId {
-    type Err = BookshelfDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Display, From, AsRef, Deref)]
 pub struct BookshelfName(String);
@@ -45,21 +38,13 @@ impl BookshelfName {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookshelfDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(BookshelfDomainError::MissingBookshelfName);
+            return Err(BookshelfDomainError::MissingName);
         }
 
         if !raw.chars().all(|c| c.is_alphanumeric()) {
-            return Err(BookshelfDomainError::InvalidBookshelfNameFormat);
+            return Err(BookshelfDomainError::InvalidNameFormat);
         }
 
         Ok(Self(raw.to_string()))
-    }
-}
-
-impl FromStr for BookshelfName {
-    type Err = BookshelfDomainError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Self::parse(value)
     }
 }

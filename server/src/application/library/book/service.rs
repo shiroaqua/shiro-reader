@@ -93,10 +93,10 @@ impl BookService {
 impl From<BookDomainError> for BookApplicationError {
     fn from(value: BookDomainError) -> Self {
         match value {
-            BookDomainError::InvalidBookId => Self::InvalidId,
-            BookDomainError::MissingBookTitle => Self::MissingTitle,
-            BookDomainError::InvalidBookTitleFormat => Self::InvalidTitleFormat,
-            BookDomainError::InvalidBookHash => Self::InvalidHashFormat,
+            BookDomainError::InvalidId => Self::InvalidId,
+            BookDomainError::MissingTitle => Self::MissingTitle,
+            BookDomainError::InvalidTitleFormat => Self::InvalidTitleFormat,
+            BookDomainError::InvalidHash => Self::InvalidHashFormat,
         }
     }
 }

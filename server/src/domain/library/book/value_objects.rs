@@ -17,10 +17,10 @@ impl BookId {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(BookDomainError::InvalidBookId);
+            return Err(BookDomainError::InvalidId);
         }
 
-        let parsed = Uuid::parse_str(raw).map_err(|_| BookDomainError::InvalidBookId)?;
+        let parsed = Uuid::parse_str(raw).map_err(|_| BookDomainError::InvalidId)?;
         Ok(Self(parsed))
     }
 }
@@ -29,11 +29,11 @@ impl BookTitle {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
-            return Err(BookDomainError::MissingBookTitle);
+            return Err(BookDomainError::MissingTitle);
         }
 
         if raw.trim() != raw {
-            return Err(BookDomainError::InvalidBookTitleFormat);
+            return Err(BookDomainError::InvalidTitleFormat);
         }
 
         Ok(Self(raw.to_string()))

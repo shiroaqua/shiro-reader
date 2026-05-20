@@ -88,11 +88,11 @@ impl FolderService {
 impl From<FolderDomainError> for FolderApplicationError {
     fn from(value: FolderDomainError) -> Self {
         match value {
-            FolderDomainError::InvalidFolderId => Self::InvalidId,
-            FolderDomainError::InvalidParentFolderId => Self::InvalidParentId,
-            FolderDomainError::MissingFolderId => Self::MissingFolderId,
-            FolderDomainError::MissingFolderName => Self::MissingName,
-            FolderDomainError::InvalidFolderNameFormat => Self::InvalidNameFormat,
+            FolderDomainError::InvalidId => Self::InvalidId,
+            FolderDomainError::InvalidParentId => Self::InvalidParentId,
+            FolderDomainError::MissingId => Self::MissingFolderId,
+            FolderDomainError::MissingName => Self::MissingName,
+            FolderDomainError::InvalidNameFormat => Self::InvalidNameFormat,
         }
     }
 }

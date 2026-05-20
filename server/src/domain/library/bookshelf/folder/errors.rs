@@ -1,17 +1,17 @@
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FolderDomainError {
     #[error("invalid folder id")]
-    InvalidFolderId,
+    InvalidId,
 
     #[error("invalid parent folder id")]
-    InvalidParentFolderId,
+    InvalidParentId,
 
     #[error("missing folder id")]
-    MissingFolderId,
+    MissingId,
 
     #[error("missing folder name")]
-    MissingFolderName,
+    MissingName,
 
     #[error("invalid folder name format")]
-    InvalidFolderNameFormat,
+    InvalidNameFormat,
 }

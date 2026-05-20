@@ -107,9 +107,9 @@ impl BookshelfService {
 impl From<BookshelfDomainError> for BookshelfApplicationError {
     fn from(value: BookshelfDomainError) -> Self {
         match value {
-            BookshelfDomainError::InvalidBookshelfId => Self::InvalidId,
-            BookshelfDomainError::MissingBookshelfName => Self::MissingName,
-            BookshelfDomainError::InvalidBookshelfNameFormat => Self::InvalidNameFormat,
+            BookshelfDomainError::InvalidId => Self::InvalidId,
+            BookshelfDomainError::MissingName => Self::MissingName,
+            BookshelfDomainError::InvalidNameFormat => Self::InvalidNameFormat,
         }
     }
 }
