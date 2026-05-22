@@ -21,10 +21,7 @@ pub enum RepositoryError {
 
     #[error("book title conflict")]
     BookTitleConflict,
-
-    #[error("book location not found")]
-    BookLocationNotFound,
-
+    
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

@@ -1,19 +1,17 @@
 use async_trait::async_trait;
 use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
-use sqlx::{sqlite::SqliteRow, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
     application::library::book::ports::BookRepository,
-    domain::library::{
-        book::{
-            entity::Book,
-            value_objects::{BookId, BookTitle},
-        },
+    domain::library::book::{
+        entity::Book,
+        value_objects::{BookId, BookTitle},
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        sqlite::{map_database_error, map_invalid_data, SqliteExecutor, SqliteRowExt},
+        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, map_invalid_data},
     },
 };
 
@@ -145,7 +143,13 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
         if is_unique_failed && is_book_title_conflict {
             Some(RepositoryError::BookTitleConflict)
         } else if message.contains("FOREIGN KEY constraint failed") {
-            Some(RepositoryError::BookLocationNotFound)
+            if message.contains("bookshel") {
+                Some(RepositoryError::BookshelfNotFound)
+            } else if message.contains("folder") {
+                Some(RepositoryError::FolderNotFound)
+            } else {
+                None
+            }
         } else {
             None
         }

@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 use crate::application::library::book::errors::BookApplicationError;
+use crate::application::library::book::file::errors::BookFileApplicationError;
 use crate::application::library::bookshelf::errors::BookshelfApplicationError;
 use crate::application::library::bookshelf::folder::errors::FolderApplicationError;
 use crate::domain::library::book::errors::BookDomainError;
@@ -13,11 +14,15 @@ pub enum LibraryApplicationError {
     #[error("Book error: {0}")]
     Book(#[from] BookApplicationError),
 
-    #[error("Folder error: {0}")]
-    Folder(#[from] FolderApplicationError),
+    #[error("Book file error: {0}")]
+    BookFile(#[from] BookFileApplicationError),
 
     #[error("Bookshelf error: {0}")]
     Bookshelf(#[from] BookshelfApplicationError),
+
+    #[error("Folder error: {0}")]
+    Folder(#[from] FolderApplicationError),
+
 }
 
 impl From<BookDomainError> for LibraryApplicationError {
@@ -46,9 +51,6 @@ impl From<RepositoryError> for LibraryApplicationError {
             }
             RepositoryError::BookTitleConflict => {
                 LibraryApplicationError::Book(BookApplicationError::TitleConflict)
-            }
-            RepositoryError::BookLocationNotFound => {
-                LibraryApplicationError::Book(BookApplicationError::LocationNotFound)
             }
             RepositoryError::BookshelfNotFound => {
                 LibraryApplicationError::Bookshelf(BookshelfApplicationError::NotFound)

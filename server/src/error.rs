@@ -1,16 +1,19 @@
 use axum::{
+    Json,
     extract::multipart::MultipartError,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::Serialize;
 use tracing::error;
 
-use crate::application::library::{
-    book::{errors::BookApplicationError, file::errors::BookFileError},
-    bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError},
-    errors::LibraryApplicationError,
+use crate::{
+    api::v1::library::book::file::errors::BookFileAPIError,
+    application::library::{
+        book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
+        bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError},
+        errors::LibraryApplicationError,
+    },
 };
 
 #[derive(Debug, Serialize)]
@@ -38,14 +41,13 @@ impl IntoResponse for AppError {
             AppError::NotFound { message } => (StatusCode::NOT_FOUND, message),
             AppError::Conflict { message } => (StatusCode::CONFLICT, message),
             AppError::Internal(error) => {
-                let is_stream_aborted = error
-                    .chain()
-                    .any(|e| e.is::<axum::Error>());
+                let is_stream_aborted = error.chain().any(|e| e.is::<axum::Error>());
 
-                let is_multipart_limit = !is_stream_aborted && error
-                    .chain()
-                    .find_map(|e| e.downcast_ref::<axum::extract::multipart::MultipartError>())
-                    .is_some_and(|e| e.status() == StatusCode::PAYLOAD_TOO_LARGE);
+                let is_multipart_limit = !is_stream_aborted
+                    && error
+                        .chain()
+                        .find_map(|e| e.downcast_ref::<axum::extract::multipart::MultipartError>())
+                        .is_some_and(|e| e.status() == StatusCode::PAYLOAD_TOO_LARGE);
 
                 if is_multipart_limit || is_stream_aborted {
                     (StatusCode::PAYLOAD_TOO_LARGE, "common.payload_too_large")
@@ -136,49 +138,44 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::TitleConflict => AppError::Conflict {
                     message: "library.book.title_conflict",
                 },
-                BookApplicationError::LocationNotFound => AppError::NotFound {
-                    message: "library.book.location_not_found",
-                },
                 BookApplicationError::Storage(error) => AppError::Internal(error),
             },
+            LibraryApplicationError::BookFile(f) => match f {
+                BookFileApplicationError::UploadConflict => AppError::Conflict {
+                    message: "library.book.file.upload.conflict",
+                },
+                BookFileApplicationError::AlreadyExists => AppError::Conflict {
+                    message: "library.book.file.already_exists",
+                },
+                BookFileApplicationError::InvalidHashFormat => AppError::BadRequest {
+                    message: "library.book.file.invalid_hash_format",
+                },
+                BookFileApplicationError::HashMismatch => AppError::BadRequest {
+                    message: "library.book.file.hash_mismatch",
+                },
+                BookFileApplicationError::NotFound => AppError::NotFound {
+                    message: "library.book.file.not_found",
+                },
+                BookFileApplicationError::Storage(error) => AppError::Internal(error),
+            },
         }
     }
 }
-
-impl From<BookFileError> for AppError {
-    fn from(value: BookFileError) -> Self {
-        use BookFileError::*;
-
+impl From<BookFileAPIError> for AppError {
+    fn from(value: BookFileAPIError) -> Self {
         match value {
-            DuplicateHashField => AppError::BadRequest {
+            BookFileAPIError::DuplicateHashField => AppError::BadRequest {
                 message: "library.book.file.upload.duplicate_hash",
             },
-            MissingHashField => AppError::BadRequest {
+            BookFileAPIError::MissingHashField => AppError::BadRequest {
                 message: "library.book.file.upload.missing_hash",
             },
-            MissingFileField => AppError::BadRequest {
+            BookFileAPIError::MissingFileField => AppError::BadRequest {
                 message: "library.book.file.upload.missing_file",
             },
-            UploadConflict => AppError::Conflict {
-                message: "library.book.file.upload.conflict",
-            },
-            AlreadyExists => AppError::Conflict {
-                message: "library.book.file.already_exists",
-            },
-            InvalidHashFormat => AppError::BadRequest {
-                message: "library.book.file.invalid_hash_format",
-            },
-            HashMismatch => AppError::BadRequest {
-                message: "library.book.file.hash_mismatch",
-            },
-            NotFound => AppError::NotFound {
-                message: "library.book.file.book_not_found",
-            },
-            Storage(error) => AppError::Internal(error),
         }
     }
 }
-
 impl From<MultipartError> for AppError {
     fn from(value: MultipartError) -> Self {
         AppError::Internal(anyhow::Error::new(value))

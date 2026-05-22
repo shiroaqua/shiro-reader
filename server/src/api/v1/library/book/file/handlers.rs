@@ -1,8 +1,5 @@
 use crate::{
-    api::{
-        v1::library::book::file::dto::{BookQuery},
-    },
-    application::library::book::file::errors::BookFileError,
+    api::v1::library::book::file::{dto::BookQuery, errors::BookFileAPIError},
     error::AppError,
     state::AppState,
 };
@@ -32,7 +29,7 @@ pub async fn upload_book(
                     "hash" => {
                         // 不允许重复的 hash 字段
                         if hash.is_some() {
-                            return Err(BookFileError::DuplicateHashField.into());
+                            return Err(BookFileAPIError::DuplicateHashField.into());
                         }
 
                         hash = Some(
@@ -46,7 +43,7 @@ pub async fn upload_book(
                             continue;
                         }
                         if hash.is_none() {
-                            return Err(BookFileError::MissingHashField.into());
+                            return Err(BookFileAPIError::MissingHashField.into());
                         }
 
                         let stream = field.map_err(std::io::Error::other);
@@ -65,7 +62,7 @@ pub async fn upload_book(
             None => break,
         }
     }
-    Err(BookFileError::MissingFileField.into())
+    Err(BookFileAPIError::MissingFileField.into())
 }
 
 pub async fn download_book(
@@ -99,11 +96,8 @@ pub async fn get_book(
     State(state): State<AppState>,
     Query(query): Query<BookQuery>,
 ) -> Result<StatusCode, AppError> {
-    if state.bookfile_service.contains(&query.hash)? {
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Err(BookFileError::NotFound.into())
-    }
+    let _ = state.bookfile_service.parse_existing_hash(&query.hash)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn header_value(value: &str) -> Result<HeaderValue, AppError> {

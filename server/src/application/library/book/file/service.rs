@@ -1,7 +1,7 @@
 use std::{io, io::ErrorKind, sync::Arc};
 
 use crate::{
-    application::library::book::file::errors::BookFileError,
+    application::library::{book::file::errors::BookFileApplicationError, errors::LibraryApplicationError},
     infrastructure::storage::hash_file_storage::HashFileStorage,
 };
 use blake3::Hash;
@@ -22,39 +22,44 @@ impl BookFileService {
         }
     }
 
-    pub async fn upload_book_file<R>(&self, hash: String, reader: R) -> Result<(), BookFileError>
+    pub async fn upload_book_file<R>(&self, hash: String, reader: R) -> Result<(), LibraryApplicationError>
     where
         R: AsyncRead + Unpin,
     {
         let guard = UploadGuard::try_new(Self::to_hex(&hash)?, self.uploading.clone())?;
 
         if self.storage.contains(&guard.hash) {
-            return Err(BookFileError::AlreadyExists);
+            return Err(BookFileApplicationError::AlreadyExists.into());
         }
 
         match self.storage.save(&guard.hash, reader).await {
             Ok(()) => Ok(()),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(BookFileError::AlreadyExists),
-            Err(e) if e.kind() == ErrorKind::InvalidData => Err(BookFileError::HashMismatch),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(BookFileApplicationError::AlreadyExists.into()),
+            Err(e) if e.kind() == ErrorKind::InvalidData => Err(BookFileApplicationError::HashMismatch.into()),
             Err(e) => Err(e.into()),
         }
     }
-    pub async fn download_book_file(&self, hash: &str) -> Result<File, BookFileError> {
+    pub async fn download_book_file(&self, hash: &str) -> Result<File, LibraryApplicationError> {
         let hash = Self::to_hex(hash)?;
         if self.storage.contains(&hash) {
-            self.storage.open(&hash).await.map_err(BookFileError::from)
+            self.storage.open(&hash).await.map_err(LibraryApplicationError::from)
         } else {
-            Err(BookFileError::NotFound)
+            Err(BookFileApplicationError::NotFound.into())
         }
     }
-    pub fn contains(&self, hash: &str) -> Result<bool, BookFileError> {
-        let hash = Self::to_hex(hash)?;
-        Ok(self.storage.contains(&hash))
+    pub fn parse_existing_hash(&self, hash: &str) -> Result<Hash, LibraryApplicationError> {
+         let hash = Self::to_hex(hash)?;
+         if self.storage.contains(&hash) {
+            Ok(hash)
+         }
+         else {
+             Err(BookFileApplicationError::NotFound.into())
+         }
     }
 
     #[inline]
-    fn to_hex(hash: &str) -> Result<Hash, BookFileError> {
-        Hash::from_hex(hash).map_err(|_| BookFileError::InvalidHashFormat)
+    fn to_hex(hash: &str) -> Result<Hash, BookFileApplicationError> {
+        Hash::from_hex(hash).map_err(|_| BookFileApplicationError::InvalidHashFormat)
     }
 }
 
@@ -64,11 +69,11 @@ struct UploadGuard {
 }
 
 impl UploadGuard {
-    fn try_new(hash: Hash, set: Arc<DashSet<Hash>>) -> Result<Self, BookFileError> {
+    fn try_new(hash: Hash, set: Arc<DashSet<Hash>>) -> Result<Self, BookFileApplicationError> {
         if set.insert(hash.clone()) {
             Ok(Self { hash, set })
         } else {
-            Err(BookFileError::UploadConflict)
+            Err(BookFileApplicationError::UploadConflict)
         }
     }
 }
@@ -79,11 +84,12 @@ impl Drop for UploadGuard {
     }
 }
 
-impl From<io::Error> for BookFileError {
+
+impl From<io::Error> for LibraryApplicationError {
     fn from(value: io::Error) -> Self {
         match value.kind() {
-            ErrorKind::NotFound => Self::NotFound,
-            _ => Self::Storage(value.into()),
-        }
+            ErrorKind::NotFound => BookFileApplicationError::NotFound,
+            _ => BookFileApplicationError::Storage(value.into()),
+        }.into()
     }
 }

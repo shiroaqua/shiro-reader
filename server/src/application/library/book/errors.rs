@@ -18,9 +18,6 @@ pub enum BookApplicationError {
     #[error("book title conflict")]
     TitleConflict,
 
-    #[error("book location not found")]
-    LocationNotFound,
-
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

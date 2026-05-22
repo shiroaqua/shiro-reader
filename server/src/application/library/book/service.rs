@@ -8,9 +8,7 @@ use crate::{
             commands::{
                 CreateBookCommand, CreateBookOutput, DeleteBookCommand, GetBookCommand,
                 GetBookOutput, RenameBookCommand,
-            },
-            errors::BookApplicationError,
-            ports::BookRepository,
+            }, errors::BookApplicationError, file::service::BookFileService, ports::BookRepository
         },
         errors::LibraryApplicationError,
     },
@@ -28,6 +26,7 @@ use crate::{
 #[derive(new)]
 pub struct BookService {
     repository: Arc<dyn BookRepository>,
+    bookfile: Arc<BookFileService>,
 }
 
 impl BookService {
@@ -35,9 +34,9 @@ impl BookService {
         &self,
         command: CreateBookCommand,
     ) -> Result<CreateBookOutput, LibraryApplicationError> {
+        let id = BookId::new();
         let title = BookTitle::parse(command.title)?;
-        let hash = blake3::Hash::from_hex(command.hash)
-            .map_err(|_| BookApplicationError::InvalidHashFormat)?;
+        let hash = self.bookfile.parse_existing_hash(&command.hash)?;
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
         let folder_id = command
             .folder_id
@@ -46,7 +45,7 @@ impl BookService {
         let now = now_ms();
 
         let book = Book::new(
-            BookId::new(),
+            id,
             title,
             hash,
             bookshelf_id,

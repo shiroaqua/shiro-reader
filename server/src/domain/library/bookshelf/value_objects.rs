@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use derive_more::{AsRef, Deref, Display, From};
 use uuid::Uuid;
 

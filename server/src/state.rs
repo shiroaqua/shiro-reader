@@ -57,7 +57,7 @@ impl AppState {
 
         let book_repository: Arc<dyn BookRepository> =
             Arc::new(SqliteBookRepository::new(pool.clone()));
-        let book_service = Arc::new(BookService::new(book_repository));
+        let book_service = Arc::new(BookService::new(book_repository, bookfile_service.clone()));
 
       
         Ok(Self {
