@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
 use sqlx::SqlitePool;
 
@@ -13,8 +13,7 @@ use crate::{
         value_objects::BookshelfId,
     },
     infrastructure::repositories::{
-        errors::RepositoryError,
-        sqlite::{map_database_error, SqliteExecutor},
+        errors::RepositoryError, idens::Folders, sqlite::{SqliteExecutor, map_database_error}
     },
 };
 
@@ -96,17 +95,7 @@ impl FolderRepository for SqliteFolderRepository {
     }
 }
 
-#[derive(Iden)]
-enum Folders {
-    #[iden = "folders"]
-    Table,
-    Id,
-    BookshelfId,
-    ParentId,
-    Name,
-    CreatedAt,
-    UpdatedAt,
-}
+
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
     map_database_error(error, |message| {

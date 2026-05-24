@@ -1,7 +1,8 @@
+use blake3::Hash;
 use sea_query_binder::SqlxValues;
 use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
-    Decode, Row, Sqlite, SqlitePool, Type,
+    Decode, Row, Sqlite, SqlitePool, Transaction, Type,
 };
 use uuid::Uuid;
 
@@ -12,9 +13,21 @@ pub struct SqliteExecutor {
     pool: SqlitePool,
 }
 
+pub struct SqliteTransaction<'a> {
+    tx: Transaction<'a, Sqlite>,
+}
+
 impl SqliteExecutor {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
+    }
+
+    pub async fn begin(
+        &self,
+        map_error: impl Fn(sqlx::Error) -> RepositoryError,
+    ) -> Result<SqliteTransaction<'_>, RepositoryError> {
+        let tx = self.pool.begin().await.map_err(map_error)?;
+        Ok(SqliteTransaction { tx })
     }
 
     pub async fn execute(
@@ -82,6 +95,41 @@ impl SqliteExecutor {
     }
 }
 
+impl SqliteTransaction<'_> {
+    pub async fn execute(
+        &mut self,
+        sql: &str,
+        values: SqlxValues,
+        map_error: impl Fn(sqlx::Error) -> RepositoryError,
+    ) -> Result<SqliteQueryResult, RepositoryError> {
+        sqlx::query_with(sql, values)
+            .execute(self.tx.as_mut())
+            .await
+            .map_err(map_error)
+    }
+
+    pub async fn fetch_exists(
+        &mut self,
+        sql: &str,
+        values: SqlxValues,
+        map_error: impl Fn(sqlx::Error) -> RepositoryError,
+    ) -> Result<bool, RepositoryError> {
+        let row = sqlx::query_with(sql, values)
+            .fetch_optional(self.tx.as_mut())
+            .await
+            .map_err(map_error)?;
+
+        Ok(row.is_some())
+    }
+
+    pub async fn commit(
+        self,
+        map_error: impl Fn(sqlx::Error) -> RepositoryError,
+    ) -> Result<(), RepositoryError> {
+        self.tx.commit().await.map_err(map_error)
+    }
+}
+
 pub fn map_invalid_data(error: impl Into<anyhow::Error>) -> RepositoryError {
     RepositoryError::Storage(error.into())
 }
@@ -115,6 +163,10 @@ pub trait SqliteRowExt {
     fn get_optional_uuid<T>(&self, column: &str) -> Result<Option<T>, RepositoryError>
     where
         T: From<Uuid>;
+
+    fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
+    where 
+        T: From<Hash>;
 }
 
 impl SqliteRowExt for SqliteRow {
@@ -140,6 +192,15 @@ impl SqliteRowExt for SqliteRow {
         let value = SqliteRowExt::get::<Option<String>>(self, column)?;
         value.map(parse_uuid).transpose()
     }
+
+    fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
+    where 
+        T: From<Hash>, {    
+        let value = SqliteRowExt::get::<String>(self, column)?;
+        blake3::Hash::from_hex(value).map(T::from).map_err(map_invalid_data)
+    }
+
+
 }
 
 fn parse_uuid<T>(value: String) -> Result<T, RepositoryError>

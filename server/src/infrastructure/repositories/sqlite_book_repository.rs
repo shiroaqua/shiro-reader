@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
-use sqlx::{SqlitePool, sqlite::SqliteRow};
+use sqlx::{sqlite::SqliteRow, SqlitePool};
 
 use crate::{
     application::library::book::ports::BookRepository,
@@ -10,8 +10,7 @@ use crate::{
         value_objects::{BookId, BookTitle},
     },
     infrastructure::repositories::{
-        errors::RepositoryError,
-        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, map_invalid_data},
+        errors::RepositoryError, idens::{Books, Bookshelves, Folders}, sqlite::{SqliteExecutor, SqliteRowExt, map_database_error}
     },
 };
 
@@ -31,6 +30,32 @@ impl SqliteBookRepository {
 #[async_trait]
 impl BookRepository for SqliteBookRepository {
     async fn create(&self, book: Book) -> Result<Book, RepositoryError> {
+        let mut tx = self.db.begin(map_sqlx_error).await?;
+        let (sql, values) = Query::select()
+            .expr(Expr::val(1))
+            .from(Bookshelves::Table)
+            .and_where(Expr::col(Bookshelves::Id).eq(book.bookshelf_id.to_string()))
+            .limit(1)
+            .build_sqlx(SqliteQueryBuilder);
+
+        if !tx.fetch_exists(&sql, values, map_sqlx_error).await? {
+            return Err(RepositoryError::BookshelfNotFound);
+        }
+
+        if let Some(folder_id) = &book.folder_id {
+            let (sql, values) = Query::select()
+                .expr(Expr::val(1))
+                .from(Folders::Table)
+                .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
+                .and_where(Expr::col(Folders::BookshelfId).eq(book.bookshelf_id.to_string()))
+                .limit(1)
+                .build_sqlx(SqliteQueryBuilder);
+
+            if !tx.fetch_exists(&sql, values, map_sqlx_error).await? {
+                return Err(RepositoryError::FolderNotFound);
+            }
+        }
+
         let (sql, values) = Query::insert()
             .into_table(Books::Table)
             .columns([
@@ -53,7 +78,8 @@ impl BookRepository for SqliteBookRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        self.db.execute(&sql, values, map_sqlx_error).await?;
+        tx.execute(&sql, values, map_sqlx_error).await?;
+        tx.commit(map_sqlx_error).await?;
         Ok(book)
     }
 
@@ -111,7 +137,7 @@ impl TryFrom<&SqliteRow> for Book {
         Ok(Book {
             id: row.get_uuid("id")?,
             title: BookTitle::from(row.get::<String>("title")?),
-            hash: parse_hash(row.get::<String>("hash")?)?,
+            hash: row.get_hash("hash")?,
             bookshelf_id: row.get_uuid("bookshelf_id")?,
             folder_id: row.get_optional_uuid("folder_id")?,
             created_at: row.get("created_at")?,
@@ -120,18 +146,6 @@ impl TryFrom<&SqliteRow> for Book {
     }
 }
 
-#[derive(Iden)]
-enum Books {
-    #[iden = "books"]
-    Table,
-    Id,
-    Title,
-    Hash,
-    BookshelfId,
-    FolderId,
-    CreatedAt,
-    UpdatedAt,
-}
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
     map_database_error(error, |message| {
@@ -142,20 +156,8 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
 
         if is_unique_failed && is_book_title_conflict {
             Some(RepositoryError::BookTitleConflict)
-        } else if message.contains("FOREIGN KEY constraint failed") {
-            if message.contains("bookshel") {
-                Some(RepositoryError::BookshelfNotFound)
-            } else if message.contains("folder") {
-                Some(RepositoryError::FolderNotFound)
-            } else {
-                None
-            }
         } else {
             None
         }
     })
-}
-
-fn parse_hash(value: String) -> Result<blake3::Hash, RepositoryError> {
-    blake3::Hash::from_hex(value).map_err(map_invalid_data)
 }

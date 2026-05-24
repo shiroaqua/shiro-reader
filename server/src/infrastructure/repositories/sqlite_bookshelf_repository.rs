@@ -8,12 +8,11 @@ use crate::{
         value_objects::{BookshelfId, BookshelfName},
     },
     infrastructure::repositories::{
-        errors::RepositoryError,
-        sqlite::{map_database_error, SqliteExecutor, SqliteRowExt},
+        errors::RepositoryError, idens::Bookshelves, sqlite::{SqliteExecutor, SqliteRowExt, map_database_error}
     },
 };
 
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
 
 #[derive(Clone)]
@@ -144,15 +143,7 @@ impl TryFrom<&SqliteRow> for Bookshelf {
     }
 }
 
-#[derive(Iden)]
-enum Bookshelves {
-    #[iden = "bookshelves"]
-    Table,
-    Id,
-    Name,
-    CreatedAt,
-    UpdatedAt,
-}
+
 
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
     map_database_error(error, |message| {
