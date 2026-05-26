@@ -1,8 +1,11 @@
+use std::borrow::Cow;
+
 use blake3::Hash;
+use sea_query::Iden;
 use sea_query_binder::SqlxValues;
 use sqlx::{
-    sqlite::{SqliteQueryResult, SqliteRow},
     Decode, Row, Sqlite, SqlitePool, Transaction, Type,
+    sqlite::{SqliteQueryResult, SqliteRow},
 };
 use uuid::Uuid;
 
@@ -136,15 +139,62 @@ pub fn map_invalid_data(error: impl Into<anyhow::Error>) -> RepositoryError {
 
 pub fn map_database_error(
     error: sqlx::Error,
-    classify: impl FnOnce(&str) -> Option<RepositoryError>,
+    classify: impl FnOnce(SqliteDatabaseError<'_>) -> Option<RepositoryError>,
 ) -> RepositoryError {
     if let sqlx::Error::Database(database_error) = &error {
-        if let Some(error) = classify(database_error.message()) {
+        let database_error = SqliteDatabaseError {
+            code: database_error.code(),
+            message: database_error.message(),
+        };
+
+        if let Some(error) = classify(database_error) {
             return error;
         }
     }
 
     map_storage_error(error)
+}
+
+pub struct SqliteDatabaseError<'a> {
+    code: Option<Cow<'a, str>>,
+    message: &'a str,
+}
+
+impl SqliteDatabaseError<'_> {
+    pub fn message(&self) -> &str {
+        self.message
+    }
+
+    pub fn is_unique_constraint(&self) -> bool {
+        self.has_code("2067")
+    }
+
+    pub fn is_foreign_key_constraint(&self) -> bool {
+        self.has_code("787")
+    }
+
+    fn has_code(&self, expected: &str) -> bool {
+        self.code.as_deref() == Some(expected)
+    }
+}
+
+pub fn message_contains_columns<T, C>(
+    message: &str,
+    table: T,
+    columns: impl IntoIterator<Item = C>,
+) -> bool
+where
+    T: Iden,
+    C: Iden,
+{
+    let table = table.to_string();
+    let columns = columns
+        .into_iter()
+        .map(|column| format!("{}.{}", table, column.to_string()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    message.contains(&columns)
 }
 
 pub fn map_storage_error(error: sqlx::Error) -> RepositoryError {
@@ -156,6 +206,10 @@ pub trait SqliteRowExt {
     where
         for<'decode> T: Decode<'decode, Sqlite> + Type<Sqlite>;
 
+    fn get_string<T>(&self, column: &str) -> Result<T, RepositoryError>
+    where
+        T: From<String>;
+
     fn get_uuid<T>(&self, column: &str) -> Result<T, RepositoryError>
     where
         T: From<Uuid>;
@@ -165,7 +219,7 @@ pub trait SqliteRowExt {
         T: From<Uuid>;
 
     fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
-    where 
+    where
         T: From<Hash>;
 }
 
@@ -175,6 +229,14 @@ impl SqliteRowExt for SqliteRow {
         for<'decode> T: Decode<'decode, Sqlite> + Type<Sqlite>,
     {
         self.try_get(column).map_err(map_storage_error)
+    }
+
+    fn get_string<T>(&self, column: &str) -> Result<T, RepositoryError>
+    where
+        T: From<String>,
+    {
+        let value = SqliteRowExt::get::<String>(self, column)?;
+        Ok(T::from(value))
     }
 
     fn get_uuid<T>(&self, column: &str) -> Result<T, RepositoryError>
@@ -194,13 +256,14 @@ impl SqliteRowExt for SqliteRow {
     }
 
     fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
-    where 
-        T: From<Hash>, {    
+    where
+        T: From<Hash>,
+    {
         let value = SqliteRowExt::get::<String>(self, column)?;
-        blake3::Hash::from_hex(value).map(T::from).map_err(map_invalid_data)
+        blake3::Hash::from_hex(value)
+            .map(T::from)
+            .map_err(map_invalid_data)
     }
-
-
 }
 
 fn parse_uuid<T>(value: String) -> Result<T, RepositoryError>

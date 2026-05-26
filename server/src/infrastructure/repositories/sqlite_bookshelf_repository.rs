@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sqlx::{sqlite::SqliteRow, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
     application::library::bookshelf::ports::BookshelfRepository,
@@ -8,11 +8,13 @@ use crate::{
         value_objects::{BookshelfId, BookshelfName},
     },
     infrastructure::repositories::{
-        errors::RepositoryError, idens::Bookshelves, sqlite::{SqliteExecutor, SqliteRowExt, map_database_error}
+        errors::RepositoryError,
+        idens::Bookshelves,
+        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
     },
 };
 
-use sea_query::{Expr, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
 
 #[derive(Clone)]
@@ -80,7 +82,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .from_table(Bookshelves::Table)
             .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
-        
+
         self.db
             .execute_affected(
                 &sql,
@@ -135,19 +137,23 @@ impl TryFrom<&SqliteRow> for Bookshelf {
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         Ok(Bookshelf {
-            id: row.get_uuid("id")?,
-            name: BookshelfName::from(row.get::<String>("name")?),
-            created_at: row.get("created_at")?,
-            updated_at: row.get("updated_at")?,
+            id: row.get_uuid(&Bookshelves::Id.to_string())?,
+            name: row.get_string(&Bookshelves::Name.to_string())?,
+            created_at: row.get(&Bookshelves::CreatedAt.to_string())?,
+            updated_at: row.get(&Bookshelves::UpdatedAt.to_string())?,
         })
     }
 }
 
-
-
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
-    map_database_error(error, |message| {
-        if message.contains("UNIQUE constraint failed: bookshelves.name") {
+    map_database_error(error, |database_error| {
+        let is_name_conflict = message_contains_columns(
+            database_error.message(),
+            Bookshelves::Table,
+            [Bookshelves::Name],
+        );
+
+        if database_error.is_unique_constraint() && is_name_conflict {
             Some(RepositoryError::BookshelfNameConflict)
         } else {
             None

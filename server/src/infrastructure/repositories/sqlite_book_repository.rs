@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
 use sea_query_binder::SqlxBinder;
-use sqlx::{sqlite::SqliteRow, SqlitePool};
+use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
     application::library::book::ports::BookRepository,
@@ -10,7 +10,9 @@ use crate::{
         value_objects::{BookId, BookTitle},
     },
     infrastructure::repositories::{
-        errors::RepositoryError, idens::{Books, Bookshelves, Folders}, sqlite::{SqliteExecutor, SqliteRowExt, map_database_error}
+        errors::RepositoryError,
+        idens::{Books, Bookshelves, Folders},
+        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
     },
 };
 
@@ -135,26 +137,33 @@ impl TryFrom<&SqliteRow> for Book {
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         Ok(Book {
-            id: row.get_uuid("id")?,
-            title: BookTitle::from(row.get::<String>("title")?),
-            hash: row.get_hash("hash")?,
-            bookshelf_id: row.get_uuid("bookshelf_id")?,
-            folder_id: row.get_optional_uuid("folder_id")?,
-            created_at: row.get("created_at")?,
-            updated_at: row.get("updated_at")?,
+            id: row.get_uuid(&Books::Id.to_string())?,
+            title: row.get_string(&Books::Title.to_string())?,
+            hash: row.get_hash(&Books::Hash.to_string())?,
+            bookshelf_id: row.get_uuid(&Books::BookshelfId.to_string())?,
+            folder_id: row.get_optional_uuid(&Books::FolderId.to_string())?,
+            created_at: row.get(&Books::CreatedAt.to_string())?,
+            updated_at: row.get(&Books::UpdatedAt.to_string())?,
         })
     }
 }
 
-
 fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
-    map_database_error(error, |message| {
-        let is_unique_failed = message.contains("UNIQUE constraint failed");
-        let is_book_title_conflict = message
-            .contains("books.bookshelf_id, books.folder_id, books.title")
-            || message.contains("books.bookshelf_id, books.title");
+    map_database_error(error, |database_error| {
+        let is_folder_book_title_conflict = message_contains_columns(
+            database_error.message(),
+            Books::Table,
+            [Books::BookshelfId, Books::FolderId, Books::Title],
+        );
+        let is_root_book_title_conflict = message_contains_columns(
+            database_error.message(),
+            Books::Table,
+            [Books::BookshelfId, Books::Title],
+        );
 
-        if is_unique_failed && is_book_title_conflict {
+        if database_error.is_unique_constraint()
+            && (is_folder_book_title_conflict || is_root_book_title_conflict)
+        {
             Some(RepositoryError::BookTitleConflict)
         } else {
             None
