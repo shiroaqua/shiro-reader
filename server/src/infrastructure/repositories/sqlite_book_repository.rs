@@ -11,7 +11,7 @@ use crate::{
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        idens::{Books, Bookshelves, Folders},
+        idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS, Folders},
         sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
     },
 };
@@ -60,15 +60,7 @@ impl BookRepository for SqliteBookRepository {
 
         let (sql, values) = Query::insert()
             .into_table(Books::Table)
-            .columns([
-                Books::Id,
-                Books::Title,
-                Books::Hash,
-                Books::BookshelfId,
-                Books::FolderId,
-                Books::CreatedAt,
-                Books::UpdatedAt,
-            ])
+            .columns(FULL_BOOKS_TABLE_COLUMNS)
             .values_panic([
                 book.id.to_string().into(),
                 book.title.to_string().into(),
@@ -113,15 +105,7 @@ impl BookRepository for SqliteBookRepository {
 
     async fn find_by_id(&self, id: &BookId) -> Result<Book, RepositoryError> {
         let (sql, values) = Query::select()
-            .columns([
-                Books::Id,
-                Books::Title,
-                Books::Hash,
-                Books::BookshelfId,
-                Books::FolderId,
-                Books::CreatedAt,
-                Books::UpdatedAt,
-            ])
+            .columns(FULL_BOOKS_TABLE_COLUMNS)
             .from(Books::Table)
             .and_where(Expr::col(Books::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);

@@ -1,13 +1,13 @@
 use axum::{
-    extract::{Path, State},
-    http::StatusCode,
     Json,
+    extract::{Path, Query, State},
+    http::StatusCode,
 };
 
 use crate::{
     api::{response::DataResponse, v1::library::bookshelf::folder::dto::*},
     application::library::bookshelf::folder::commands::{
-        CreateFolderCommand, DeleteFolderCommand, RenameFolderCommand,
+        CreateFolderCommand, DeleteFolderCommand, GetFoldersCommand, RenameFolderCommand
     },
     error::AppError,
     state::AppState,
@@ -27,10 +27,7 @@ pub async fn create_folder(
         })
         .await?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(DataResponse::new(output.into())),
-    ))
+    Ok((StatusCode::CREATED, Json(DataResponse::new(output.into()))))
 }
 
 pub async fn rename_folder(
@@ -63,4 +60,21 @@ pub async fn delete_folder(
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_folders(
+    State(state): State<AppState>,
+    Path(bookshelf_id): Path<String>,
+    Query(query): Query<GetFoldersQuery>,
+) -> Result<(StatusCode, Json<DataResponse<GetFoldersResponse>>), AppError> {
+    let output = state
+        .folder_service
+        .get_folders(GetFoldersCommand {
+            bookshelf_id: bookshelf_id,
+            id: query.id,
+            recursive: query.recursive.is_some_and(|x| x),
+        })
+        .await?;
+    
+    Ok((StatusCode::OK, Json(DataResponse::new(output.into()))))
 }

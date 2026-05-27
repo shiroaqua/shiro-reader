@@ -14,10 +14,12 @@ use crate::{
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        idens::Folders,
+        idens::{FULL_FOLDERS_TABLE_COLUMNS, Folders},
         sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
     },
 };
+
+
 
 #[derive(Clone)]
 pub struct SqliteFolderRepository {
@@ -37,14 +39,7 @@ impl FolderRepository for SqliteFolderRepository {
     async fn create(&self, folder: Folder) -> Result<Folder, RepositoryError> {
         let (sql, values) = Query::insert()
             .into_table(Folders::Table)
-            .columns([
-                Folders::Id,
-                Folders::BookshelfId,
-                Folders::ParentId,
-                Folders::Name,
-                Folders::CreatedAt,
-                Folders::UpdatedAt,
-            ])
+            .columns(FULL_FOLDERS_TABLE_COLUMNS)
             .values_panic([
                 folder.id.to_string().into(),
                 folder.bookshelf_id.to_string().into(),
@@ -104,6 +99,49 @@ impl FolderRepository for SqliteFolderRepository {
             )
             .await?;
         Ok(())
+    }
+
+    async fn find_by_id(
+        &self,
+        bookshelf_id: &BookshelfId,
+        folder_id: &FolderId,
+    ) -> Result<Folder, RepositoryError> {
+        let (sql, values) = Query::select()
+            .columns(FULL_FOLDERS_TABLE_COLUMNS)
+            .from(Folders::Table)
+            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.db
+            .fetch_optional(
+                &sql,
+                values,
+                RepositoryError::FolderNotFound,
+                map_sqlx_error,
+            )
+            .await
+    }
+
+    async fn list_root(&self, bookshelf_id: &BookshelfId) -> Result<Vec<Folder>, RepositoryError> {
+        let (sql, values) = Query::select()
+            .columns(FULL_FOLDERS_TABLE_COLUMNS)
+            .from(Folders::Table)
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .and_where(Expr::col(Folders::ParentId).is_null())
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
+    }
+
+    async fn list(&self, bookshelf_id: &BookshelfId) -> Result<Vec<Folder>, RepositoryError> {
+        let (sql, values) = Query::select()
+            .columns(FULL_FOLDERS_TABLE_COLUMNS)
+            .from(Folders::Table)
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
     }
 }
 

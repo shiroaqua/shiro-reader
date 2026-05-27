@@ -56,6 +56,11 @@ pub const SAMPLE_ROOT_FOLDER_NAME: &str = "根目录";
 pub const SAMPLE_CHILD_FOLDER_NAME: &str = "子文件夹";
 pub const RENAMED_FOLDER_NAME: &str = "文件夹";
 pub const OTHER_ROOT_FOLDER_NAME: &str = "另一只根文件夹";
+pub const FOLDER_TREE_ROOT_NAME: &str = "Folder1";
+pub const FOLDER_TREE_CHILD_NAME: &str = "Folder2";
+pub const FOLDER_TREE_SECOND_CHILD_NAME: &str = "Folder3";
+pub const FOLDER_TREE_GRANDCHILD_NAME: &str = "Folder4";
+pub const FOLDER_TREE_OTHER_ROOT_NAME: &str = "Folder5";
 
 pub const INVALID_BOOK_TITLES: [&str; 6] = [
     " Book",
@@ -96,6 +101,14 @@ pub const UNKNOWN_UUID: &str = "00000000-0000-0000-0000-000000000000";
 pub struct TestApp {
     router: Router,
     _temp_dir: TempDir,
+}
+
+pub struct FolderTree {
+    pub root_id: String,
+    pub child_id: String,
+    pub second_child_id: String,
+    pub grandchild_id: String,
+    pub other_root_id: String,
 }
 
 impl TestApp {
@@ -280,6 +293,32 @@ impl TestApp {
     pub async fn create_other_sample_root_folder(&self, bookshelf_id: &str) -> String {
         self.create_folder(bookshelf_id, None, OTHER_ROOT_FOLDER_NAME)
             .await
+    }
+
+    pub async fn create_folder_tree(&self, bookshelf_id: &str) -> FolderTree {
+        let root_id = self
+            .create_folder(bookshelf_id, None, FOLDER_TREE_ROOT_NAME)
+            .await;
+        let child_id = self
+            .create_folder(bookshelf_id, Some(&root_id), FOLDER_TREE_CHILD_NAME)
+            .await;
+        let second_child_id = self
+            .create_folder(bookshelf_id, Some(&root_id), FOLDER_TREE_SECOND_CHILD_NAME)
+            .await;
+        let grandchild_id = self
+            .create_folder(bookshelf_id, Some(&child_id), FOLDER_TREE_GRANDCHILD_NAME)
+            .await;
+        let other_root_id = self
+            .create_folder(bookshelf_id, None, FOLDER_TREE_OTHER_ROOT_NAME)
+            .await;
+
+        FolderTree {
+            root_id,
+            child_id,
+            second_child_id,
+            grandchild_id,
+            other_root_id,
+        }
     }
 
     pub async fn create_book(

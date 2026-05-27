@@ -9,7 +9,7 @@ use crate::{
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        idens::Bookshelves,
+        idens::{Bookshelves, FULL_BOOKSHELVES_TABLE_COLUMNS},
         sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
     },
 };
@@ -35,12 +35,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
     async fn create(&self, bookshelf: Bookshelf) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::insert()
             .into_table(Bookshelves::Table)
-            .columns([
-                Bookshelves::Id,
-                Bookshelves::Name,
-                Bookshelves::CreatedAt,
-                Bookshelves::UpdatedAt,
-            ])
+            .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
             .values_panic([
                 bookshelf.id.to_string().into(),
                 bookshelf.name.to_string().into(),
@@ -97,12 +92,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
 
     async fn find_by_id(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::select()
-            .columns([
-                Bookshelves::Id,
-                Bookshelves::Name,
-                Bookshelves::CreatedAt,
-                Bookshelves::UpdatedAt,
-            ])
+            .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
             .from(Bookshelves::Table)
             .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
@@ -119,12 +109,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
 
     async fn list(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
         let (sql, values) = Query::select()
-            .columns([
-                Bookshelves::Id,
-                Bookshelves::Name,
-                Bookshelves::CreatedAt,
-                Bookshelves::UpdatedAt,
-            ])
+            .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
             .from(Bookshelves::Table)
             .build_sqlx(SqliteQueryBuilder);
 
