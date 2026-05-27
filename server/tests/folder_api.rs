@@ -1,11 +1,13 @@
 mod support;
 
-use axum::{
-    http::{StatusCode},
-};
+use axum::http::StatusCode;
 use serde_json::{Value, json};
 use support::{
-    assert_error, assert_rfc3339_datetime_string, assert_uuid_string, json_body, TestApp,
+    assert_bookshelf_invalid_id_error, assert_folder_invalid_id_error,
+    assert_folder_invalid_name_format_error, assert_folder_invalid_parent_id_error,
+    assert_folder_missing_name_error, assert_folder_name_conflict_error,
+    assert_folder_not_found_error, assert_folder_parent_not_found_error,
+    assert_rfc3339_datetime_string, assert_uuid_string, json_body, TestApp,
     FOLDER_TREE_CHILD_NAME, FOLDER_TREE_GRANDCHILD_NAME, FOLDER_TREE_OTHER_ROOT_NAME,
     FOLDER_TREE_ROOT_NAME, FOLDER_TREE_SECOND_CHILD_NAME, INVALID_FOLDER_NAMES, INVALID_UUID,
     RENAMED_FOLDER_NAME, SAMPLE_CHILD_FOLDER_NAME, SAMPLE_ROOT_FOLDER_NAME, UNKNOWN_UUID,
@@ -86,14 +88,12 @@ async fn create_folder_rejects_missing_name() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_missing_name_error(
         app.post_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
             json!({ "parent_id": null, "name": EMPTY_STRING }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.missing_name",
     )
     .await;
 }
@@ -104,14 +104,12 @@ async fn create_folder_rejects_invalid_name_format() {
     let bookshelf_id = app.create_sample_bookshelf().await;
 
     for invalid_name in INVALID_FOLDER_NAMES {
-        assert_error(
+        assert_folder_invalid_name_format_error(
             app.post_json(
                 &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
                 json!({ "parent_id": null, "name": invalid_name }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.bookshelf.folder.invalid_name_format",
         )
         .await;
     }
@@ -122,14 +120,12 @@ async fn create_folder_rejects_invalid_parent_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_invalid_parent_id_error(
         app.post_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
             json!({ "parent_id": INVALID_UUID, "name": SAMPLE_CHILD_FOLDER_NAME }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_parent_id",
     )
     .await;
 }
@@ -139,14 +135,12 @@ async fn create_folder_returns_not_found_for_unknown_parent_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_parent_not_found_error(
         app.post_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
             json!({ "parent_id": UNKNOWN_UUID, "name": SAMPLE_CHILD_FOLDER_NAME }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.parent_not_found",
     )
     .await;
 }
@@ -155,14 +149,12 @@ async fn create_folder_returns_not_found_for_unknown_parent_id() {
 async fn create_folder_returns_not_found_for_unknown_bookshelf_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_folder_parent_not_found_error(
         app.post_json(
             &format!("/api/v1/library/bookshelves/{UNKNOWN_UUID}/folders"),
             json!({ "parent_id": null, "name": SAMPLE_ROOT_FOLDER_NAME }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.parent_not_found",
     )
     .await;
 }
@@ -173,14 +165,12 @@ async fn create_folder_rejects_duplicate_sibling_name() {
     let bookshelf_id = app.create_sample_bookshelf().await;
     app.create_sample_root_folder(&bookshelf_id).await;
 
-    assert_error(
+    assert_folder_name_conflict_error(
         app.post_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
             json!({ "parent_id": null, "name": SAMPLE_ROOT_FOLDER_NAME }),
         )
         .await,
-        StatusCode::CONFLICT,
-        "library.bookshelf.folder.name_conflict",
     )
     .await;
 }
@@ -191,13 +181,11 @@ async fn delete_folder_rejects_invalid_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_invalid_id_error(
         app.delete(&format!(
             "/api/v1/library/bookshelves/{bookshelf_id}/folders/{INVALID_UUID}"
         ))
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_id",
     )
     .await;
 }
@@ -207,13 +195,11 @@ async fn delete_folder_returns_not_found_for_unknown_folder_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_not_found_error(
         app.delete(&format!(
             "/api/v1/library/bookshelves/{bookshelf_id}/folders/{UNKNOWN_UUID}"
         ))
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
     )
     .await;
 }
@@ -224,14 +210,12 @@ async fn rename_folder_rejects_missing_name() {
     let bookshelf_id = app.create_sample_bookshelf().await;
     let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
 
-    assert_error(
+    assert_folder_missing_name_error(
         app.patch_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
             json!({ "name": EMPTY_STRING }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.missing_name",
     )
     .await;
 }
@@ -243,14 +227,12 @@ async fn rename_folder_rejects_invalid_name_format() {
     let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
 
     for invalid_name in INVALID_FOLDER_NAMES {
-        assert_error(
+        assert_folder_invalid_name_format_error(
             app.patch_json(
                 &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
                 json!({ "name": invalid_name }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.bookshelf.folder.invalid_name_format",
         )
         .await;
     }
@@ -410,10 +392,8 @@ async fn get_folders_is_scoped_to_bookshelf() {
 async fn get_folders_rejects_invalid_bookshelf_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_invalid_id_error(
         app.get(&folders_uri(INVALID_UUID, None)).await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.invalid_id",
     )
     .await;
 }
@@ -423,14 +403,12 @@ async fn get_folders_rejects_invalid_folder_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_invalid_id_error(
         app.get(&folders_uri(
             &bookshelf_id,
             Some(&format!("id={INVALID_UUID}")),
         ))
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_id",
     )
     .await;
 }
@@ -440,14 +418,12 @@ async fn get_folders_returns_not_found_for_unknown_folder_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_not_found_error(
         app.get(&folders_uri(
             &bookshelf_id,
             Some(&format!("id={UNKNOWN_UUID}")),
         ))
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
     )
     .await;
 }
@@ -457,14 +433,12 @@ async fn get_folders_recursive_returns_not_found_for_unknown_folder_id() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_folder_not_found_error(
         app.get(&folders_uri(
             &bookshelf_id,
             Some(&format!("recursive=true&id={UNKNOWN_UUID}")),
         ))
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
     )
     .await;
 }

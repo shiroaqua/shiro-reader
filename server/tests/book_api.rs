@@ -3,10 +3,13 @@ mod support;
 use axum::http::StatusCode;
 use serde_json::json;
 use support::{
-    assert_error, assert_rfc3339_datetime_string, assert_uuid_string, hash_for, json_body,
-    TestApp, INVALID_BOOK_HASH, INVALID_BOOK_TITLES, INVALID_UUID,
-    MISSING_SAMPLE_BOOK_BYTES, RENAMED_BOOK_TITLE, SAMPLE_BOOK_BYTES, SAMPLE_BOOK_TITLE,
-    UNKNOWN_UUID,
+    assert_book_file_invalid_hash_format_error, assert_book_file_not_found_error,
+    assert_book_invalid_id_error, assert_book_invalid_title_format_error,
+    assert_book_missing_title_error, assert_book_not_found_error, assert_book_title_conflict_error,
+    assert_bookshelf_not_found_error, assert_folder_not_found_error,
+    assert_rfc3339_datetime_string, assert_uuid_string, hash_for, json_body, TestApp,
+    INVALID_BOOK_HASH, INVALID_BOOK_TITLES, INVALID_UUID, MISSING_SAMPLE_BOOK_BYTES,
+    RENAMED_BOOK_TITLE, SAMPLE_BOOK_BYTES, SAMPLE_BOOK_TITLE, UNKNOWN_UUID,
 };
 
 use crate::support::EMPTY_STRING;
@@ -94,11 +97,9 @@ async fn delete_book() {
     let response = app.delete(&format!("/api/v1/library/books/{book_id}")).await;
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    assert_error(
+    assert_book_not_found_error(
         app.get(&format!("/api/v1/library/books?id={book_id}"))
             .await,
-        StatusCode::NOT_FOUND,
-        "library.book.not_found",
     )
     .await;
 }
@@ -109,7 +110,7 @@ async fn create_book_rejects_missing_title() {
     let bookshelf_id = app.create_sample_bookshelf().await;
     let hash = hash_for(SAMPLE_BOOK_BYTES);
 
-    assert_error(
+    assert_book_missing_title_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -120,8 +121,6 @@ async fn create_book_rejects_missing_title() {
             }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.book.missing_title",
     )
     .await;
 }
@@ -133,7 +132,7 @@ async fn create_book_rejects_invalid_title_format() {
     let hash = hash_for(SAMPLE_BOOK_BYTES);
 
     for invalid_title in INVALID_BOOK_TITLES {
-        assert_error(
+        assert_book_invalid_title_format_error(
             app.post_json(
                 "/api/v1/library/books",
                 json!({
@@ -144,8 +143,6 @@ async fn create_book_rejects_invalid_title_format() {
                 }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.book.invalid_title_format",
         )
         .await;
     }
@@ -156,7 +153,7 @@ async fn create_book_rejects_invalid_hash() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_book_file_invalid_hash_format_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -167,8 +164,6 @@ async fn create_book_rejects_invalid_hash() {
             }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.invalid_hash_format",
     )
     .await;
 }
@@ -178,7 +173,7 @@ async fn create_book_returns_not_found_when_book_file_is_missing() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_book_file_not_found_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -189,8 +184,6 @@ async fn create_book_returns_not_found_when_book_file_is_missing() {
             }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.book.file.not_found",
     )
     .await;
 }
@@ -200,7 +193,7 @@ async fn create_book_returns_not_found_for_unknown_bookshelf_id() {
     let app = TestApp::new().await;
     let hash = app.upload_another_sample_book_file().await;
 
-    assert_error(
+    assert_bookshelf_not_found_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -211,8 +204,6 @@ async fn create_book_returns_not_found_for_unknown_bookshelf_id() {
             }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.not_found",
     )
     .await;
 }
@@ -223,7 +214,7 @@ async fn create_book_returns_not_found_for_unknown_folder_id() {
     let bookshelf_id = app.create_sample_bookshelf().await;
     let hash = app.upload_another_sample_book_file().await;
 
-    assert_error(
+    assert_folder_not_found_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -234,8 +225,6 @@ async fn create_book_returns_not_found_for_unknown_folder_id() {
             }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
     )
     .await;
 }
@@ -250,7 +239,7 @@ async fn create_book_rejects_folder_from_another_bookshelf() {
         .await;
     let hash = app.upload_another_sample_book_file().await;
 
-    assert_error(
+    assert_folder_not_found_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -261,8 +250,6 @@ async fn create_book_rejects_folder_from_another_bookshelf() {
             }),
         )
         .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
     )
     .await;
 }
@@ -276,7 +263,7 @@ async fn create_book_rejects_duplicate_title_in_same_location() {
         .await;
     let second_hash = app.upload_third_sample_book_file().await;
 
-    assert_error(
+    assert_book_title_conflict_error(
         app.post_json(
             "/api/v1/library/books",
             json!({
@@ -287,8 +274,6 @@ async fn create_book_rejects_duplicate_title_in_same_location() {
             }),
         )
         .await,
-        StatusCode::CONFLICT,
-        "library.book.title_conflict",
     )
     .await;
 }
@@ -298,11 +283,9 @@ async fn create_book_rejects_duplicate_title_in_same_location() {
 async fn get_book_rejects_invalid_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_book_invalid_id_error(
         app.get(&format!("/api/v1/library/books?id={INVALID_UUID}"))
             .await,
-        StatusCode::BAD_REQUEST,
-        "library.book.invalid_id",
     )
     .await;
 }
@@ -311,12 +294,11 @@ async fn get_book_rejects_invalid_id() {
 async fn get_book_returns_not_found_for_unkown_id() {
     let app = TestApp::new().await;
 
-    assert_error(app.get(&format!("/api/v1/library/books?id={UNKNOWN_UUID}"))
-    .await, 
-        StatusCode::NOT_FOUND,
-        "library.book.not_found",
+    assert_book_not_found_error(
+        app.get(&format!("/api/v1/library/books?id={UNKNOWN_UUID}"))
+            .await,
     )
-        .await
+    .await
 }
 
 
@@ -324,11 +306,9 @@ async fn get_book_returns_not_found_for_unkown_id() {
 async fn delete_book_rejects_invalid_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_book_invalid_id_error(
         app.delete(&format!("/api/v1/library/books/{INVALID_UUID}"))
             .await,
-        StatusCode::BAD_REQUEST,
-        "library.book.invalid_id",
     )
     .await;
 
@@ -338,11 +318,9 @@ async fn delete_book_rejects_invalid_id() {
 async fn delete_book_returns_not_found_for_unknown_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_book_not_found_error(
         app.delete(&format!("/api/v1/library/books/{UNKNOWN_UUID}"))
             .await,
-        StatusCode::NOT_FOUND,
-        "library.book.not_found",
     )
     .await;
 }
@@ -357,14 +335,12 @@ async fn rename_book_rejects_missing_name() {
         .create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &hash)
         .await;
 
-    assert_error(
+    assert_book_missing_title_error(
         app.patch_json(
             &format!("/api/v1/library/books/{book_id}"),
             json!({ "title": EMPTY_STRING }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.book.missing_title",
     )
     .await;
 }
@@ -379,14 +355,12 @@ async fn rename_book_rejects_invalid_title_format() {
         .await;
 
     for invalid_title in INVALID_BOOK_TITLES {
-        assert_error(
+        assert_book_invalid_title_format_error(
             app.patch_json(
                 &format!("/api/v1/library/books/{book_id}"),
                 json!({ "title": invalid_title }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.book.invalid_title_format",
         )
         .await;
     }

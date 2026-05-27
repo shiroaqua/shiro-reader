@@ -3,8 +3,10 @@ mod support;
 use axum::http::StatusCode;
 use serde_json::json;
 use support::{
-    assert_error, assert_rfc3339_datetime_string, assert_uuid_string, json_body, TestApp,
-    ANOTHER_SAMPLE_BOOKSHELF_NAME, INVALID_BOOKSHELF_NAMES, INVALID_UUID,
+    assert_bookshelf_invalid_id_error, assert_bookshelf_invalid_name_format_error,
+    assert_bookshelf_missing_name_error, assert_bookshelf_name_conflict_error,
+    assert_bookshelf_not_found_error, assert_rfc3339_datetime_string, assert_uuid_string,
+    json_body, TestApp, ANOTHER_SAMPLE_BOOKSHELF_NAME, INVALID_BOOKSHELF_NAMES, INVALID_UUID,
     RENAMED_BOOKSHELF_NAME, SAMPLE_BOOKSHELF_NAME, UNKNOWN_UUID,
 };
 
@@ -93,11 +95,9 @@ async fn delete_bookshelf() {
         .await;
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    assert_error(
+    assert_bookshelf_not_found_error(
         app.get(&format!("/api/v1/library/bookshelves?id={bookshelf_id}"))
             .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.not_found",
     )
     .await;
 }
@@ -106,14 +106,12 @@ async fn delete_bookshelf() {
 async fn create_bookshelf_rejects_missing_name() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_missing_name_error(
         app.post_json(
             "/api/v1/library/bookshelves",
             json!({ "name": EMPTY_STRING }),
         )
             .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.missing_name",
     )
     .await;
 }
@@ -123,14 +121,12 @@ async fn create_bookshelf_rejects_invalid_name_format() {
     let app = TestApp::new().await;
 
     for invalid_name in INVALID_BOOKSHELF_NAMES {
-        assert_error(
+        assert_bookshelf_invalid_name_format_error(
             app.post_json(
                 "/api/v1/library/bookshelves",
                 json!({ "name": invalid_name }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.bookshelf.invalid_name_format",
         )
         .await;
     }
@@ -141,14 +137,12 @@ async fn create_bookshelf_rejects_duplicate_name() {
     let app = TestApp::new().await;
     app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_bookshelf_name_conflict_error(
         app.post_json(
             "/api/v1/library/bookshelves",
             json!({ "name": SAMPLE_BOOKSHELF_NAME }),
         )
         .await,
-        StatusCode::CONFLICT,
-        "library.bookshelf.name_conflict",
     )
     .await;
 }
@@ -157,11 +151,9 @@ async fn create_bookshelf_rejects_duplicate_name() {
 async fn get_bookshelf_rejects_invalid_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_invalid_id_error(
         app.get(&format!("/api/v1/library/bookshelves?id={INVALID_UUID}"))
             .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.invalid_id",
     )
     .await;
 }
@@ -170,11 +162,9 @@ async fn get_bookshelf_rejects_invalid_id() {
 async fn get_bookshelf_returns_not_found_for_unknown_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_not_found_error(
         app.get(&format!("/api/v1/library/bookshelves?id={UNKNOWN_UUID}"))
             .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.not_found",
     )
     .await;
 }
@@ -184,11 +174,9 @@ async fn get_bookshelf_returns_not_found_for_unknown_id() {
 async fn delete_bookshelf_rejects_invalid_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_invalid_id_error(
         app.delete(&format!("/api/v1/library/bookshelves/{INVALID_UUID}"))
             .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.invalid_id",
     )
     .await;
 }
@@ -198,11 +186,9 @@ async fn delete_bookshelf_rejects_invalid_id() {
 async fn delete_bookshelf_returns_not_found_for_unknown_id() {
     let app = TestApp::new().await;
 
-    assert_error(
+    assert_bookshelf_not_found_error(
         app.delete(&format!("/api/v1/library/bookshelves/{UNKNOWN_UUID}"))
             .await,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.not_found",
     )
     .await;
 }
@@ -213,14 +199,12 @@ async fn rename_bookshelf_rejects_missing_name() {
     let app = TestApp::new().await;
     let bookshelf_id = app.create_sample_bookshelf().await;
 
-    assert_error(
+    assert_bookshelf_missing_name_error(
         app.patch_json(
             &format!("/api/v1/library/bookshelves/{bookshelf_id}"),
             json!({ "name": EMPTY_STRING }),
         )
         .await,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.missing_name",
     )
     .await;
 }
@@ -231,14 +215,12 @@ async fn rename_bookshelf_rejects_invalid_name_format() {
     let bookshelf_id = app.create_sample_bookshelf().await;
 
     for invalid_name in INVALID_BOOKSHELF_NAMES {
-        assert_error(
+        assert_bookshelf_invalid_name_format_error(
             app.patch_json(
                 &format!("/api/v1/library/bookshelves/{bookshelf_id}"),
                 json!({ "name": invalid_name }),
             )
             .await,
-            StatusCode::BAD_REQUEST,
-            "library.bookshelf.invalid_name_format",
         )
         .await;
     }

@@ -34,7 +34,6 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-
 pub const SAMPLE_BOOK_BYTES: &[u8] = b"sample-book-file";
 pub const ANOTHER_SAMPLE_BOOK_BYTES: &[u8] = b"another-sample-book-file";
 pub const THIRD_SAMPLE_BOOK_BYTES: &[u8] = b"third-sample-book-file";
@@ -51,7 +50,6 @@ pub const SAMPLE_BOOKSHELF_NAME: &str = "Bookshelf";
 pub const ANOTHER_SAMPLE_BOOKSHELF_NAME: &str = "书架";
 pub const RENAMED_BOOKSHELF_NAME: &str = "书";
 
-
 pub const SAMPLE_ROOT_FOLDER_NAME: &str = "根目录";
 pub const SAMPLE_CHILD_FOLDER_NAME: &str = "子文件夹";
 pub const RENAMED_FOLDER_NAME: &str = "文件夹";
@@ -62,14 +60,8 @@ pub const FOLDER_TREE_SECOND_CHILD_NAME: &str = "Folder3";
 pub const FOLDER_TREE_GRANDCHILD_NAME: &str = "Folder4";
 pub const FOLDER_TREE_OTHER_ROOT_NAME: &str = "Folder5";
 
-pub const INVALID_BOOK_TITLES: [&str; 6] = [
-    " Book",
-    "Book ",
-    "\tBook",
-    "Book\t",
-    "\nBook",
-    "Book\n",
-];
+pub const INVALID_BOOK_TITLES: [&str; 6] =
+    [" Book", "Book ", "\tBook", "Book\t", "\nBook", "Book\n"];
 
 pub const INVALID_BOOKSHELF_NAMES: [&str; 8] = [
     "一块 Shelf",
@@ -82,7 +74,6 @@ pub const INVALID_BOOKSHELF_NAMES: [&str; 8] = [
     "书架\n架",
 ];
 
-
 pub const INVALID_FOLDER_NAMES: [&str; 8] = [
     "一只 文件夹",
     " Folder",
@@ -94,9 +85,7 @@ pub const INVALID_FOLDER_NAMES: [&str; 8] = [
     "Folder\nsubFolder",
 ];
 
-
 pub const UNKNOWN_UUID: &str = "00000000-0000-0000-0000-000000000000";
-
 
 pub struct TestApp {
     router: Router,
@@ -136,9 +125,8 @@ impl TestApp {
         let book_repository: Arc<dyn BookRepository> =
             Arc::new(SqliteBookRepository::new(pool.clone()));
 
-
         let state = AppState {
-            book_service: Arc::new(BookService::new(book_repository,bookfile_service.clone())),
+            book_service: Arc::new(BookService::new(book_repository, bookfile_service.clone())),
             bookshelf_service: Arc::new(BookshelfService::new(bookshelf_repository)),
             folder_service: Arc::new(FolderService::new(folder_repository)),
             bookfile_service: bookfile_service,
@@ -392,6 +380,221 @@ pub async fn assert_error(response: Response<Body>, status: StatusCode, message:
     assert_eq!(response.status(), status);
     let body = json_body(response).await;
     assert_eq!(body["error"]["message"], message);
+}
+
+pub async fn assert_book_missing_title_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.missing_title",
+    )
+    .await
+}
+
+pub async fn assert_book_invalid_title_format_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.invalid_title_format",
+    )
+    .await
+}
+
+pub async fn assert_book_invalid_id_error(response: Response<Body>) {
+    assert_error(response, 
+        StatusCode::BAD_REQUEST, 
+        "library.book.invalid_id",
+    )
+    .await
+}
+
+pub async fn assert_book_not_found_error(response: Response<Body>) {
+    assert_error(
+        response, 
+        StatusCode::NOT_FOUND, 
+        "library.book.not_found",
+    )
+    .await
+}
+
+pub async fn assert_book_title_conflict_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::CONFLICT,
+        "library.book.title_conflict",
+    )
+    .await
+}
+
+pub async fn assert_book_file_upload_missing_hash_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.file.upload.missing_hash",
+    )
+    .await
+}
+
+pub async fn assert_book_file_upload_missing_file_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.file.upload.missing_file",
+    )
+    .await
+}
+
+pub async fn assert_book_file_upload_duplicate_hash_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.file.upload.duplicate_hash",
+    )
+    .await
+}
+
+pub async fn assert_book_file_hash_mismatch_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.file.hash_mismatch",
+    )
+    .await
+}
+
+pub async fn assert_book_file_already_exists_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::CONFLICT,
+        "library.book.file.already_exists",
+    )
+    .await
+}
+
+pub async fn assert_book_file_invalid_hash_format_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.book.file.invalid_hash_format",
+    )
+    .await
+}
+
+pub async fn assert_book_file_not_found_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::NOT_FOUND,
+        "library.book.file.not_found",
+    )
+    .await
+}
+
+pub async fn assert_bookshelf_missing_name_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.missing_name",
+    )
+    .await
+}
+
+pub async fn assert_bookshelf_invalid_name_format_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.invalid_name_format",
+    )
+    .await
+}
+
+pub async fn assert_bookshelf_invalid_id_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.invalid_id",
+    )
+    .await
+}
+
+pub async fn assert_bookshelf_not_found_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::NOT_FOUND,
+        "library.bookshelf.not_found",
+    )
+    .await
+}
+
+pub async fn assert_bookshelf_name_conflict_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::CONFLICT,
+        "library.bookshelf.name_conflict",
+    )
+    .await
+}
+
+pub async fn assert_folder_missing_name_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.folder.missing_name",
+    )
+    .await
+}
+
+pub async fn assert_folder_invalid_name_format_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.folder.invalid_name_format",
+    )
+    .await
+}
+
+pub async fn assert_folder_invalid_id_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.folder.invalid_id",
+    )
+    .await
+}
+
+pub async fn assert_folder_invalid_parent_id_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::BAD_REQUEST,
+        "library.bookshelf.folder.invalid_parent_id",
+    )
+    .await
+}
+
+pub async fn assert_folder_parent_not_found_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::NOT_FOUND,
+        "library.bookshelf.folder.parent_not_found",
+    )
+    .await
+}
+
+pub async fn assert_folder_not_found_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::NOT_FOUND,
+        "library.bookshelf.folder.not_found",
+    )
+    .await
+}
+
+pub async fn assert_folder_name_conflict_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::CONFLICT,
+        "library.bookshelf.folder.name_conflict",
+    )
+    .await
 }
 
 pub fn assert_uuid_string(value: &Value) {
