@@ -25,6 +25,13 @@ pub struct RenameBookCommand {
 }
 
 #[derive(Debug)]
+
+pub struct GetBooksCommand {
+    pub bookshelf_id: String,
+    pub folder_id: Option<String>
+}
+
+#[derive(Debug)]
 pub struct GetBookCommand {
     pub id: String,
 }
@@ -34,6 +41,9 @@ pub struct CreateBookOutput {
     pub id: BookId,
     pub created_at: i64,
 }
+
+#[derive(Debug)]
+pub struct GetBooksOutput(pub Vec<GetBookOutput>);
 
 #[derive(Debug, o2o)]
 #[from_owned(Book)]

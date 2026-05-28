@@ -28,6 +28,8 @@ pub struct CreateBookResponse {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct GetBooksResponse(pub Vec<GetBookResponse>);
 
 #[derive(Debug, Serialize)]
 pub struct GetBookResponse {

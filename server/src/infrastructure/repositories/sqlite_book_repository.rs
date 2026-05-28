@@ -5,10 +5,10 @@ use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
     application::library::book::ports::BookRepository,
-    domain::library::book::{
+    domain::library::{bookshelf::folder::value_objects::FolderId, bookshelf::value_objects::BookshelfId, book::{
         entity::Book,
         value_objects::{BookId, BookTitle},
-    },
+    }},
     infrastructure::repositories::{
         errors::RepositoryError,
         idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS, Folders},
@@ -113,6 +113,26 @@ impl BookRepository for SqliteBookRepository {
         self.db
             .fetch_optional(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
             .await
+    }
+
+    async fn list(
+        &self,
+        bookshelf_id: &BookshelfId,
+        folder_id: Option<&FolderId>,
+    ) -> Result<Vec<Book>, RepositoryError> {
+        let mut query = Query::select();
+        query
+            .columns(FULL_BOOKS_TABLE_COLUMNS)
+            .from(Books::Table)
+            .and_where(Expr::col(Books::BookshelfId).eq(bookshelf_id.to_string()));
+
+        if let Some(folder_id) = folder_id {
+            query.and_where(Expr::col(Books::FolderId).eq(folder_id.to_string()));
+        }
+
+        let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
+
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
     }
 }
 

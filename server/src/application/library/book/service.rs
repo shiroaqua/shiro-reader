@@ -7,8 +7,11 @@ use crate::{
         book::{
             commands::{
                 CreateBookCommand, CreateBookOutput, DeleteBookCommand, GetBookCommand,
-                GetBookOutput, RenameBookCommand,
-            }, errors::BookApplicationError, file::service::BookFileService, ports::BookRepository
+                GetBookOutput, GetBooksCommand, GetBooksOutput, RenameBookCommand,
+            },
+            errors::BookApplicationError,
+            file::service::BookFileService,
+            ports::BookRepository,
         },
         errors::LibraryApplicationError,
     },
@@ -44,15 +47,7 @@ impl BookService {
             .transpose()?;
         let now = now_ms();
 
-        let book = Book::new(
-            id,
-            title,
-            hash,
-            bookshelf_id,
-            folder_id,
-            now,
-            now,
-        );
+        let book = Book::new(id, title, hash, bookshelf_id, folder_id, now, now);
         let created = self.repository.create(book).await?;
 
         Ok(CreateBookOutput {
@@ -79,6 +74,26 @@ impl BookService {
         self.repository.rename(&id, &new_title).await?;
 
         Ok(())
+    }
+
+    pub async fn get_books(
+        &self,
+        command: GetBooksCommand,
+    ) -> Result<GetBooksOutput, LibraryApplicationError> {
+        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
+        let folder_id = command
+            .folder_id
+            .and_then(|f| Some(FolderId::parse_folder_id(f)))
+            .transpose()?;
+
+        Ok(GetBooksOutput(
+            self.repository
+                .list(&bookshelf_id, folder_id.as_ref())
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        ))
     }
 
     pub async fn get_book(
