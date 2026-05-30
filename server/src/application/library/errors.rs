@@ -46,6 +46,9 @@ impl From<FolderDomainError> for LibraryApplicationError {
 impl From<RepositoryError> for LibraryApplicationError {
     fn from(value: RepositoryError) -> Self {
         match value {
+            RepositoryError::InvalidBookFileType => { // 该错误是泛型转换出了问题，因此不该报告给用户具体错误
+                LibraryApplicationError::Book(BookApplicationError::Storage(anyhow::Error::new(value)))
+            },
             RepositoryError::BookNotFound => {
                 LibraryApplicationError::Book(BookApplicationError::NotFound)
             }

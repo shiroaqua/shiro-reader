@@ -1,5 +1,5 @@
 use crate::domain::library::{
-    book::{entity::Book, value_objects::{BookId, BookTitle}},
+    book::{entity::{Book, BookFileType}, value_objects::{BookId, BookTitle}},
     bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId},
 };
 use o2o::o2o;
@@ -51,6 +51,7 @@ pub struct GetBookOutput {
     pub id: BookId,
     pub title: BookTitle,
     pub hash: blake3::Hash,
+    pub file_type: BookFileType,
     pub bookshelf_id: BookshelfId,
     pub folder_id: Option<FolderId>,
     pub created_at: i64,

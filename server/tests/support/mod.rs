@@ -34,10 +34,10 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-pub const SAMPLE_BOOK_BYTES: &[u8] = b"sample-book-file";
-pub const ANOTHER_SAMPLE_BOOK_BYTES: &[u8] = b"another-sample-book-file";
-pub const THIRD_SAMPLE_BOOK_BYTES: &[u8] = b"third-sample-book-file";
-pub const MISSING_SAMPLE_BOOK_BYTES: &[u8] = b"missing-sample-book-file";
+pub const SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub";
+pub const ANOTHER_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-file";
+pub const THIRD_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-Book-file";
+pub const MISSING_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-sample-book-file";
 pub const HASH_MISMATCH_BOOK_BYTES: &[u8] = b"hash-mismatch-book-file";
 pub const INVALID_BOOK_HASH: &str = "not-a-hash";
 pub const INVALID_UUID: &str = "not-a-uuid";

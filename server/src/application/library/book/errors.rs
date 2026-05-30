@@ -12,6 +12,9 @@ pub enum BookApplicationError {
     #[error("invalid book hash format")]
     InvalidHashFormat,
 
+    #[error("invaild book file")]
+    InvailFile,
+
     #[error("book not found")]
     NotFound,
 

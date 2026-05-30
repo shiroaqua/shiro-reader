@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS books (
     id           TEXT    NOT NULL PRIMARY KEY,
     title        TEXT    NOT NULL,
     hash         TEXT    NOT NULL,
+    type         TEXT    NOT NULL,
     bookshelf_id TEXT    NOT NULL,
     folder_id    TEXT,
     created_at   INTEGER NOT NULL,
@@ -37,6 +38,11 @@ CREATE TABLE IF NOT EXISTS books (
             AND title = trim(title)
         ),
 
+
+    CONSTRAINT CHK_BOOKS_TYPE
+        CHECK (
+            TYPE IN ('TXT', 'PDF', 'EPUB')
+        ),
 
     CONSTRAINT chk_books_bookshelf_id_uuid
         CHECK (

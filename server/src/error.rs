@@ -135,6 +135,9 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::InvalidHashFormat => AppError::BadRequest {
                     message: "library.book.invalid_hash_format",
                 },
+                BookApplicationError::InvailFile => AppError::BadRequest {
+                    message: "library.book.invalid_file",
+                },
                 BookApplicationError::NotFound => AppError::NotFound {
                     message: "library.book.not_found",
                 },

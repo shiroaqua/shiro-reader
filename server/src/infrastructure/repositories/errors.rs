@@ -19,6 +19,9 @@ pub enum RepositoryError {
     #[error("folder cycle detected")]
     FolderCycled,
 
+    #[error("book file type is inviled")]
+    InvalidBookFileType,
+
     #[error("book not found")]
     BookNotFound,
 
