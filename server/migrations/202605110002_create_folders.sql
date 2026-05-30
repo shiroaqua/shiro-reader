@@ -8,7 +8,6 @@ CREATE TABLE IF NOT EXISTS folders (
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
 
-
     CONSTRAINT chk_folders_id_uuid
         CHECK (
             length(id) = 36
@@ -20,7 +19,7 @@ CREATE TABLE IF NOT EXISTS folders (
             AND replace(id, '-', '') NOT GLOB '*[^0-9a-f]*'
         ),
 
-    CONSTRAINT chk_bookshelf_id
+    CONSTRAINT chk_folders_bookshelf_id_uuid
         CHECK (
             length(bookshelf_id) = 36
             AND substr(bookshelf_id, 9, 1) = '-'
@@ -31,16 +30,18 @@ CREATE TABLE IF NOT EXISTS folders (
             AND replace(bookshelf_id, '-', '') NOT GLOB '*[^0-9a-f]*'
         ),
 
-
     CONSTRAINT chk_folders_parent_id_uuid
         CHECK (
-            length(parent_id) = 36
-            AND substr(parent_id, 9, 1) = '-'
-            AND substr(parent_id, 14, 1) = '-'
-            AND substr(parent_id, 19, 1) = '-'
-            AND substr(parent_id, 24, 1) = '-'
-            AND lower(parent_id) = parent_id
-            AND replace(parent_id, '-', '') NOT GLOB '*[^0-9a-f]*'           
+            parent_id IS NULL
+            OR (
+                length(parent_id) = 36
+                AND substr(parent_id, 9, 1) = '-'
+                AND substr(parent_id, 14, 1) = '-'
+                AND substr(parent_id, 19, 1) = '-'
+                AND substr(parent_id, 24, 1) = '-'
+                AND lower(parent_id) = parent_id
+                AND replace(parent_id, '-', '') NOT GLOB '*[^0-9a-f]*'
+            )
         ),
 
     CONSTRAINT chk_folders_name_valid
@@ -54,31 +55,32 @@ CREATE TABLE IF NOT EXISTS folders (
             updated_at > 0
             AND updated_at >= created_at
         ),
-        
-    
+
+    CONSTRAINT uq_folders_bookshelf_id_id
+        UNIQUE (bookshelf_id, id),
+
     CONSTRAINT fk_bookshelf
         FOREIGN KEY (bookshelf_id)
         REFERENCES bookshelves(id)
         ON UPDATE CASCADE
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
 
-    CONSTRAINT fk_folders_parent
-        FOREIGN KEY (parent_id)
-        REFERENCES folders(id)
+    CONSTRAINT fk_folders_parent_same_bookshelf
+        FOREIGN KEY (bookshelf_id, parent_id)
+        REFERENCES folders(bookshelf_id, id)
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
 
--- 禁止重复文件名
-
--- 1. 处理 parent_id 不为 NULL 的情况
-CREATE UNIQUE INDEX uq_folders_parent_name_not_null 
-ON folders (bookshelf_id, parent_id, name) 
+-- 禁止同一个父目录下出现重复文件夹名。
+-- 1. parent_id 不为 NULL 的情况
+CREATE UNIQUE INDEX IF NOT EXISTS uq_folders_parent_name_not_null
+ON folders (bookshelf_id, parent_id, name)
 WHERE parent_id IS NOT NULL;
 
--- 2. 处理根目录（parent_id 为 NULL）的情况
-CREATE UNIQUE INDEX uq_folders_parent_name_null 
-ON folders (bookshelf_id, name) 
+-- 2. 根目录 parent_id 为 NULL 的情况
+CREATE UNIQUE INDEX IF NOT EXISTS uq_folders_parent_name_null
+ON folders (bookshelf_id, name)
 WHERE parent_id IS NULL;
 
 

@@ -46,7 +46,7 @@ pub fn router() -> Router<AppState> {
         .route(
             "/bookshelves/{bookshelf_id}/folders/{folder_id}",
             delete(bookshelf::folder::handlers::delete_folder)
-                .patch(bookshelf::folder::handlers::rename_folder),
+                .patch(bookshelf::folder::handlers::update_folder),
         )
         .route(
             "/bookshelves/{bookshelf_id}/folders/{folder_id}/books",

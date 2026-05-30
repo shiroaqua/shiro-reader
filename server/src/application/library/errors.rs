@@ -67,6 +67,9 @@ impl From<RepositoryError> for LibraryApplicationError {
             RepositoryError::FolderNameConflict => {
                 LibraryApplicationError::Folder(FolderApplicationError::NameConflict)
             }
+            RepositoryError::FolderCycled => {
+                LibraryApplicationError::Folder(FolderApplicationError::Cycled)
+            }
             RepositoryError::Storage(error) => {
                 LibraryApplicationError::Book(BookApplicationError::Storage(error))
             }

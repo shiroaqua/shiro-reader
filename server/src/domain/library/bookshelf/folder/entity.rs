@@ -7,7 +7,7 @@ use crate::domain::library::bookshelf::value_objects::BookshelfId;
 pub struct Folder {
     pub id: FolderId,
     pub bookshelf_id: BookshelfId,
-    pub parent_id: Option<FolderId>,
+    pub parent_id: FolderId,
     pub name: FolderName,
     pub created_at: i64,
     pub updated_at: i64,

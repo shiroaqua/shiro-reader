@@ -85,7 +85,8 @@ pub const INVALID_FOLDER_NAMES: [&str; 8] = [
     "Folder\nsubFolder",
 ];
 
-pub const UNKNOWN_UUID: &str = "00000000-0000-0000-0000-000000000000";
+pub const ROOT_FOLDER_ID: &str = "00000000-0000-0000-0000-000000000000";
+pub const UNKNOWN_UUID: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
 pub struct TestApp {
     router: Router,
@@ -248,12 +249,7 @@ impl TestApp {
         self.create_bookshelf(ANOTHER_SAMPLE_BOOKSHELF_NAME).await
     }
 
-    pub async fn create_folder(
-        &self,
-        bookshelf_id: &str,
-        parent_id: Option<&str>,
-        name: &str,
-    ) -> String {
+    pub async fn create_folder(&self, bookshelf_id: &str, parent_id: &str, name: &str) -> String {
         let response = self
             .post_json(
                 &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
@@ -268,36 +264,44 @@ impl TestApp {
             .to_owned()
     }
 
+    pub async fn move_folder(&self, bookshelf_id: &str, folder_id: &str, parent_id: &str) -> Response<Body> {
+        self.patch_json(
+            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
+            json!({ "parent_id": parent_id }),
+        )
+        .await
+    }
+
     pub async fn create_sample_root_folder(&self, bookshelf_id: &str) -> String {
-        self.create_folder(bookshelf_id, None, SAMPLE_ROOT_FOLDER_NAME)
+        self.create_folder(bookshelf_id, ROOT_FOLDER_ID, SAMPLE_ROOT_FOLDER_NAME)
             .await
     }
 
     pub async fn create_sample_child_folder(&self, bookshelf_id: &str, parent_id: &str) -> String {
-        self.create_folder(bookshelf_id, Some(parent_id), SAMPLE_CHILD_FOLDER_NAME)
+        self.create_folder(bookshelf_id, parent_id, SAMPLE_CHILD_FOLDER_NAME)
             .await
     }
 
     pub async fn create_other_sample_root_folder(&self, bookshelf_id: &str) -> String {
-        self.create_folder(bookshelf_id, None, OTHER_ROOT_FOLDER_NAME)
+        self.create_folder(bookshelf_id, ROOT_FOLDER_ID, OTHER_ROOT_FOLDER_NAME)
             .await
     }
 
     pub async fn create_folder_tree(&self, bookshelf_id: &str) -> FolderTree {
         let root_id = self
-            .create_folder(bookshelf_id, None, FOLDER_TREE_ROOT_NAME)
+            .create_folder(bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
             .await;
         let child_id = self
-            .create_folder(bookshelf_id, Some(&root_id), FOLDER_TREE_CHILD_NAME)
+            .create_folder(bookshelf_id, &root_id, FOLDER_TREE_CHILD_NAME)
             .await;
         let second_child_id = self
-            .create_folder(bookshelf_id, Some(&root_id), FOLDER_TREE_SECOND_CHILD_NAME)
+            .create_folder(bookshelf_id, &root_id, FOLDER_TREE_SECOND_CHILD_NAME)
             .await;
         let grandchild_id = self
-            .create_folder(bookshelf_id, Some(&child_id), FOLDER_TREE_GRANDCHILD_NAME)
+            .create_folder(bookshelf_id, &child_id, FOLDER_TREE_GRANDCHILD_NAME)
             .await;
         let other_root_id = self
-            .create_folder(bookshelf_id, None, FOLDER_TREE_OTHER_ROOT_NAME)
+            .create_folder(bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_OTHER_ROOT_NAME)
             .await;
 
         FolderTree {
@@ -401,20 +405,11 @@ pub async fn assert_book_invalid_title_format_error(response: Response<Body>) {
 }
 
 pub async fn assert_book_invalid_id_error(response: Response<Body>) {
-    assert_error(response, 
-        StatusCode::BAD_REQUEST, 
-        "library.book.invalid_id",
-    )
-    .await
+    assert_error(response, StatusCode::BAD_REQUEST, "library.book.invalid_id").await
 }
 
 pub async fn assert_book_not_found_error(response: Response<Body>) {
-    assert_error(
-        response, 
-        StatusCode::NOT_FOUND, 
-        "library.book.not_found",
-    )
-    .await
+    assert_error(response, StatusCode::NOT_FOUND, "library.book.not_found").await
 }
 
 pub async fn assert_book_title_conflict_error(response: Response<Body>) {
@@ -593,6 +588,15 @@ pub async fn assert_folder_name_conflict_error(response: Response<Body>) {
         response,
         StatusCode::CONFLICT,
         "library.bookshelf.folder.name_conflict",
+    )
+    .await
+}
+
+pub async fn assert_folder_cycled_error(response: Response<Body>) {
+    assert_error(
+        response,
+        StatusCode::CONFLICT,
+        "library.bookshelf.folder.cycled",
     )
     .await
 }

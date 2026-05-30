@@ -111,6 +111,22 @@ impl SqliteTransaction<'_> {
             .map_err(map_error)
     }
 
+   pub async fn execute_affected(
+        &mut self,
+        sql: &str,
+        values: SqlxValues,
+        not_found: RepositoryError,
+        map_error: impl Fn(sqlx::Error) -> RepositoryError,
+    ) -> Result<(), RepositoryError> {
+        let result = self.execute(sql, values, map_error).await?;
+
+        if result.rows_affected() == 0 {
+            return Err(not_found);
+        }
+
+        Ok(())
+    }
+
     pub async fn fetch_exists(
         &mut self,
         sql: &str,
@@ -171,6 +187,10 @@ impl SqliteDatabaseError<'_> {
 
     pub fn is_foreign_key_constraint(&self) -> bool {
         self.has_code("787")
+    }
+    
+    pub fn is_trigger_constraint(&self) -> bool {
+        self.has_code("1811")
     }
 
     fn has_code(&self, expected: &str) -> bool {

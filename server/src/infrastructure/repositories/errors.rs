@@ -16,6 +16,9 @@ pub enum RepositoryError {
     #[error("folder name conflict")]
     FolderNameConflict,
 
+    #[error("folder cycle detected")]
+    FolderCycled,
+
     #[error("book not found")]
     BookNotFound,
 

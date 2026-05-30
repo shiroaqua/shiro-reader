@@ -6,8 +6,7 @@ use crate::{
     application::library::{
         bookshelf::folder::{
             commands::{
-                CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand, GetFoldersCommand,
-                GetFoldersOutput, Node, RenameFolderCommand,
+                CreateFolderCommand, CreateFolderOutput, DeleteFolderCommand, GetFoldersCommand, GetFoldersOutput, MoveFolderCommand, Node, RenameFolderCommand
             },
             errors::FolderApplicationError,
             ports::FolderRepository,
@@ -36,10 +35,7 @@ impl FolderService {
         command: CreateFolderCommand,
     ) -> Result<CreateFolderOutput, LibraryApplicationError> {
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
-        let parent_id = command
-            .parent_id
-            .map(FolderId::parse_parent_id)
-            .transpose()?;
+        let parent_id = FolderId::parse_parent_id(command.parent_id)?;
         let name = FolderName::parse(command.name)?;
         let now = now_ms();
 
@@ -52,6 +48,17 @@ impl FolderService {
         })
     }
 
+    pub async fn delete_folder(
+        &self,
+        commmand: DeleteFolderCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let bookshelf_id = BookshelfId::parse(commmand.bookshelf_id)?;
+        let folder_id = FolderId::parse_folder_id(commmand.folder_id)?;
+      
+        self.repository.delete(&bookshelf_id, &folder_id).await?;
+        Ok(())
+    }
+
     pub async fn rename_folder(
         &self,
         command: RenameFolderCommand,
@@ -59,21 +66,25 @@ impl FolderService {
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
         let folder_id = FolderId::parse_folder_id(command.folder_id)?;
         let new_name = FolderName::parse(command.name)?;
+     
         self.repository
             .rename(&bookshelf_id, &folder_id, &new_name)
             .await?;
         Ok(())
     }
-
-    pub async fn delete_folder(
+    
+    pub async fn move_folder(
         &self,
-        commmand: DeleteFolderCommand,
+        command: MoveFolderCommand,
     ) -> Result<(), LibraryApplicationError> {
-        let bookshelf_id = BookshelfId::parse(commmand.bookshelf_id)?;
-        let folder_id = FolderId::parse_folder_id(commmand.folder_id)?;
-        self.repository.delete(&bookshelf_id, &folder_id).await?;
+        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
+        let folder_id = FolderId::parse_folder_id(command.folder_id)?;
+        let target = FolderId::parse_parent_id(command.parent_id)?;
+
+        self.repository.move_to(&bookshelf_id, &folder_id, &target).await?;
         Ok(())
     }
+
 
     pub async fn get_folders(
         &self,
@@ -99,7 +110,7 @@ impl FolderService {
             // 不要骂我，我知道这么写效率很低，以后一定会改的...
             let folders = self.repository.list(&bookshelf_id).await?;
             if let Some(folder_id) = command.id {
-                let node = find_node(build_tree(folders, None).0, &folder_id.to_string());
+                let node = find_node(build_tree(folders, FolderId::root()).0, &folder_id.to_string());
                 if let Some(node) = node {
                     return Ok(GetFoldersOutput(vec![node]));
                 } else {
@@ -109,7 +120,7 @@ impl FolderService {
                 }
             }
             else {
-                return Ok(GetFoldersOutput(build_tree(folders, None).0));
+                return Ok(GetFoldersOutput(build_tree(folders, FolderId::root()).0));
             }
         }
     }
@@ -128,7 +139,7 @@ fn find_node(tree: Vec<Node>, target_id: &String) -> Option<Node> {
     None
 }
 
-fn build_tree(folders: Vec<Folder>, parent_id: Option<FolderId>) -> (Vec<Node>, Vec<Folder>) {
+fn build_tree(folders: Vec<Folder>, parent_id: FolderId) -> (Vec<Node>, Vec<Folder>) {
     let mut nodes: Vec<Node> = Vec::new();
     if folders.is_empty() {
         return (Vec::new(), folders);
@@ -140,7 +151,7 @@ fn build_tree(folders: Vec<Folder>, parent_id: Option<FolderId>) -> (Vec<Node>, 
         let id = folder.id.clone();
         let mut node: Node = folder.into();
         if !other.is_empty() {
-            let (c, o) = build_tree(other, Some(id));
+            let (c, o) = build_tree(other, id);
             other = o;
             node.children = c;
         }

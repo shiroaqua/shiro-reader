@@ -24,6 +24,9 @@ pub enum FolderApplicationError {
     #[error("folder name conflict")]
     NameConflict,
 
+    #[error("folder cycle detected")]
+    Cycled,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

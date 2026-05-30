@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
+use sea_query::{Expr, Iden, Query, SqliteQueryBuilder, Value};
 use sea_query_binder::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
@@ -19,8 +19,6 @@ use crate::{
     },
 };
 
-
-
 #[derive(Clone)]
 pub struct SqliteFolderRepository {
     db: SqliteExecutor,
@@ -37,13 +35,19 @@ impl SqliteFolderRepository {
 #[async_trait]
 impl FolderRepository for SqliteFolderRepository {
     async fn create(&self, folder: Folder) -> Result<Folder, RepositoryError> {
+        let mut parent_id = Expr::value(Value::String(None));
+
+        if !folder.parent_id.is_root() {
+            parent_id = Expr::value(Value::String(Some(Box::new(folder.parent_id.to_string()))));
+        }
+
         let (sql, values) = Query::insert()
             .into_table(Folders::Table)
             .columns(FULL_FOLDERS_TABLE_COLUMNS)
             .values_panic([
                 folder.id.to_string().into(),
                 folder.bookshelf_id.to_string().into(),
-                folder.parent_id.as_deref().map(|id| id.to_string()).into(),
+                parent_id,
                 folder.name.as_str().into(),
                 folder.created_at.into(),
                 folder.updated_at.into(),
@@ -53,6 +57,28 @@ impl FolderRepository for SqliteFolderRepository {
         self.db.execute(&sql, values, map_sqlx_error).await?;
 
         Ok(folder)
+    }
+
+    async fn delete(
+        &self,
+        bookshelf_id: &BookshelfId,
+        folder_id: &FolderId,
+    ) -> Result<(), RepositoryError> {
+        let (sql, values) = Query::delete()
+            .from_table(Folders::Table)
+            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
+            .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .build_sqlx(SqliteQueryBuilder);
+
+        self.db
+            .execute_affected(
+                &sql,
+                values,
+                RepositoryError::FolderNotFound,
+                map_sqlx_error,
+            )
+            .await?;
+        Ok(())
     }
 
     async fn rename(
@@ -79,25 +105,58 @@ impl FolderRepository for SqliteFolderRepository {
         Ok(())
     }
 
-    async fn delete(
+    async fn move_to(
         &self,
         bookshelf_id: &BookshelfId,
         folder_id: &FolderId,
+        new_parent_folder_id: &FolderId,
     ) -> Result<(), RepositoryError> {
-        let (sql, values) = Query::delete()
-            .from_table(Folders::Table)
-            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
+        if !new_parent_folder_id.is_root()
+            && folder_id.to_string() == new_parent_folder_id.to_string()
+        {
+            return Err(RepositoryError::FolderCycled);
+        }
+
+        let mut tx = self.db.begin(map_sqlx_error).await?;
+
+        let new_parent_id = if new_parent_folder_id.is_root() {
+            Expr::value(Value::String(None))
+        } else {
+            let (sql, values) = Query::select()
+                .column(Folders::Id)
+                .from(Folders::Table)
+                .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+                .and_where(Expr::col(Folders::Id).eq(new_parent_folder_id.to_string()))
+                .build_sqlx(SqliteQueryBuilder);
+
+            let parent_exists = tx.fetch_exists(&sql, values, map_sqlx_error).await?;
+
+            if !parent_exists {
+                return Err(RepositoryError::ParentFolderNotFound);
+            }
+            
+
+            Expr::value(Value::String(Some(Box::new(
+                new_parent_folder_id.to_string(),
+            ))))
+        };
+
+        let (sql, values) = Query::update()
+            .table(Folders::Table)
+            .value(Folders::ParentId, new_parent_id)
             .and_where(Expr::col(Folders::BookshelfId).eq(bookshelf_id.to_string()))
+            .and_where(Expr::col(Folders::Id).eq(folder_id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.db
-            .execute_affected(
-                &sql,
-                values,
-                RepositoryError::FolderNotFound,
-                map_sqlx_error,
-            )
-            .await?;
+        tx.execute_affected(
+            &sql,
+            values,
+            RepositoryError::FolderNotFound,
+            map_sqlx_error,
+        )
+        .await?;
+        tx.commit(map_sqlx_error).await?;
+
         Ok(())
     }
 
@@ -149,10 +208,16 @@ impl TryFrom<&SqliteRow> for Folder {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        let mut parent_id: Option<FolderId> =
+            row.get_optional_uuid(&Folders::ParentId.to_string())?;
+        if parent_id.is_none() {
+            parent_id = Some(FolderId::root());
+        }
+
         Ok(Folder {
             id: row.get_uuid(&Folders::Id.to_string())?,
             bookshelf_id: row.get_uuid(&Folders::BookshelfId.to_string())?,
-            parent_id: row.get_optional_uuid(&Folders::ParentId.to_string())?,
+            parent_id: parent_id.unwrap(),
             name: row.get_string(&Folders::Name.to_string())?,
             created_at: row.get(&Folders::CreatedAt.to_string())?,
             updated_at: row.get(&Folders::UpdatedAt.to_string())?,
@@ -179,6 +244,10 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
             Some(RepositoryError::FolderNameConflict)
         } else if database_error.is_foreign_key_constraint() {
             Some(RepositoryError::ParentFolderNotFound)
+        } else if database_error.is_trigger_constraint()
+            && database_error.message().contains("folder cycle detected")
+        {
+            Some(RepositoryError::FolderCycled)
         } else {
             None
         }

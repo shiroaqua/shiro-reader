@@ -3,14 +3,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateFolderRequest {
-    pub parent_id: Option<String>,
     pub name: String,
+    pub parent_id: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RenameFolderRequest {
-    pub name: String
+pub struct UpdateFolderRequest {
+    pub name: Option<String>,
+    pub parent_id: Option<String>,
 }
+
 
 #[derive(Debug, Deserialize)]
 pub struct GetFoldersQuery {

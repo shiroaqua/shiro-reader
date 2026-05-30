@@ -117,6 +117,9 @@ impl From<LibraryApplicationError> for AppError {
                 FolderApplicationError::NameConflict => AppError::Conflict {
                     message: "library.bookshelf.folder.name_conflict",
                 },
+                FolderApplicationError::Cycled => AppError::Conflict {
+                    message: "library.bookshelf.folder.cycled",
+                },
                 FolderApplicationError::Storage(error) => AppError::Internal(error),
             },
             LibraryApplicationError::Book(b) => match b {
