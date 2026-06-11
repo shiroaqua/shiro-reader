@@ -126,9 +126,12 @@ impl BookRepository for SqliteBookRepository {
             .columns(FULL_BOOKS_TABLE_COLUMNS)
             .from(Books::Table)
             .and_where(Expr::col(Books::BookshelfId).eq(bookshelf_id.to_string()));
-
+            
         if let Some(folder_id) = folder_id {
             query.and_where(Expr::col(Books::FolderId).eq(folder_id.to_string()));
+        }
+        else {
+            query.and_where(Expr::col(Books::FolderId).is_null());
         }
 
         let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
