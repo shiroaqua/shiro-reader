@@ -1,800 +1,315 @@
 mod support;
 
 use axum::http::StatusCode;
-use serde_json::{Value, json};
-use support::{
-    assert_bookshelf_invalid_id_error, assert_folder_invalid_id_error,
-    assert_folder_invalid_name_format_error, assert_folder_invalid_parent_id_error,
-    assert_folder_missing_name_error, assert_folder_name_conflict_error,
-    assert_folder_not_found_error, assert_folder_parent_not_found_error, assert_folder_cycled_error,
-    assert_rfc3339_datetime_string, assert_uuid_string, json_body, TestApp,
-    FOLDER_TREE_CHILD_NAME, FOLDER_TREE_GRANDCHILD_NAME, FOLDER_TREE_OTHER_ROOT_NAME,
-    FOLDER_TREE_ROOT_NAME, FOLDER_TREE_SECOND_CHILD_NAME, INVALID_FOLDER_NAMES, INVALID_UUID,
-    RENAMED_FOLDER_NAME, SAMPLE_CHILD_FOLDER_NAME, SAMPLE_ROOT_FOLDER_NAME, UNKNOWN_UUID,
-};
 
-use crate::support::{EMPTY_STRING, ROOT_FOLDER_ID};
+use crate::support::{EMPTY_STRING, INVALID_FOLDER_NAMES, INVALID_UUID, ROOT_FOLDER_ID, TestApp, UNKNOWN_UUID};
 
 #[tokio::test]
-async fn create_root_folder() {
+async fn create_parentless_folder() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    let response = app
-        .post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": ROOT_FOLDER_ID, "name": SAMPLE_ROOT_FOLDER_NAME }),
-        )
-        .await;
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let body = json_body(response).await;
-    assert_uuid_string(&body["data"]["id"]);
-    assert_rfc3339_datetime_string(&body["data"]["created_at"]);
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
+    folder.assert_data();
 }
 
 #[tokio::test]
 async fn create_child_folder() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let root_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    let response = app
-        .post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": root_id, "name": SAMPLE_CHILD_FOLDER_NAME }),
-        )
-        .await;
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let body = json_body(response).await;
-    assert_uuid_string(&body["data"]["id"]);
-    assert_rfc3339_datetime_string(&body["data"]["created_at"]);
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
+    let child_folder = folder.create_default_folder().await;
+    child_folder.assert_data();
 }
 
 #[tokio::test]
-async fn rename_folder() {
+async fn create_folder_missing_name_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_folder(EMPTY_STRING).await;
+    folder.response.assert_folder_missing_name_error();
+}
 
-    let response = app
-        .patch_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
-            json!({ "name": RENAMED_FOLDER_NAME }),
-        )
-        .await;
+#[tokio::test]
+async fn create_folder_name_conflict_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    bookshelf.create_default_folder().await;
+    bookshelf
+        .create_default_folder()
+        .await
+        .response
+        .assert_folder_name_conflict_error();
+}
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+#[tokio::test]
+async fn create_folder_invalid_name_format_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    for invalid_name in INVALID_FOLDER_NAMES {
+        let folder = bookshelf.create_folder(invalid_name).await;
+        folder.response.assert_folder_invalid_name_format_error();
+    }
+}
+
+#[tokio::test]
+async fn create_folder_invalid_parent_id_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.id = INVALID_UUID.to_owned();
+    folder
+        .create_default_folder()
+        .await
+        .response
+        .assert_folder_invalid_parent_id_error();
+}
+
+#[tokio::test]
+async fn create_folder_not_found_parent_id_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.id = UNKNOWN_UUID.to_owned();
+    folder
+        .create_default_folder()
+        .await
+        .response
+        .assert_folder_parent_not_found_error();
 }
 
 #[tokio::test]
 async fn delete_folder() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let parent_folder = bookshelf.create_default_folder().await;
+    let child_folder = parent_folder.create_default_folder().await;
 
-    let response = app
-        .delete(&format!(
-            "/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"
-        ))
-        .await;
+    let response = child_folder.delete().await;
+    assert_eq!(response.status_code, StatusCode::NO_CONTENT);
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let response = parent_folder.delete().await;
+    assert_eq!(response.status_code, StatusCode::NO_CONTENT);
 }
 
 #[tokio::test]
-async fn create_folder_rejects_missing_name() {
+async fn delete_folder_invalid_id_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_missing_name_error(
-        app.post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": ROOT_FOLDER_ID, "name": EMPTY_STRING }),
-        )
-        .await,
-    )
-    .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.id = INVALID_UUID.to_owned();
+    folder.delete().await.assert_folder_invalid_id_error();
 }
 
 #[tokio::test]
-async fn create_folder_rejects_invalid_name_format() {
+async fn delete_folder_not_found_for_unknown_folder_id_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    for invalid_name in INVALID_FOLDER_NAMES {
-        assert_folder_invalid_name_format_error(
-            app.post_json(
-                &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-                json!({ "parent_id": ROOT_FOLDER_ID, "name": invalid_name }),
-            )
-            .await,
-        )
-        .await;
-    }
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.id = UNKNOWN_UUID.to_owned();
+    folder.delete().await.assert_folder_not_found_error();
 }
 
 #[tokio::test]
-async fn create_folder_rejects_invalid_parent_id() {
+async fn rename_folder() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.rename("qwq").await;
 
-    assert_folder_invalid_parent_id_error(
-        app.post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": INVALID_UUID, "name": SAMPLE_CHILD_FOLDER_NAME }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_folder_returns_not_found_for_unknown_parent_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_parent_not_found_error(
-        app.post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": UNKNOWN_UUID, "name": SAMPLE_CHILD_FOLDER_NAME }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_folder_returns_not_found_for_unknown_bookshelf_id() {
-    let app = TestApp::new().await;
-
-    assert_folder_parent_not_found_error(
-        app.post_json(
-            &format!("/api/v1/library/bookshelves/{UNKNOWN_UUID}/folders"),
-            json!({ "parent_id": ROOT_FOLDER_ID, "name": SAMPLE_ROOT_FOLDER_NAME }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_folder_rejects_duplicate_sibling_name() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_name_conflict_error(
-        app.post_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-            json!({ "parent_id": ROOT_FOLDER_ID, "name": SAMPLE_ROOT_FOLDER_NAME }),
-        )
-        .await,
-    )
-    .await;
-}
-
-
-#[tokio::test]
-async fn delete_folder_rejects_invalid_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_invalid_id_error(
-        app.delete(&format!(
-            "/api/v1/library/bookshelves/{bookshelf_id}/folders/{INVALID_UUID}"
-        ))
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn delete_folder_returns_not_found_for_unknown_folder_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_not_found_error(
-        app.delete(&format!(
-            "/api/v1/library/bookshelves/{bookshelf_id}/folders/{UNKNOWN_UUID}"
-        ))
-        .await,
-    )
-    .await;
+    assert_eq!(folder.response.status_code, StatusCode::NO_CONTENT);
+    assert_eq!(bookshelf.get_folder(&folder.id).await.name, "qwq");
 }
 
 #[tokio::test]
 async fn rename_folder_rejects_missing_name() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_missing_name_error(
-        app.patch_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
-            json!({ "name": EMPTY_STRING }),
-        )
-        .await,
-    )
-    .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
+    folder.rename(EMPTY_STRING).await;
+    folder.response.assert_folder_missing_name_error();
 }
 
 #[tokio::test]
 async fn rename_folder_rejects_invalid_name_format() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_default_folder().await;
 
     for invalid_name in INVALID_FOLDER_NAMES {
-        assert_folder_invalid_name_format_error(
-            app.patch_json(
-                &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
-                json!({ "name": invalid_name }),
-            )
-            .await,
-        )
-        .await;
+        folder.rename(invalid_name).await;
+        folder.response.assert_folder_invalid_name_format_error();
     }
 }
 
 #[tokio::test]
-async fn move_folder_to_another_parent() {
+async fn move_folder() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
+    let bookshelf = app.create_default_bookshelf().await;
+    bookshelf.create_folder_tree().await;
 
-    let response = app
-        .move_folder(&bookshelf_id, &tree.second_child_id, &tree.child_id)
-        .await;
+    // move child to root
+    let mut tree = bookshelf.get_folders().await;
+    let mut folder = tree[0].children.remove(0).folder;
+    folder.move_to(ROOT_FOLDER_ID).await;
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let mut tree = bookshelf.get_folders().await;
+    assert_eq!(folder.response.status_code, StatusCode::NO_CONTENT);
+    assert!(tree.iter().any(|f| f.folder.name == folder.name));
 
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
+    // move root to child
+    let mut folder = tree.remove(0).folder;
+    folder.move_to(&tree[0].children[0].folder.id).await;
+    
+    let tree = bookshelf.get_folders().await;
+    assert_eq!(folder.response.status_code, StatusCode::NO_CONTENT);
+    assert!(tree[0].children.iter().any(|f| f.children.iter().any(|c| c.folder.name == folder.name)));
+}
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 2);
 
-    let root = find_folder(folders, &tree.root_id).expect("root folder");
-    assert_folder_node(root, &tree.root_id, FOLDER_TREE_ROOT_NAME);
-    assert_eq!(children(root).len(), 1);
+#[tokio::test]
+async fn move_folder_name_conflict_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    
+    let root_folder_zero = bookshelf.create_folder("0").await;
+    let mut child_folder = root_folder_zero.create_folder("0").await;
+    child_folder.move_to(ROOT_FOLDER_ID).await;
+    child_folder.response.assert_folder_name_conflict_error();
 
-    let child = find_folder(children(root), &tree.child_id).expect("child folder");
-    assert_folder_node(child, &tree.child_id, FOLDER_TREE_CHILD_NAME);
-    assert_eq!(children(child).len(), 2);
+    
+    let mut root_folder_one = bookshelf.create_folder("1").await;
+    root_folder_zero.create_folder("1").await;
+    root_folder_one.move_to(&root_folder_zero.id).await;
+    root_folder_one.response.assert_folder_name_conflict_error();
+}
 
-    assert_folder_node(
-        find_folder(children(child), &tree.grandchild_id).expect("grandchild folder"),
-        &tree.grandchild_id,
-        FOLDER_TREE_GRANDCHILD_NAME,
+#[tokio::test]
+async fn move_folder_cycled_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    bookshelf.create_folder_tree().await;
+
+    // 自指
+    let mut tree = bookshelf.get_folders().await;
+    let mut folder = tree.remove(0).folder;
+    folder.move_to(&folder.id.to_owned()).await;
+    folder.response.assert_folder_cycled_error();
+
+    // 向下
+    let id = tree[0].children[0].folder.id.to_owned();
+    let mut folder = tree.remove(0).folder;
+    folder.move_to(&id).await;
+    folder.response.assert_folder_cycled_error();
+}
+
+#[tokio::test]
+async fn move_folder_invalid_folder_id_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_folder("0").await;
+    folder.move_to(INVALID_UUID).await;
+}
+
+
+#[tokio::test]
+async fn move_folder_not_found_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut folder = bookshelf.create_folder("0").await;
+    folder.move_to(UNKNOWN_UUID).await;
+}
+
+
+
+#[tokio::test]
+async fn get_folder() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder_raw = bookshelf.create_default_folder().await;
+    let folder_from_get = bookshelf.get_folder(&folder_raw.id).await;
+
+    assert_eq!(folder_from_get.response.status_code, StatusCode::OK);
+    assert_eq!(folder_raw.id, folder_from_get.id);
+    assert_eq!(folder_raw.name, folder_from_get.name);
+    assert_eq!(folder_raw.created_at, folder_from_get.created_at);
+    assert_eq!(folder_raw.updated_at, folder_from_get.updated_at);
+}
+
+#[tokio::test]
+async fn get_folders() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    assert_eq!(bookshelf.get_folders().await.len(), 0);
+
+    bookshelf.create_folder_tree().await;
+    let tree = bookshelf.get_folders().await;
+    assert_eq!(
+        tree.first().unwrap().folder.response.status_code,
+        StatusCode::OK
     );
 
-    assert_folder_node(
-        find_folder(children(child), &tree.second_child_id).expect("moved folder"),
-        &tree.second_child_id,
-        FOLDER_TREE_SECOND_CHILD_NAME,
-    );
-}
-
-#[tokio::test]
-async fn move_folder_to_root() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    let response = app
-        .move_folder(&bookshelf_id, &tree.child_id, ROOT_FOLDER_ID)
-        .await;
-
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 3);
-
-    let root = find_folder(folders, &tree.root_id).expect("root folder");
-    assert_folder_node(root, &tree.root_id, FOLDER_TREE_ROOT_NAME);
-    assert_eq!(children(root).len(), 1);
-    assert_folder_node(
-        &children(root)[0],
-        &tree.second_child_id,
-        FOLDER_TREE_SECOND_CHILD_NAME,
-    );
-
-    let moved_child = find_folder(folders, &tree.child_id).expect("moved child");
-    assert_folder_node(moved_child, &tree.child_id, FOLDER_TREE_CHILD_NAME);
-    assert_eq!(children(moved_child).len(), 1);
-    assert_folder_node(
-        &children(moved_child)[0],
-        &tree.grandchild_id,
-        FOLDER_TREE_GRANDCHILD_NAME,
-    );
-}
-
-#[tokio::test]
-async fn move_folder_rejects_invalid_bookshelf_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_bookshelf_invalid_id_error(
-        app.move_folder(INVALID_UUID, &folder_id, ROOT_FOLDER_ID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_returns_not_found_for_unknown_bookshelf_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_not_found_error(
-        app.move_folder(UNKNOWN_UUID, &folder_id, ROOT_FOLDER_ID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_rejects_invalid_folder_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_invalid_id_error(
-        app.move_folder(&bookshelf_id, INVALID_UUID, ROOT_FOLDER_ID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_returns_not_found_for_unknown_folder_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_not_found_error(
-        app.move_folder(&bookshelf_id, UNKNOWN_UUID, ROOT_FOLDER_ID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_rejects_invalid_parent_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_invalid_parent_id_error(
-        app.move_folder(&bookshelf_id, &folder_id, INVALID_UUID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_returns_not_found_for_unknown_parent_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_parent_not_found_error(
-        app.move_folder(&bookshelf_id, &folder_id, UNKNOWN_UUID)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_rejects_parent_from_another_bookshelf() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let other_bookshelf_id = app.create_another_sample_bookshelf().await;
-
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-    let other_parent_id = app
-        .create_other_sample_root_folder(&other_bookshelf_id)
-        .await;
-
-    assert_folder_parent_not_found_error(
-        app.move_folder(&bookshelf_id, &folder_id, &other_parent_id)
-            .await,
-    )
-    .await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 1);
-    assert_folder_node(&folders[0], &folder_id, SAMPLE_ROOT_FOLDER_NAME);
-}
-
-#[tokio::test]
-async fn move_folder_rejects_self_parent() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-
-    assert_folder_cycled_error(
-        app.move_folder(&bookshelf_id, &folder_id, &folder_id)
-            .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn move_folder_rejects_descendant_parent() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    assert_folder_cycled_error(
-        app.move_folder(&bookshelf_id, &tree.root_id, &tree.grandchild_id)
-            .await,
-    )
-    .await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-
-    let root = find_folder(folders, &tree.root_id).expect("root folder");
-    assert_folder_node(root, &tree.root_id, FOLDER_TREE_ROOT_NAME);
-
-    let child = find_folder(children(root), &tree.child_id).expect("child folder");
-    assert_folder_node(child, &tree.child_id, FOLDER_TREE_CHILD_NAME);
-
-    assert_folder_node(
-        &children(child)[0],
-        &tree.grandchild_id,
-        FOLDER_TREE_GRANDCHILD_NAME,
-    );
-}
-
-#[tokio::test]
-async fn move_folder_rejects_duplicate_name_in_root() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    let existing_root_id = app
-        .create_folder(&bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
-        .await;
-    let source_parent_id = app
-        .create_folder(&bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_OTHER_ROOT_NAME)
-        .await;
-    let moving_folder_id = app
-        .create_folder(&bookshelf_id, &source_parent_id, FOLDER_TREE_ROOT_NAME)
-        .await;
-
-    assert_folder_name_conflict_error(
-        app.move_folder(&bookshelf_id, &moving_folder_id, ROOT_FOLDER_ID)
-            .await,
-    )
-    .await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-
-    assert!(find_folder(folders, &existing_root_id).is_some());
-
-    let source_parent = find_folder(folders, &source_parent_id).expect("source parent");
-    assert!(
-        find_folder(children(source_parent), &moving_folder_id).is_some(),
-        "failed move should keep folder under original parent"
-    );
-}
-
-#[tokio::test]
-async fn move_folder_rejects_duplicate_name_in_target_parent() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    let target_parent_id = app
-        .create_folder(&bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
-        .await;
-    let existing_child_id = app
-        .create_folder(&bookshelf_id, &target_parent_id, FOLDER_TREE_CHILD_NAME)
-        .await;
-
-    let source_parent_id = app
-        .create_folder(&bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_OTHER_ROOT_NAME)
-        .await;
-    let moving_folder_id = app
-        .create_folder(&bookshelf_id, &source_parent_id, FOLDER_TREE_CHILD_NAME)
-        .await;
-
-    assert_folder_name_conflict_error(
-        app.move_folder(&bookshelf_id, &moving_folder_id, &target_parent_id)
-            .await,
-    )
-    .await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-
-    let target_parent = find_folder(folders, &target_parent_id).expect("target parent");
-    assert!(
-        find_folder(children(target_parent), &existing_child_id).is_some(),
-        "existing child should still exist"
-    );
-    assert!(
-        find_folder(children(target_parent), &moving_folder_id).is_none(),
-        "failed move should not insert moving folder into target parent"
-    );
-
-    let source_parent = find_folder(folders, &source_parent_id).expect("source parent");
-    assert!(
-        find_folder(children(source_parent), &moving_folder_id).is_some(),
-        "failed move should keep folder under original parent"
-    );
-}
-
-#[tokio::test]
-async fn get_folders_default() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    let response = app.get(&folders_uri(&bookshelf_id, None)).await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 2);
-    assert!(find_folder(folders, &tree.child_id).is_none());
-
-    let root = find_folder(folders, &tree.root_id).expect("root folder");
-    assert_folder_node(root, &tree.root_id, FOLDER_TREE_ROOT_NAME);
-    assert!(children(root).is_empty());
-
-    let other_root = find_folder(folders, &tree.other_root_id).expect("other root folder");
-    assert_folder_node(other_root, &tree.other_root_id, FOLDER_TREE_OTHER_ROOT_NAME);
-    assert!(children(other_root).is_empty());
-}
-
-#[tokio::test]
-async fn get_folders_returns_empty_list_when_bookshelf_has_no_folders() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    let response = app.get(&folders_uri(&bookshelf_id, None)).await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    assert!(folders_data(&body).is_empty());
-}
-
-#[tokio::test]
-async fn get_folders_returns_single_folder_by_id_without_descendants() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some(&format!("id={}", tree.child_id))))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 1);
-    assert_folder_node(&folders[0], &tree.child_id, FOLDER_TREE_CHILD_NAME);
-    assert!(children(&folders[0]).is_empty());
-}
-
-#[tokio::test]
-async fn get_folders_returns_recursive_subtree_by_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    let response = app
-        .get(&folders_uri(
-            &bookshelf_id,
-            Some(&format!("recursive=true&id={}", tree.child_id)),
-        ))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 1);
-    assert!(find_folder(folders, &tree.root_id).is_none());
-    assert!(find_folder(folders, &tree.second_child_id).is_none());
-
-    let child = &folders[0];
-    assert_folder_node(child, &tree.child_id, FOLDER_TREE_CHILD_NAME);
-    assert_eq!(children(child).len(), 1);
-    assert_folder_node(
-        &children(child)[0],
-        &tree.grandchild_id,
-        FOLDER_TREE_GRANDCHILD_NAME,
-    );
-}
-
-#[tokio::test]
-async fn get_folders_returns_recursive_tree() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let tree = app.create_folder_tree(&bookshelf_id).await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 2);
-
-    let root = find_folder(folders, &tree.root_id).expect("root folder");
-    assert_folder_node(root, &tree.root_id, FOLDER_TREE_ROOT_NAME);
-    assert_eq!(children(root).len(), 2);
-
-    let child = find_folder(children(root), &tree.child_id).expect("child folder");
-    assert_folder_node(child, &tree.child_id, FOLDER_TREE_CHILD_NAME);
-    assert_eq!(children(child).len(), 1);
-    assert_folder_node(
-        &children(child)[0],
-        &tree.grandchild_id,
-        FOLDER_TREE_GRANDCHILD_NAME,
-    );
-
-    let second_child =
-        find_folder(children(root), &tree.second_child_id).expect("second child folder");
-    assert_folder_node(
-        second_child,
-        &tree.second_child_id,
-        FOLDER_TREE_SECOND_CHILD_NAME,
-    );
-    assert!(children(second_child).is_empty());
-
-    let other_root = find_folder(folders, &tree.other_root_id).expect("other root folder");
-    assert_folder_node(other_root, &tree.other_root_id, FOLDER_TREE_OTHER_ROOT_NAME);
-    assert!(children(other_root).is_empty());
+    for i in 0..2 {
+        assert!(tree.iter().any(|f| f.folder.name == format!("{}00", i)));
+        for j in 0..3 {
+            assert!(
+                tree.iter()
+                    .find(|f| f.folder.name.starts_with(&i.to_string()))
+                    .unwrap()
+                    .children
+                    .iter()
+                    .any(|f| f.folder.name == format!("{}{}0", i, j))
+            );
+            for n in 0..3 {
+                assert!(
+                    tree.iter()
+                        .find(|f| f.folder.name.starts_with(&i.to_string()))
+                        .unwrap()
+                        .children
+                        .iter()
+                        .find(|f| f.folder.name.starts_with(&format!("{}{}", i, j)))
+                        .unwrap()
+                        .children
+                        .iter()
+                        .any(|f| f.folder.name == format!("{}{}{}", i, j, n))
+                );
+            }
+        }
+    }
 }
 
 
 #[tokio::test]
 async fn get_folders_is_scoped_to_bookshelf() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let other_bookshelf_id = app.create_another_sample_bookshelf().await;
-    let root_id = app
-        .create_folder(&bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
-        .await;
-    let other_root_id = app
-        .create_folder(&other_bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
-        .await;
-
-    let response = app
-        .get(&folders_uri(&bookshelf_id, Some("recursive=true")))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    let folders = folders_data(&body);
-    assert_eq!(folders.len(), 1);
-    assert!(find_folder(folders, &other_root_id).is_none());
-    assert_folder_node(&folders[0], &root_id, FOLDER_TREE_ROOT_NAME);
+    let mut bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
+    bookshelf.id = UNKNOWN_UUID.to_owned();
+    let folder = bookshelf.get_folder(&folder.id).await;
+    assert_eq!(folder.response.status_code, StatusCode::NOT_FOUND);
+    assert_eq!(bookshelf.get_folders().await.len(),0);
 }
+
 
 #[tokio::test]
-async fn get_folders_rejects_invalid_bookshelf_id() {
+async fn get_folder_invalid_bookshelf_id_error() {
     let app = TestApp::new().await;
-
-    assert_bookshelf_invalid_id_error(
-        app.get(&folders_uri(INVALID_UUID, None)).await,
-    )
-    .await;
+    let mut bookshelf = app.create_default_bookshelf().await;
+    bookshelf.id = INVALID_UUID.to_owned();
+    bookshelf.get_folder(INVALID_UUID).await.response.assert_bookshelf_invalid_id_error();
 }
+
 
 #[tokio::test]
-async fn get_folders_rejects_invalid_folder_id() {
+async fn get_folder_invalid_folder_id_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_invalid_id_error(
-        app.get(&folders_uri(
-            &bookshelf_id,
-            Some(&format!("id={INVALID_UUID}")),
-        ))
-        .await,
-    )
-    .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    bookshelf.get_folder(INVALID_UUID).await.response.assert_folder_invalid_id_error();
 }
+
 
 #[tokio::test]
-async fn get_folders_returns_not_found_for_unknown_folder_id() {
+async fn get_folder_not_found_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_not_found_error(
-        app.get(&folders_uri(
-            &bookshelf_id,
-            Some(&format!("id={UNKNOWN_UUID}")),
-        ))
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn get_folders_recursive_returns_not_found_for_unknown_folder_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_folder_not_found_error(
-        app.get(&folders_uri(
-            &bookshelf_id,
-            Some(&format!("recursive=true&id={UNKNOWN_UUID}")),
-        ))
-        .await,
-    )
-    .await;
-}
-
-
-fn folders_uri(bookshelf_id: &str, query: Option<&str>) -> String {
-    let uri = format!("/api/v1/library/bookshelves/{bookshelf_id}/folders");
-    match query {
-        Some(query) => format!("{uri}?{query}"),
-        None => uri,
-    }
-}
-
-fn folders_data(body: &Value) -> &[Value] {
-    body["data"].as_array().expect("folders data").as_slice()
-}
-
-
-fn children(node: &Value) -> &[Value] {
-    node["children"]
-        .as_array()
-        .expect("folder node children")
-        .as_slice()
-}
-
-fn find_folder<'a>(folders: &'a [Value], folder_id: &str) -> Option<&'a Value> {
-    folders
-        .iter()
-        .find(|folder| folder["id"].as_str() == Some(folder_id))
-}
-
-fn assert_folder_node(node: &Value, expected_id: &str, expected_name: &str) {
-    assert_eq!(node["id"], expected_id);
-    assert_uuid_string(&node["id"]);
-    assert_eq!(node["name"], expected_name);
-    assert_rfc3339_datetime_string(&node["created_at"]);
-    assert_rfc3339_datetime_string(&node["updated_at"]);
-    assert!(node["children"].is_array());
+    let bookshelf = app.create_default_bookshelf().await;
+    bookshelf.get_folder(UNKNOWN_UUID).await.response.assert_folder_not_found_error();
 }

@@ -7,7 +7,9 @@ use axum::{
     body::{Body, Bytes, to_bytes},
     http::{Method, Request, Response, StatusCode, header::CONTENT_TYPE},
 };
+use blake3::Hash;
 use chrono::DateTime;
+use derive_new::new;
 use serde_json::{Value, json};
 use shiro_reader_server::{
     app::build_router,
@@ -34,31 +36,11 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 use uuid::Uuid;
 
-pub const SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub";
-pub const ANOTHER_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-file";
-pub const THIRD_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-Book-file";
-pub const MISSING_SAMPLE_BOOK_BYTES: &[u8] = b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub-sample-book-file";
-pub const HASH_MISMATCH_BOOK_BYTES: &[u8] = b"hash-mismatch-book-file";
-pub const INVALID_BOOK_HASH: &str = "not-a-hash";
-pub const INVALID_UUID: &str = "not-a-uuid";
 pub const EMPTY_STRING: &str = "";
 
-pub const SAMPLE_BOOK_TITLE: &str = "一本书";
-pub const RENAMED_BOOK_TITLE: &str = "一本同样的书";
-
-pub const SAMPLE_BOOKSHELF_NAME: &str = "Bookshelf";
-pub const ANOTHER_SAMPLE_BOOKSHELF_NAME: &str = "书架";
-pub const RENAMED_BOOKSHELF_NAME: &str = "书";
-
-pub const SAMPLE_ROOT_FOLDER_NAME: &str = "根目录";
-pub const SAMPLE_CHILD_FOLDER_NAME: &str = "子文件夹";
-pub const RENAMED_FOLDER_NAME: &str = "文件夹";
-pub const OTHER_ROOT_FOLDER_NAME: &str = "另一只根文件夹";
-pub const FOLDER_TREE_ROOT_NAME: &str = "Folder1";
-pub const FOLDER_TREE_CHILD_NAME: &str = "Folder2";
-pub const FOLDER_TREE_SECOND_CHILD_NAME: &str = "Folder3";
-pub const FOLDER_TREE_GRANDCHILD_NAME: &str = "Folder4";
-pub const FOLDER_TREE_OTHER_ROOT_NAME: &str = "Folder5";
+pub const INVALID_BOOK_HASH: &str = "not-a-hash";
+pub const INVALID_UUID: &str = "not-a-uuid";
+pub const INVALID_HASH: &str = "not-a-hash";
 
 pub const INVALID_BOOK_TITLES: [&str; 6] =
     [" Book", "Book ", "\tBook", "Book\t", "\nBook", "Book\n"];
@@ -85,28 +67,75 @@ pub const INVALID_FOLDER_NAMES: [&str; 8] = [
     "Folder\nsubFolder",
 ];
 
-pub const ROOT_FOLDER_ID: &str = "00000000-0000-0000-0000-000000000000";
 pub const UNKNOWN_UUID: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+pub const UNKNOWN_HASH: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+pub const ROOT_FOLDER_ID: &str = "00000000-0000-0000-0000-000000000000";
+pub const DEFAULT_BOOK_NAME: &str = "书书";
+pub const DEFAULT_BOOKSHELF_NAME: &str = "书shelf";
+pub const DEAFULT_FOLDER_NAME: &str = "文件夹";
 
 pub struct TestApp {
     router: Router,
     _temp_dir: TempDir,
 }
 
-pub struct FolderTree {
-    pub root_id: String,
-    pub child_id: String,
-    pub second_child_id: String,
-    pub grandchild_id: String,
-    pub other_root_id: String,
+pub struct Bookshelf<'a> {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub response: JsonHttpResponse,
+    app: &'a TestApp,
+}
+
+pub struct Folder<'a> {
+    pub bookshelf_id: String,
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub response: JsonHttpResponse,
+    app: &'a TestApp,
+}
+
+pub struct FolderTreeNode<'a> {
+    pub folder: Folder<'a>,
+    pub children: Vec<FolderTreeNode<'a>>,
+}
+
+pub struct Book<'a> {
+    pub id: String,
+    pub bookshelf_id: String,
+    pub folder_id: Option<String>,
+
+    pub title: String,
+    pub file_type: String,
+    pub hash: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub response: JsonHttpResponse,
+    app: &'a TestApp,
+}
+
+#[derive(new, Debug, Clone)]
+pub struct JsonHttpResponse {
+    pub status_code: StatusCode,
+    pub json: Value,
+}
+
+pub enum SampleFile {
+    PDF,
+    EPUB,
 }
 
 impl TestApp {
     pub async fn new() -> Self {
         let temp_dir = tempfile::tempdir().expect("create temp test directory");
         let db_path = temp_dir.path().join("test.db");
-        let db_url = sqlite_url(&db_path);
-
+        let db_url = format!(
+            "sqlite://{}?mode=rwc",
+            db_path.display().to_string().replace('\\', "/")
+        );
         let pool = db::pool::connect_sqlite_url(&db_url, 1)
             .await
             .expect("connect test database");
@@ -139,204 +168,230 @@ impl TestApp {
         }
     }
 
-    pub async fn get(&self, uri: &str) -> Response<Body> {
-        self.request(Method::GET, uri, Body::empty(), None).await
-    }
-
-    pub async fn delete(&self, uri: &str) -> Response<Body> {
-        self.request(Method::DELETE, uri, Body::empty(), None).await
-    }
-
-    pub async fn post_json(&self, uri: &str, body: Value) -> Response<Body> {
-        self.json_request(Method::POST, uri, body).await
-    }
-
-    pub async fn patch_json(&self, uri: &str, body: Value) -> Response<Body> {
-        self.json_request(Method::PATCH, uri, body).await
-    }
-
-    pub async fn upload_book_file(
-        &self,
-        hash: &str,
-        bytes: &[u8],
-        extra_hash: Option<&str>,
-    ) -> Response<Body> {
-        let boundary = "shiro-reader-test-boundary";
-        let mut body = Vec::new();
-
-        push_text_part(&mut body, boundary, "hash", hash);
-        if let Some(extra_hash) = extra_hash {
-            push_text_part(&mut body, boundary, "hash", extra_hash);
-        }
-        push_file_part(&mut body, boundary, "file", "book.book", bytes);
-        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-
-        self.request(
-            Method::POST,
-            "/api/v1/library/books/files",
-            Body::from(body),
-            Some(format!("multipart/form-data; boundary={boundary}")),
+    pub async fn create_bookshelf<'a>(&'a self, name: &str) -> Bookshelf<'a> {
+        let response = JsonHttpResponse::from(
+            self.post_json("/api/v1/library/bookshelves", json!({ "name": name }))
+                .await,
         )
-        .await
-    }
+        .await;
 
-    pub async fn upload_book_file_without_hash(&self, bytes: &[u8]) -> Response<Body> {
-        let boundary = "shiro-reader-test-boundary";
-        let mut body = Vec::new();
-        push_file_part(&mut body, boundary, "file", "book.book", bytes);
-        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-
-        self.request(
-            Method::POST,
-            "/api/v1/library/books/files",
-            Body::from(body),
-            Some(format!("multipart/form-data; boundary={boundary}")),
-        )
-        .await
-    }
-
-    pub async fn upload_book_file_without_file(&self, hash: &str) -> Response<Body> {
-        let boundary = "shiro-reader-test-boundary";
-        let mut body = Vec::new();
-        push_text_part(&mut body, boundary, "hash", hash);
-        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-
-        self.request(
-            Method::POST,
-            "/api/v1/library/books/files",
-            Body::from(body),
-            Some(format!("multipart/form-data; boundary={boundary}")),
-        )
-        .await
-    }
-
-    pub async fn upload_book_bytes(&self, bytes: &[u8]) -> String {
-        let hash = hash_for(bytes);
-        let response = self.upload_book_file(&hash, bytes, None).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-        hash
-    }
-
-    pub async fn upload_sample_book_file(&self) -> String {
-        self.upload_book_bytes(SAMPLE_BOOK_BYTES).await
-    }
-
-    pub async fn upload_another_sample_book_file(&self) -> String {
-        self.upload_book_bytes(ANOTHER_SAMPLE_BOOK_BYTES).await
-    }
-
-    pub async fn upload_third_sample_book_file(&self) -> String {
-        self.upload_book_bytes(THIRD_SAMPLE_BOOK_BYTES).await
-    }
-
-    pub async fn create_bookshelf(&self, name: &str) -> String {
-        let response = self
-            .post_json("/api/v1/library/bookshelves", json!({ "name": name }))
-            .await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-
-        json_body(response).await["data"]["id"]
+        let created_at = response.json["data"]["created_at"]
             .as_str()
-            .expect("bookshelf id")
-            .to_owned()
+            .unwrap_or("")
+            .to_owned();
+
+        Bookshelf {
+            id: response.json["data"]["id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            updated_at: response.json["data"]["updated_at"]
+                .as_str()
+                .unwrap_or(&created_at)
+                .to_owned(),
+            name: name.to_owned(),
+            created_at: created_at,
+            response: response,
+            app: self,
+        }
     }
 
-    pub async fn create_sample_bookshelf(&self) -> String {
-        self.create_bookshelf(SAMPLE_BOOKSHELF_NAME).await
+    pub async fn create_default_bookshelf<'a>(&'a self) -> Bookshelf<'a> {
+        self.create_bookshelf(DEFAULT_BOOKSHELF_NAME).await
     }
 
-    pub async fn create_another_sample_bookshelf(&self) -> String {
-        self.create_bookshelf(ANOTHER_SAMPLE_BOOKSHELF_NAME).await
+    pub async fn get_book_file(&self, hash: &str) -> Response<Body> {
+        self.get(&format!("/api/v1/library/books/files?hash={hash}"))
+            .await
     }
 
-    pub async fn create_folder(&self, bookshelf_id: &str, parent_id: &str, name: &str) -> String {
-        let response = self
-            .post_json(
+    pub async fn get_book<'a>(&'a self, book_id: &str) -> Book<'a> {
+        let response = JsonHttpResponse::from(
+            self.get(&format!("/api/v1/library/books?id={book_id}"))
+                .await,
+        )
+        .await;
+        Book::from(self, &response.json["data"].to_owned(), response)
+    }
+
+    pub async fn get_bookshelf<'a>(&'a self, id: &str) -> Bookshelf<'a> {
+        let response = JsonHttpResponse::from(
+            self.get(&format!("/api/v1/library/bookshelves?id={id}"))
+                .await,
+        )
+        .await;
+
+        Bookshelf {
+            id: response.json["data"]["id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            name: response.json["data"]["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            created_at: response.json["data"]["created_at"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            updated_at: response.json["data"]["updated_at"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            response: response,
+            app: self,
+        }
+    }
+    pub async fn get_bookshelves<'a>(&'a self) -> Vec<Bookshelf<'a>> {
+        let response =
+            JsonHttpResponse::from(self.get(&format!("/api/v1/library/bookshelves")).await).await;
+
+        let mut result: Vec<Bookshelf> = vec![];
+        for node in response.json["data"].as_array().unwrap() {
+            result.push(Bookshelf {
+                id: node["id"].as_str().unwrap_or("").to_owned(),
+                name: node["name"].as_str().unwrap_or("").to_owned(),
+                created_at: node["created_at"].as_str().unwrap_or("").to_owned(),
+                updated_at: node["updated_at"].as_str().unwrap_or("").to_owned(),
+                response: response.clone(), // 我知道没必要，但我懒..
+                app: self,
+            });
+        }
+        result
+    }
+
+    async fn create_folder<'a>(
+        &'a self,
+        bookshelf_id: &str,
+        parent_id: &str,
+        name: &str,
+    ) -> Folder<'a> {
+        let response = JsonHttpResponse::from(
+            self.post_json(
                 &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
                 json!({ "parent_id": parent_id, "name": name }),
             )
-            .await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-
-        json_body(response).await["data"]["id"]
-            .as_str()
-            .expect("folder id")
-            .to_owned()
-    }
-
-    pub async fn move_folder(&self, bookshelf_id: &str, folder_id: &str, parent_id: &str) -> Response<Body> {
-        self.patch_json(
-            &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders/{folder_id}"),
-            json!({ "parent_id": parent_id }),
+            .await,
         )
-        .await
-    }
+        .await;
 
-    pub async fn create_sample_root_folder(&self, bookshelf_id: &str) -> String {
-        self.create_folder(bookshelf_id, ROOT_FOLDER_ID, SAMPLE_ROOT_FOLDER_NAME)
-            .await
-    }
-
-    pub async fn create_sample_child_folder(&self, bookshelf_id: &str, parent_id: &str) -> String {
-        self.create_folder(bookshelf_id, parent_id, SAMPLE_CHILD_FOLDER_NAME)
-            .await
-    }
-
-    pub async fn create_other_sample_root_folder(&self, bookshelf_id: &str) -> String {
-        self.create_folder(bookshelf_id, ROOT_FOLDER_ID, OTHER_ROOT_FOLDER_NAME)
-            .await
-    }
-
-    pub async fn create_folder_tree(&self, bookshelf_id: &str) -> FolderTree {
-        let root_id = self
-            .create_folder(bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_ROOT_NAME)
-            .await;
-        let child_id = self
-            .create_folder(bookshelf_id, &root_id, FOLDER_TREE_CHILD_NAME)
-            .await;
-        let second_child_id = self
-            .create_folder(bookshelf_id, &root_id, FOLDER_TREE_SECOND_CHILD_NAME)
-            .await;
-        let grandchild_id = self
-            .create_folder(bookshelf_id, &child_id, FOLDER_TREE_GRANDCHILD_NAME)
-            .await;
-        let other_root_id = self
-            .create_folder(bookshelf_id, ROOT_FOLDER_ID, FOLDER_TREE_OTHER_ROOT_NAME)
-            .await;
-
-        FolderTree {
-            root_id,
-            child_id,
-            second_child_id,
-            grandchild_id,
-            other_root_id,
+        let create_at = response.json["data"]["created_at"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        Folder {
+            id: response.json["data"]["id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            created_at: create_at.to_owned(),
+            updated_at: create_at,
+            bookshelf_id: bookshelf_id.to_owned(),
+            response: response,
+            name: name.to_owned(),
+            app: self,
         }
     }
 
-    pub async fn create_book(
+    pub async fn upload_book_file(&self, bytes: &[u8], hash: &str) -> JsonHttpResponse {
+        let boundary = "shiro-reader-test-boundary";
+        let mut body = Vec::new();
+
+        if hash.len() > 0 {
+            push_text_part(&mut body, boundary, "hash", hash);
+        }
+        push_file_part(&mut body, boundary, "file", "book.book", bytes);
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+
+        let response = self
+            .request(
+                Method::POST,
+                "/api/v1/library/books/files",
+                Body::from(body),
+                Some(format!("multipart/form-data; boundary={boundary}")),
+            )
+            .await;
+        JsonHttpResponse::from(response).await
+    }
+
+    pub async fn upload_sample_book_file(
         &self,
+        sample_file: SampleFile,
+    ) -> (JsonHttpResponse, Hash) {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("samples")
+            .join(match sample_file {
+                SampleFile::PDF => "sample_document.pdf",
+                SampleFile::EPUB => "sample_document.epub",
+            });
+
+        let bytes = std::fs::read(path).unwrap();
+        let hash = blake3::hash(&bytes);
+        let response = self.upload_book_file(&bytes, &hash.to_hex()).await;
+        (response, hash)
+    }
+    pub async fn download_book_file(&self, hash: &str) -> Response<Body> {
+        self.get(&format!("/api/v1/library/books/files/{hash}"))
+            .await
+    }
+
+    async fn create_book<'a>(
+        &'a self,
         bookshelf_id: &str,
         folder_id: Option<&str>,
         title: &str,
         hash: &str,
-    ) -> String {
-        let response = self
-            .post_json(
+    ) -> Book<'a> {
+        let response = JsonHttpResponse::from(
+            self.post_json(
                 "/api/v1/library/books",
                 json!({
-                    "title": title,
-                    "hash": hash,
-                    "bookshelf_id": bookshelf_id,
-                    "folder_id": folder_id,
+                "title": title,
+                "hash": hash,
+                "bookshelf_id": bookshelf_id,
+                "folder_id": folder_id
                 }),
             )
-            .await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-
-        json_body(response).await["data"]["id"]
+            .await,
+        )
+        .await;
+        let create_at = response.json["data"]["created_at"]
             .as_str()
-            .expect("book id")
-            .to_owned()
+            .unwrap_or("")
+            .to_owned();
+
+        Book {
+            id: response.json["data"]["id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            bookshelf_id: bookshelf_id.to_owned(),
+            folder_id: folder_id.and_then(|f| Some(f.to_owned())),
+            title: title.to_owned(),
+            file_type: EMPTY_STRING.to_owned(),
+            hash: hash.to_owned(),
+            created_at: create_at.to_owned(),
+            updated_at: create_at,
+            response: response,
+            app: self,
+        }
+    }
+
+    async fn get(&self, uri: &str) -> Response<Body> {
+        self.request(Method::GET, uri, Body::empty(), None).await
+    }
+
+    async fn delete(&self, uri: &str) -> Response<Body> {
+        self.request(Method::DELETE, uri, Body::empty(), None).await
+    }
+
+    async fn post_json(&self, uri: &str, body: Value) -> Response<Body> {
+        self.json_request(Method::POST, uri, body).await
+    }
+
+    async fn patch_json(&self, uri: &str, body: Value) -> Response<Body> {
+        self.json_request(Method::PATCH, uri, body).await
     }
 
     async fn json_request(&self, method: Method, uri: &str, body: Value) -> Response<Body> {
@@ -369,255 +424,495 @@ impl TestApp {
     }
 }
 
+impl<'a> Bookshelf<'a> {
+    pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
+        self.app.create_book(&self.id, None, title, hash).await
+    }
+
+    pub async fn create_folder(&self, name: &str) -> Folder<'a> {
+        self.app.create_folder(&self.id, ROOT_FOLDER_ID, name).await
+    }
+
+    pub async fn create_default_book(&self) -> Book<'a> {
+        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
+        self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
+    }
+
+    pub async fn create_default_folder(&self) -> Folder<'a> {
+        self.create_folder(DEAFULT_FOLDER_NAME).await
+    }
+
+    pub async fn delete(self) -> JsonHttpResponse {
+        JsonHttpResponse::from(
+            self.app
+                .delete(&format!("/api/v1/library/bookshelves/{}", &self.id))
+                .await,
+        )
+        .await
+    }
+
+    pub async fn rename(&mut self, new_name: &str) {
+        let response = JsonHttpResponse::from(
+            self.app
+                .patch_json(
+                    &format!("/api/v1/library/bookshelves/{}", &self.id),
+                    json!({ "name": new_name }),
+                )
+                .await,
+        )
+        .await;
+        self.name = new_name.to_owned();
+        self.response = response;
+    }
+
+    pub async fn get_folder(&self, folder_id: &str) -> Folder<'a> {
+        let response = JsonHttpResponse::from(
+            self.app
+                .get(&format!(
+                    "/api/v1/library/bookshelves/{}/folders?id={}",
+                    self.id, folder_id
+                ))
+                .await,
+        )
+        .await;
+
+        Folder {
+            id: response.json["data"][0]["id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            name: response.json["data"][0]["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            created_at: response.json["data"][0]["created_at"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            updated_at: response.json["data"][0]["updated_at"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            bookshelf_id: self.id.to_owned(),
+            response: response,
+            app: self.app,
+        }
+    }
+
+    pub async fn get_books(&self) -> Vec<Book<'a>> {
+        let response = JsonHttpResponse::from(
+            self.app
+                .get(&format!("/api/v1/library/bookshelves/{}/books", self.id))
+                .await,
+        )
+        .await;
+        let mut books: Vec<Book> = vec![];
+        for json in response.json["data"].as_array().unwrap() {
+            books.push(Book::from(self.app, json, response.to_owned()));
+        }
+        books
+    }
+
+    pub async fn get_folders(&self) -> Vec<FolderTreeNode<'a>> {
+        let response = JsonHttpResponse::from(
+            self.app
+                .get(&format!(
+                    "/api/v1/library/bookshelves/{}/folders?recursive=true",
+                    self.id
+                ))
+                .await,
+        )
+        .await;
+        self.make_tree(&response.json["data"], &response)
+    }
+
+    fn make_tree(&self, json: &Value, response: &JsonHttpResponse) -> Vec<FolderTreeNode<'a>> {
+        let mut tree: Vec<FolderTreeNode<'a>> = vec![];
+        for n in json.as_array().unwrap() {
+            let children = self.make_tree(&n["children"], &response);
+            tree.push(FolderTreeNode {
+                folder: Folder {
+                    bookshelf_id: self.id.to_owned(),
+                    id: n["id"].as_str().unwrap_or("").to_owned(),
+                    name: n["name"].as_str().unwrap_or("").to_owned(),
+                    created_at: n["created_at"].as_str().unwrap_or("").to_owned(),
+                    updated_at: n["updated_at"].as_str().unwrap_or("").to_owned(),
+                    response: response.to_owned(),
+                    app: self.app,
+                },
+                children: children,
+            });
+        }
+        tree
+    }
+
+    pub async fn create_folder_tree(&self) {
+        for i in 0..2 {
+            let folder_first = self.create_folder(&format!("{}00", i)).await;
+            for j in 0..3 {
+                let folder_second = folder_first.create_folder(&format!("{}{}0", i, j)).await;
+                for n in 0..3 {
+                    folder_second
+                        .create_folder(&format!("{}{}{}", i, j, n))
+                        .await;
+                }
+            }
+        }
+    }
+
+    pub fn assert_data(&self) {
+        Uuid::parse_str(&self.id).expect("expected valid uuid");
+        DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
+        DateTime::parse_from_rfc3339(&self.updated_at).expect("expected valid RFC3339 datetime");
+    }
+}
+
+impl<'a> Folder<'a> {
+    pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
+        self.app
+            .create_book(&self.bookshelf_id, Some(&self.id), title, hash)
+            .await
+    }
+
+    pub async fn create_folder(&self, name: &str) -> Folder<'a> {
+        self.app
+            .create_folder(&self.bookshelf_id, &self.id, name)
+            .await
+    }
+
+    pub async fn create_default_book(&self) -> Book<'a> {
+        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
+        self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
+    }
+
+    pub async fn create_default_folder(&self) -> Folder<'a> {
+        self.create_folder(DEAFULT_FOLDER_NAME).await
+    }
+
+    pub async fn delete(self) -> JsonHttpResponse {
+        JsonHttpResponse::from(
+            self.app
+                .delete(&format!(
+                    "/api/v1/library/bookshelves/{}/folders/{}",
+                    &self.bookshelf_id, &self.id
+                ))
+                .await,
+        )
+        .await
+    }
+
+    pub async fn rename(&mut self, new_name: &str) {
+        let response = JsonHttpResponse::from(
+            self.app
+                .patch_json(
+                    &format!(
+                        "/api/v1/library/bookshelves/{}/folders/{}",
+                        &self.bookshelf_id, &self.id
+                    ),
+                    json!({ "name": new_name , "parent_id": null}),
+                )
+                .await,
+        )
+        .await;
+        self.name = new_name.to_owned();
+        self.response = response;
+    }
+
+    pub async fn move_to(&mut self, parent_id: &str) {
+        let response = JsonHttpResponse::from(
+            self.app
+                .patch_json(
+                    &format!(
+                        "/api/v1/library/bookshelves/{}/folders/{}",
+                        &self.bookshelf_id, &self.id
+                    ),
+                    json!({ "name": null , "parent_id": parent_id}),
+                )
+                .await,
+        )
+        .await;
+        self.response = response;
+    }
+
+    pub async fn get_books(&self) -> Vec<Book<'a>> {
+        let response = JsonHttpResponse::from(
+            self.app
+                .get(&format!(
+                    "/api/v1/library/bookshelves/{}/folders/{}/books",
+                    self.bookshelf_id, self.id
+                ))
+                .await,
+        )
+        .await;
+        let mut books: Vec<Book> = vec![];
+        for json in response.json["data"].as_array().unwrap() {
+            books.push(Book::from(self.app, json, response.to_owned()));
+        }
+        books
+    }
+
+    pub fn assert_data(&self) {
+        Uuid::parse_str(&self.id).expect("expected valid uuid");
+        DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
+        DateTime::parse_from_rfc3339(&self.updated_at).expect("expected valid RFC3339 datetime");
+    }
+}
+
+impl<'a> Book<'a> {
+    pub fn from(app: &'a TestApp, json: &Value, response: JsonHttpResponse) -> Self {
+        Self {
+            id: json["id"].as_str().unwrap_or("").to_owned(),
+            bookshelf_id: json["bookshelf_id"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            folder_id: json["folder_id"]
+                .as_str()
+                .and_then(|f| Some(f.to_owned())),
+            title: json["title"].as_str().unwrap_or("").to_owned(),
+            file_type: json["type"].as_str().unwrap_or("").to_owned(),
+            hash: json["hash"].as_str().unwrap_or("").to_owned(),
+            created_at: json["created_at"].as_str().unwrap_or("").to_owned(),
+            updated_at: json["updated_at"].as_str().unwrap_or("").to_owned(),
+            response: response,
+            app: app,
+        }
+    }
+    pub async fn delete(self) -> JsonHttpResponse {
+        JsonHttpResponse::from(
+            self.app
+                .delete(&format!("/api/v1/library/books/{}", self.id))
+                .await,
+        )
+        .await
+    }
+    pub async fn rename(&mut self, new_title: &str) {
+        let response = JsonHttpResponse::from(
+            self.app
+                .patch_json(
+                    &format!("/api/v1/library/books/{}", self.id),
+                    json!({ "title": new_title }),
+                )
+                .await,
+        )
+        .await;
+        self.title = new_title.to_owned();
+        self.response = response;
+    }
+    pub fn assert_data(&self) {
+        Uuid::parse_str(&self.id).expect("expected valid uuid");
+        DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
+        DateTime::parse_from_rfc3339(&self.updated_at).expect("expected valid RFC3339 datetime");
+    }
+}
+
+impl JsonHttpResponse {
+    pub async fn from(value: Response<Body>) -> Self {
+        JsonHttpResponse::new(value.status(), json_body(value).await)
+    }
+
+    pub fn assert_bookshelf_missing_name_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.missing_name"
+        );
+    }
+
+    pub fn assert_bookshelf_invalid_name_format_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.invalid_name_format"
+        );
+    }
+
+    pub fn assert_bookshelf_invalid_id_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.invalid_id"
+        );
+    }
+
+    pub fn assert_bookshelf_not_found_error(&self) {
+        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
+        assert_eq!(self.json["error"]["message"], "library.bookshelf.not_found");
+    }
+
+    pub fn assert_bookshelf_name_conflict_error(&self) {
+        assert_eq!(self.status_code, StatusCode::CONFLICT);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.name_conflict"
+        );
+    }
+
+    pub fn assert_folder_missing_name_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.missing_name"
+        );
+    }
+
+    pub fn assert_folder_name_conflict_error(&self) {
+        assert_eq!(self.status_code, StatusCode::CONFLICT);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.name_conflict"
+        );
+    }
+
+    pub fn assert_folder_cycled_error(&self) {
+        assert_eq!(self.status_code, StatusCode::CONFLICT);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.cycled"
+        );
+    }
+
+    pub fn assert_folder_not_found_error(&self) {
+        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.not_found"
+        );
+    }
+
+    pub fn assert_folder_invalid_id_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.invalid_id"
+        );
+    }
+
+    pub fn assert_folder_parent_not_found_error(&self) {
+        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.parent_not_found"
+        );
+    }
+
+    pub fn assert_folder_invalid_name_format_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.invalid_name_format"
+        );
+    }
+
+    pub fn assert_folder_invalid_parent_id_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.bookshelf.folder.invalid_parent_id"
+        );
+    }
+
+    pub fn assert_book_file_upload_missing_hash_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.upload.missing_hash"
+        );
+    }
+
+    pub fn assert_book_file_upload_missing_file_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.upload.missing_file"
+        );
+    }
+
+    pub fn assert_book_file_upload_duplicate_hash_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.upload.duplicate_hash"
+        );
+    }
+
+    pub fn assert_book_file_hash_mismatch_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.hash_mismatch"
+        );
+    }
+
+    pub fn assert_book_file_already_exists_error(&self) {
+        assert_eq!(self.status_code, StatusCode::CONFLICT);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.already_exists"
+        );
+    }
+
+    pub fn assert_book_file_invalid_hash_format_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.file.invalid_hash_format"
+        );
+    }
+
+    pub fn assert_book_file_not_found_error(&self) {
+        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
+        assert_eq!(self.json["error"]["message"], "library.book.file.not_found");
+    }
+
+    pub fn assert_book_missing_title_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(self.json["error"]["message"], "library.book.missing_title");
+    }
+
+    pub fn assert_book_invalid_title_format_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            self.json["error"]["message"],
+            "library.book.invalid_title_format"
+        );
+    }
+
+    pub fn assert_book_invalid_id_error(&self) {
+        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
+        assert_eq!(self.json["error"]["message"], "library.book.invalid_id");
+    }
+
+    pub fn assert_book_not_found_error(&self) {
+        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
+        assert_eq!(self.json["error"]["message"], "library.book.not_found");
+    }
+
+    pub fn assert_book_title_conflict_error(&self) {
+        assert_eq!(self.status_code, StatusCode::CONFLICT);
+        assert_eq!(self.json["error"]["message"], "library.book.title_conflict");
+    }
+}
+
+async fn json_body(response: Response<Body>) -> Value {
+    let bytes = body_bytes(response).await;
+    serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+}
+
 pub async fn body_bytes(response: Response<Body>) -> Bytes {
     to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("read response body")
 }
 
-pub async fn json_body(response: Response<Body>) -> Value {
-    let bytes = body_bytes(response).await;
-    serde_json::from_slice(&bytes).expect("parse json response body")
-}
-
-pub async fn assert_error(response: Response<Body>, status: StatusCode, message: &str) {
-    assert_eq!(response.status(), status);
-    let body = json_body(response).await;
-    assert_eq!(body["error"]["message"], message);
-}
-
-pub async fn assert_book_missing_title_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.missing_title",
-    )
-    .await
-}
-
-pub async fn assert_book_invalid_title_format_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.invalid_title_format",
-    )
-    .await
-}
-
-pub async fn assert_book_invalid_id_error(response: Response<Body>) {
-    assert_error(response, StatusCode::BAD_REQUEST, "library.book.invalid_id").await
-}
-
-pub async fn assert_book_not_found_error(response: Response<Body>) {
-    assert_error(response, StatusCode::NOT_FOUND, "library.book.not_found").await
-}
-
-pub async fn assert_book_title_conflict_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::CONFLICT,
-        "library.book.title_conflict",
-    )
-    .await
-}
-
-pub async fn assert_book_file_upload_missing_hash_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.upload.missing_hash",
-    )
-    .await
-}
-
-pub async fn assert_book_file_upload_missing_file_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.upload.missing_file",
-    )
-    .await
-}
-
-pub async fn assert_book_file_upload_duplicate_hash_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.upload.duplicate_hash",
-    )
-    .await
-}
-
-pub async fn assert_book_file_hash_mismatch_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.hash_mismatch",
-    )
-    .await
-}
-
-pub async fn assert_book_file_already_exists_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::CONFLICT,
-        "library.book.file.already_exists",
-    )
-    .await
-}
-
-pub async fn assert_book_file_invalid_hash_format_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.book.file.invalid_hash_format",
-    )
-    .await
-}
-
-pub async fn assert_book_file_not_found_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::NOT_FOUND,
-        "library.book.file.not_found",
-    )
-    .await
-}
-
-pub async fn assert_bookshelf_missing_name_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.missing_name",
-    )
-    .await
-}
-
-pub async fn assert_bookshelf_invalid_name_format_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.invalid_name_format",
-    )
-    .await
-}
-
-pub async fn assert_bookshelf_invalid_id_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.invalid_id",
-    )
-    .await
-}
-
-pub async fn assert_bookshelf_not_found_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.not_found",
-    )
-    .await
-}
-
-pub async fn assert_bookshelf_name_conflict_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::CONFLICT,
-        "library.bookshelf.name_conflict",
-    )
-    .await
-}
-
-pub async fn assert_folder_missing_name_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.missing_name",
-    )
-    .await
-}
-
-pub async fn assert_folder_invalid_name_format_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_name_format",
-    )
-    .await
-}
-
-pub async fn assert_folder_invalid_id_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_id",
-    )
-    .await
-}
-
-pub async fn assert_folder_invalid_parent_id_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::BAD_REQUEST,
-        "library.bookshelf.folder.invalid_parent_id",
-    )
-    .await
-}
-
-pub async fn assert_folder_parent_not_found_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.parent_not_found",
-    )
-    .await
-}
-
-pub async fn assert_folder_not_found_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::NOT_FOUND,
-        "library.bookshelf.folder.not_found",
-    )
-    .await
-}
-
-pub async fn assert_folder_name_conflict_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::CONFLICT,
-        "library.bookshelf.folder.name_conflict",
-    )
-    .await
-}
-
-pub async fn assert_folder_cycled_error(response: Response<Body>) {
-    assert_error(
-        response,
-        StatusCode::CONFLICT,
-        "library.bookshelf.folder.cycled",
-    )
-    .await
-}
-
-pub fn assert_uuid_string(value: &Value) {
+fn assert_uuid_string(value: &Value) {
     let raw = value.as_str().expect("expected uuid string");
     Uuid::parse_str(raw).expect("expected valid uuid");
 }
 
-pub fn assert_rfc3339_datetime_string(value: &Value) {
+fn assert_rfc3339_datetime_string(value: &Value) {
     let raw = value.as_str().expect("expected datetime string");
     DateTime::parse_from_rfc3339(raw).expect("expected valid RFC3339 datetime");
-}
-
-pub fn hash_for(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
-}
-
-fn sqlite_url(path: &PathBuf) -> String {
-    let path = path.display().to_string().replace('\\', "/");
-    format!("sqlite://{path}?mode=rwc")
 }
 
 fn push_text_part(body: &mut Vec<u8>, boundary: &str, name: &str, value: &str) {

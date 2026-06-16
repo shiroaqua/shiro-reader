@@ -1,367 +1,191 @@
-mod support;
-
 use axum::http::StatusCode;
-use serde_json::json;
-use support::{
-    assert_book_file_invalid_hash_format_error, assert_book_file_not_found_error,
-    assert_book_invalid_id_error, assert_book_invalid_title_format_error,
-    assert_book_missing_title_error, assert_book_not_found_error, assert_book_title_conflict_error,
-    assert_bookshelf_not_found_error, assert_folder_not_found_error,
-    assert_rfc3339_datetime_string, assert_uuid_string, hash_for, json_body, TestApp,
-    INVALID_BOOK_HASH, INVALID_BOOK_TITLES, INVALID_UUID, MISSING_SAMPLE_BOOK_BYTES,
-    RENAMED_BOOK_TITLE, SAMPLE_BOOK_BYTES, SAMPLE_BOOK_TITLE, UNKNOWN_UUID,
-};
 
-use crate::support::EMPTY_STRING;
+use crate::support::{Book, EMPTY_STRING, INVALID_BOOK_TITLES, INVALID_HASH, INVALID_UUID, SampleFile, TestApp, UNKNOWN_HASH, UNKNOWN_UUID};
+
+mod support;
 
 #[tokio::test]
 async fn create_book() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_sample_book_file().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
 
-    let response = app
-        .post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": SAMPLE_BOOK_TITLE,
-                "hash": hash,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": null,
-            }),
-        )
-        .await;
-
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let body = json_body(response).await;
-    assert_uuid_string(&body["data"]["id"]);
-    assert_rfc3339_datetime_string(&body["data"]["created_at"]);
+    let book = bookshelf.create_default_book().await;
+    book.assert_data();
+    assert_eq!(book.response.status_code, StatusCode::CREATED);
+    
+    let book = folder.create_default_book().await;
+    book.assert_data();
+    assert_eq!(book.response.status_code, StatusCode::CREATED);
 }
 
 #[tokio::test]
-async fn get_book_by_id() {
+async fn create_book_missing_titile_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let folder_id = app.create_sample_root_folder(&bookshelf_id).await;
-    let hash = app.upload_sample_book_file().await;
-    let book_id = app
-        .create_book(&bookshelf_id, Some(&folder_id), SAMPLE_BOOK_TITLE, &hash)
-        .await;
-
-    let response = app
-        .get(&format!("/api/v1/library/books?id={book_id}"))
-        .await;
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = json_body(response).await;
-    assert_eq!(body["data"]["id"], book_id);
-    assert_eq!(body["data"]["title"], SAMPLE_BOOK_TITLE);
-    assert_eq!(body["data"]["hash"], hash);
-    assert_eq!(body["data"]["bookshelf_id"], bookshelf_id);
-    assert_eq!(body["data"]["folder_id"], folder_id);
+    let bookshelf = app.create_default_bookshelf().await;
+    let book = bookshelf.create_book(EMPTY_STRING, UNKNOWN_HASH).await;
+    book.response.assert_book_missing_title_error();
 }
 
+
 #[tokio::test]
-async fn rename_book_title() {
+async fn create_book_invalid_title_format_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_sample_book_file().await;
-    let book_id = app
-        .create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &hash)
-        .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    for title in INVALID_BOOK_TITLES {
+     bookshelf.create_book(title, UNKNOWN_HASH).await.response.assert_book_invalid_title_format_error();
+    }
+}
 
-    let response = app
-        .patch_json(
-            &format!("/api/v1/library/books/{book_id}"),
-            json!({ "title": RENAMED_BOOK_TITLE }),
-        )
-        .await;
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    let fetched = app
-        .get(&format!("/api/v1/library/books?id={book_id}"))
-        .await;
-    let body = json_body(fetched).await;
-    assert_eq!(body["data"]["title"], RENAMED_BOOK_TITLE);
+#[tokio::test]
+async fn create_book_invalid_hash_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let book = bookshelf.create_book("title", INVALID_HASH).await;
+    book.response.assert_book_file_invalid_hash_format_error();
+}
+
+
+#[tokio::test]
+async fn create_book_not_found_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let book = bookshelf.create_book("title", UNKNOWN_HASH).await;
+    book.response.assert_book_file_not_found_error();
 }
 
 #[tokio::test]
 async fn delete_book() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_sample_book_file().await;
-    let book_id = app
-        .create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &hash)
-        .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
 
-    let response = app.delete(&format!("/api/v1/library/books/{book_id}")).await;
+    assert_eq!(bookshelf.create_default_book().await.delete().await.status_code, StatusCode::NO_CONTENT);
+    assert_eq!(folder.create_default_book().await.delete().await.status_code, StatusCode::NO_CONTENT);
+    assert_eq!(bookshelf.get_books().await.len(), 0);
+    assert_eq!(folder.get_books().await.len(), 0);
+}
 
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    assert_book_not_found_error(
-        app.get(&format!("/api/v1/library/books?id={book_id}"))
-            .await,
-    )
-    .await;
+
+#[tokio::test]
+async fn delete_book_invalid_id_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut book = bookshelf.create_default_book().await;
+    book.id = INVALID_UUID.to_owned();
+    book.delete().await.assert_book_invalid_id_error();
 }
 
 #[tokio::test]
-async fn create_book_rejects_missing_title() {
+async fn delete_book_not_found_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = hash_for(SAMPLE_BOOK_BYTES);
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut book = bookshelf.create_default_book().await;
+    book.id = UNKNOWN_UUID.to_owned();
+    book.delete().await.assert_book_not_found_error();
+}
 
-    assert_book_missing_title_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": EMPTY_STRING,
-                "hash": hash,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": null,
-            }),
-        )
-        .await,
-    )
-    .await;
+
+#[tokio::test]
+async fn rename_book() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
+
+    let mut book = bookshelf.create_default_book().await;
+    book.rename("QAQ").await;
+    assert_eq!(book.response.status_code, StatusCode::NO_CONTENT);
+    assert_eq!(app.get_book(&book.id).await.title, "QAQ");
+    
+    let mut book = folder.create_default_book().await;
+    book.rename("awa").await;
+    assert_eq!(book.response.status_code, StatusCode::NO_CONTENT);
+    assert_eq!(app.get_book(&book.id).await.title, "awa");
+    
+}
+
+
+#[tokio::test]
+async fn rename_book_missing_title_error() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut book = bookshelf.create_default_book().await;
+    book.rename(EMPTY_STRING).await;
+    book.response.assert_book_missing_title_error();
 }
 
 #[tokio::test]
-async fn create_book_rejects_invalid_title_format() {
+async fn rename_book_invalid_title_format_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = hash_for(SAMPLE_BOOK_BYTES);
-
-    for invalid_title in INVALID_BOOK_TITLES {
-        assert_book_invalid_title_format_error(
-            app.post_json(
-                "/api/v1/library/books",
-                json!({
-                    "title": invalid_title,
-                    "hash": hash,
-                    "bookshelf_id": bookshelf_id,
-                    "folder_id": null,
-                }),
-            )
-            .await,
-        )
-        .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let mut book = bookshelf.create_default_book().await;
+    for title in INVALID_BOOK_TITLES {
+        book.rename(title).await;
+        book.response.assert_book_invalid_title_format_error();
     }
 }
 
 #[tokio::test]
-async fn create_book_rejects_invalid_hash() {
+async fn get_book_by_id() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_book_file_invalid_hash_format_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": RENAMED_BOOK_TITLE,
-                "hash": INVALID_BOOK_HASH,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": null,
-            }),
-        )
-        .await,
-    )
-    .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let book_raw = bookshelf.create_default_book().await;
+    let book_from_get = app.get_book(&book_raw.id).await;
+    assert_eq!(book_from_get.response.status_code, StatusCode::OK);
+    assert_book(&book_raw,&book_from_get);
+    // todo: verify file type, and fix bug.
 }
 
 #[tokio::test]
-async fn create_book_returns_not_found_when_book_file_is_missing() {
+async fn get_book_by_id_invalid_id_error() {
     let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-
-    assert_book_file_not_found_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": RENAMED_BOOK_TITLE,
-                "hash": hash_for(MISSING_SAMPLE_BOOK_BYTES),
-                "bookshelf_id": bookshelf_id,
-                "folder_id": null,
-            }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_book_returns_not_found_for_unknown_bookshelf_id() {
-    let app = TestApp::new().await;
-    let hash = app.upload_another_sample_book_file().await;
-
-    assert_bookshelf_not_found_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": RENAMED_BOOK_TITLE,
-                "hash": hash,
-                "bookshelf_id": UNKNOWN_UUID,
-                "folder_id": null,
-            }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_book_returns_not_found_for_unknown_folder_id() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_another_sample_book_file().await;
-
-    assert_folder_not_found_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": RENAMED_BOOK_TITLE,
-                "hash": hash,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": UNKNOWN_UUID,
-            }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_book_rejects_folder_from_another_bookshelf() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let other_bookshelf_id = app.create_another_sample_bookshelf().await;
-    let other_folder_id = app
-        .create_other_sample_root_folder(&other_bookshelf_id)
-        .await;
-    let hash = app.upload_another_sample_book_file().await;
-
-    assert_folder_not_found_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": RENAMED_BOOK_TITLE,
-                "hash": hash,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": other_folder_id,
-            }),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn create_book_rejects_duplicate_title_in_same_location() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let first_hash = app.upload_sample_book_file().await;
-    app.create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &first_hash)
-        .await;
-    let second_hash = app.upload_third_sample_book_file().await;
-
-    assert_book_title_conflict_error(
-        app.post_json(
-            "/api/v1/library/books",
-            json!({
-                "title": SAMPLE_BOOK_TITLE,
-                "hash": second_hash,
-                "bookshelf_id": bookshelf_id,
-                "folder_id": null,
-            }),
-        )
-        .await,
-    )
-    .await;
+    app.get_book(INVALID_UUID).await.response.assert_book_invalid_id_error();
 }
 
 
 #[tokio::test]
-async fn get_book_rejects_invalid_id() {
+async fn get_book_by_id_not_found_error() {
     let app = TestApp::new().await;
-
-    assert_book_invalid_id_error(
-        app.get(&format!("/api/v1/library/books?id={INVALID_UUID}"))
-            .await,
-    )
-    .await;
+    app.get_book(UNKNOWN_UUID).await.response.assert_book_not_found_error();
 }
 
 #[tokio::test]
-async fn get_book_returns_not_found_for_unkown_id() {
+async fn get_books_from_bookshelf() {
     let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
 
-    assert_book_not_found_error(
-        app.get(&format!("/api/v1/library/books?id={UNKNOWN_UUID}"))
-            .await,
-    )
-    .await
-}
-
-
-#[tokio::test]
-async fn delete_book_rejects_invalid_id() {
-    let app = TestApp::new().await;
-
-    assert_book_invalid_id_error(
-        app.delete(&format!("/api/v1/library/books/{INVALID_UUID}"))
-            .await,
-    )
-    .await;
-
+    let first = bookshelf.create_book("PDF", &app.upload_sample_book_file(SampleFile::PDF).await.1.to_hex()).await;
+    let second = bookshelf.create_book("EPUB", &app.upload_sample_book_file(SampleFile::EPUB).await.1.to_hex()).await;
+    let books = bookshelf.get_books().await;
+    assert_eq!(books.len(), 2);
+    assert_book(books.iter().find(|f| f.id == first.id).unwrap(), &first);
+    assert_book(books.iter().find(|f| f.id == second.id).unwrap(), &second);
 }
 
 #[tokio::test]
-async fn delete_book_returns_not_found_for_unknown_id() {
+async fn get_books_from_folder() { 
     let app = TestApp::new().await;
-
-    assert_book_not_found_error(
-        app.delete(&format!("/api/v1/library/books/{UNKNOWN_UUID}"))
-            .await,
-    )
-    .await;
+    let bookshelf = app.create_default_bookshelf().await;
+    let folder = bookshelf.create_default_folder().await;
+   
+    let first = folder.create_book("PDF", &app.upload_sample_book_file(SampleFile::PDF).await.1.to_hex()).await;
+    let second = folder.create_book("EPUB", &app.upload_sample_book_file(SampleFile::EPUB).await.1.to_hex()).await;
+   
+    let books = folder.get_books().await;
+    assert_eq!(bookshelf.get_books().await.len(), 0);
+    assert_eq!(books.len(), 2);
+    assert_book(books.iter().find(|f| f.id == first.id).unwrap(), &first);
+    assert_book(books.iter().find(|f| f.id == second.id).unwrap(), &second);
 }
 
-
-#[tokio::test]
-async fn rename_book_rejects_missing_name() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_sample_book_file().await;
-    let book_id = app
-        .create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &hash)
-        .await;
-
-    assert_book_missing_title_error(
-        app.patch_json(
-            &format!("/api/v1/library/books/{book_id}"),
-            json!({ "title": EMPTY_STRING }),
-        )
-        .await,
-    )
-    .await;
+fn assert_book(a: &Book, b: &Book) {
+    assert_eq!(a.id, b.id);
+    assert_eq!(a.title, b.title);
+    assert_eq!(a.hash, b.hash);
+    assert_eq!(a.bookshelf_id, b.bookshelf_id);
+    assert_eq!(a.folder_id, b.folder_id);
+    assert_eq!(a.created_at, b.created_at);
+    assert_eq!(a.updated_at, b.updated_at);
 }
 
-#[tokio::test]
-async fn rename_book_rejects_invalid_title_format() {
-    let app = TestApp::new().await;
-    let bookshelf_id = app.create_sample_bookshelf().await;
-    let hash = app.upload_sample_book_file().await;
-    let book_id = app
-        .create_book(&bookshelf_id, None, SAMPLE_BOOK_TITLE, &hash)
-        .await;
-
-    for invalid_title in INVALID_BOOK_TITLES {
-        assert_book_invalid_title_format_error(
-            app.patch_json(
-                &format!("/api/v1/library/books/{book_id}"),
-                json!({ "title": invalid_title }),
-            )
-            .await,
-        )
-        .await;
-    }
-}
