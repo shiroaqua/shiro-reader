@@ -19,7 +19,7 @@ use crate::{
             sqlite_book_repository::SqliteBookRepository,
             sqlite_bookshelf_repository::SqliteBookshelfRepository,
             sqlite_folder_repository::SqliteFolderRepository,
-        }, storage::hash_file_storage::HashFileStorage,
+        }, storage::book_file_storage::BookFileStorage,
     },
 };
 
@@ -38,8 +38,9 @@ impl AppState {
         // 编写用户系统前暂时先使用硬编码
         std::fs::create_dir_all(PathBuf::from("users").join("default"))?;
         std::fs::create_dir_all(PathBuf::from("books").join(".temp"))?;
+        
 
-        let mut book_file_storage = HashFileStorage::new(PathBuf::from("books"), String::from_str("book")?);
+        let mut book_file_storage = BookFileStorage::new(PathBuf::from("books"), String::from_str("book")?);
         book_file_storage.scan()?;
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));

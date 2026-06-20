@@ -6,7 +6,7 @@ use sqlx::{SqlitePool, sqlite::SqliteRow};
 use crate::{
     application::library::book::ports::BookRepository,
     domain::library::{book::{
-        entity::{Book, BookFileType},
+        entity::Book,
         value_objects::{BookId, BookTitle},
     }, bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId}},
     infrastructure::repositories::{
@@ -65,7 +65,6 @@ impl BookRepository for SqliteBookRepository {
                 book.id.to_string().into(),
                 book.title.to_string().into(),
                 book.hash.to_hex().to_string().into(),
-                book.file_type.to_string().into(),
                 book.bookshelf_id.to_string().into(),
                 book.folder_id.as_ref().map(ToString::to_string).into(),
                 book.created_at.into(),
@@ -144,10 +143,6 @@ impl TryFrom<&SqliteRow> for Book {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        let file_type: BookFileType = row
-            .get_string::<String>(&Books::Type.to_string())?
-            .parse()
-            .map_err(|_| RepositoryError::InvalidBookFileType)?;
 
         Ok(Book {
             id: row.get_uuid(&Books::Id.to_string())?,
@@ -157,7 +152,6 @@ impl TryFrom<&SqliteRow> for Book {
             folder_id: row.get_optional_uuid(&Books::FolderId.to_string())?,
             created_at: row.get(&Books::CreatedAt.to_string())?,
             updated_at: row.get(&Books::UpdatedAt.to_string())?,
-            file_type: file_type,
         })
     }
 }

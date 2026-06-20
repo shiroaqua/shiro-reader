@@ -1,20 +1,19 @@
 use std::{io, io::ErrorKind, sync::Arc};
 
 use crate::{
-    application::library::{book::file::errors::BookFileApplicationError, errors::LibraryApplicationError},
-    infrastructure::storage::hash_file_storage::HashFileStorage,
+    application::library::{book::file::errors::BookFileApplicationError, errors::LibraryApplicationError}, domain::library::book::file::entity::BookFileType, infrastructure::storage::book_file_storage::BookFileStorage
 };
 use blake3::Hash;
 use dashmap::DashSet;
 use tokio::{fs::File, io::AsyncRead};
 
 pub struct BookFileService {
-    storage: HashFileStorage,
+    storage: BookFileStorage,
     uploading: Arc<DashSet<Hash>>,
 }
 
 impl BookFileService {
-    pub fn new(storage: HashFileStorage) -> Self {
+    pub fn new(storage: BookFileStorage) -> Self {
         let uploading: Arc<DashSet<Hash>> = Arc::new(DashSet::new());
         Self {
             storage: storage,
@@ -36,6 +35,7 @@ impl BookFileService {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => Err(BookFileApplicationError::AlreadyExists.into()),
             Err(e) if e.kind() == ErrorKind::InvalidData => Err(BookFileApplicationError::HashMismatch.into()),
+            Err(e) if e.kind() == ErrorKind::Unsupported => Err(BookFileApplicationError::Unsupported.into()),
             Err(e) => Err(e.into()),
         }
     }
@@ -55,6 +55,9 @@ impl BookFileService {
          else {
              Err(BookFileApplicationError::NotFound.into())
          }
+    }
+    pub fn get_book_type(&self, hash: &Hash) -> Option<BookFileType> {
+        self.storage.get_type(&hash)
     }
 
     #[inline]

@@ -1,10 +1,6 @@
 use std::sync::Arc;
 
 use derive_new::new;
-use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncSeekExt},
-};
 
 use crate::{
     application::library::{
@@ -21,7 +17,7 @@ use crate::{
     },
     domain::library::{
         book::{
-            entity::{Book, BookFileType},
+            entity::Book,
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
         },
@@ -51,27 +47,7 @@ impl BookService {
             .transpose()?;
         let now = now_ms();
 
-
-        let mut file = self.bookfile.download_book_file(&command.hash).await?;
-        let file_type = if compare_head(&mut file, b"%PDF-").await? {
-            BookFileType::PDF
-        } else if compare_head(&mut file, b"PK\x03\x04\x14\x00\x00\x00\x00\x00\xF0\x92\xFEBoa\xAB,\x14\x00\x00\x00\x14\x00\x00\x00\x08\x00\x00\x00mimetypeapplication/epub").await?{
-            BookFileType::EPUB
-        } else { 
-            BookFileType::TXT // 设计上，前端就不该上传未支持格式的文件过来，因此遇到一律当TXT处理（我不能抛错误，因为我最终肯定要支持TXT文件，但TXT没有固定头部，我不可能在服务端区分文件是未支持格式还是奇怪的TXT）
-        };
-
-
-        let book = Book::new(
-            id,
-            title,
-            hash,
-            file_type,
-            bookshelf_id,
-            folder_id,
-            now,
-            now,
-        );
+        let book = Book::new(id, title, hash, bookshelf_id, folder_id, now, now);
         let created = self.repository.create(book).await?;
 
         Ok(CreateBookOutput {
@@ -115,7 +91,7 @@ impl BookService {
                 .list(&bookshelf_id, folder_id.as_ref())
                 .await?
                 .into_iter()
-                .map(Into::into)
+                .map(|b| self.into(b))
                 .collect(),
         ))
     }
@@ -125,15 +101,25 @@ impl BookService {
         command: GetBookCommand,
     ) -> Result<GetBookOutput, LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
-        Ok(self.repository.find_by_id(&id).await?.into())
+        Ok(self.into(self.repository.find_by_id(&id).await?))
     }
-}
 
-async fn compare_head(file: &mut File, expected_head: &[u8]) -> Result<bool, LibraryApplicationError> {
-    let mut buf = vec![0u8; expected_head.len()];
-    file.seek(std::io::SeekFrom::Start(0)).await.map_err(|_| LibraryApplicationError::Book(BookApplicationError::InvailFile))?;
-    file.read_exact(&mut buf).await.map_err(|_| LibraryApplicationError::Book(BookApplicationError::InvailFile))?;
-    Ok(buf == expected_head)
+    fn into(&self, book: Book) -> GetBookOutput {
+        let file_type = self
+            .bookfile
+            .get_book_type(&book.hash)
+            .expect("Unable to get book file type.");
+        GetBookOutput {
+            id: book.id,
+            title: book.title,
+            hash: book.hash,
+            file_type: file_type,
+            bookshelf_id: book.bookshelf_id,
+            folder_id: book.folder_id,
+            created_at: book.created_at,
+            updated_at: book.updated_at,
+        }
+    }
 }
 
 impl From<BookDomainError> for BookApplicationError {

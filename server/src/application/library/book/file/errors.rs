@@ -15,6 +15,9 @@ pub enum BookFileApplicationError {
     #[error("bookfile upload conflict")]
     UploadConflict,
 
+    #[error("bookfile type unsupported")]
+    Unsupported,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

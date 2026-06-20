@@ -1,8 +1,7 @@
 use crate::domain::library::{
-    book::{entity::{Book, BookFileType}, value_objects::{BookId, BookTitle}},
+    book::{file::entity::BookFileType, value_objects::{BookId, BookTitle}},
     bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId},
 };
-use o2o::o2o;
 
 
 #[derive(Debug)]
@@ -45,8 +44,7 @@ pub struct CreateBookOutput {
 #[derive(Debug)]
 pub struct GetBooksOutput(pub Vec<GetBookOutput>);
 
-#[derive(Debug, o2o)]
-#[from_owned(Book)]
+#[derive(Debug)]
 pub struct GetBookOutput {
     pub id: BookId,
     pub title: BookTitle,
@@ -57,3 +55,4 @@ pub struct GetBookOutput {
     pub created_at: i64,
     pub updated_at: i64,
 }
+

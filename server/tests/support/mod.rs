@@ -28,7 +28,7 @@ use shiro_reader_server::{
             sqlite_bookshelf_repository::SqliteBookshelfRepository,
             sqlite_folder_repository::SqliteFolderRepository,
         },
-        storage::hash_file_storage::HashFileStorage,
+        storage::book_file_storage::BookFileStorage,
     },
     state::AppState,
 };
@@ -144,7 +144,7 @@ impl TestApp {
         let books_dir = temp_dir.path().join("books");
         std::fs::create_dir_all(books_dir.join(".temp")).expect("create test storage directory");
 
-        let mut book_file_storage = HashFileStorage::new(books_dir, "book".to_owned());
+        let mut book_file_storage = BookFileStorage::new(books_dir, "book".to_owned());
         book_file_storage.scan().expect("scan test storage");
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));
@@ -434,7 +434,7 @@ impl<'a> Bookshelf<'a> {
     }
 
     pub async fn create_default_book(&self) -> Book<'a> {
-        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
+        let hash = self.app.upload_sample_book_file(SampleFile::EPUB).await.1;
         self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
     }
 

@@ -7,7 +7,6 @@ pub(super) enum Books {
     Id,
     Title,
     Hash,
-    Type,
     BookshelfId,
     FolderId,
     CreatedAt,
@@ -34,11 +33,10 @@ pub(super) enum Folders {
     UpdatedAt,
 }
 
-pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 8] = [
+pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 7] = [
     Books::Id,
     Books::Title,
     Books::Hash,
-    Books::Type,
     Books::BookshelfId,
     Books::FolderId,
     Books::CreatedAt,

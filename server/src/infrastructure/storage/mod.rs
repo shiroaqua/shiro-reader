@@ -1,1 +1,1 @@
-pub mod hash_file_storage;
+pub mod book_file_storage;

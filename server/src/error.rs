@@ -162,7 +162,11 @@ impl From<LibraryApplicationError> for AppError {
                 BookFileApplicationError::NotFound => AppError::NotFound {
                     message: "library.book.file.not_found",
                 },
+                BookFileApplicationError::Unsupported => AppError::BadRequest {
+                    message: "library.book.file.unsupported",
+                },
                 BookFileApplicationError::Storage(error) => AppError::Internal(error),
+
             },
         }
     }
