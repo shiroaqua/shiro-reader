@@ -5,9 +5,7 @@ use futures_util::{Stream, StreamExt, stream};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use std::{
-    io::{Cursor, Read, Seek, SeekFrom, Write},
-    path::PathBuf,
-    sync::Arc,
+    io::{Cursor, Read, Seek, SeekFrom, Write}, path::PathBuf, sync::{Arc, Mutex},
 };
 use tokio_util::io::ReaderStream;
 
@@ -24,11 +22,11 @@ pub struct BookFileStorage {
     dir: PathBuf,
     ext: String,
     files: DashMap<blake3::Hash, BookFileType>,
-    pdfium: Pdfium,
+    pdfium: Arc<Mutex<Pdfium>>,
 }
 
 impl BookFileStorage {
-    pub fn new(dir: PathBuf, ext: String, pdfium: Pdfium) -> Self {
+    pub fn new(dir: PathBuf, ext: String, pdfium: Arc<Mutex<Pdfium>>) -> Self {
         // 如果无法创建目录理应直接崩溃
         std::fs::create_dir_all(dir.join("covers")).unwrap();
         std::fs::create_dir_all(dir.join(".temp")).unwrap(); // 必须保证临时目录和目标目录在同一文件系统中，否则无法保证原子性。
@@ -238,7 +236,8 @@ fn read_file_type_from_book_file(
     }
 }
 
-fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Pdfium) -> anyhow::Result<Vec<u8>> {
+fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Mutex<Pdfium>) -> anyhow::Result<Vec<u8>> {
+    let pdfium = pdfium.lock().unwrap();
     let doc = pdfium.load_pdf_from_reader(file, None)?;
     let page = doc.pages().first()?;
 
@@ -249,7 +248,7 @@ fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Pdfium) -> anyhow::Resul
 
     let bitmap = page.render_with_config(&render_config)?;
     let image = bitmap.as_image()?;
-
+    
     let mut png_bytes = Vec::new();
     image.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)?;
 

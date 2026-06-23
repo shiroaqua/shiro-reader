@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Mutex};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -40,7 +40,7 @@ impl AppState {
         // 编写用户系统前暂时先使用硬编码
         std::fs::create_dir_all(PathBuf::from("users").join("default"))?;
        
-        let pdfium = Pdfium::new(Pdfium::bind_to_system_library()?);
+        let pdfium = Arc::new(Mutex::new(Pdfium::new(Pdfium::bind_to_system_library()?)));
 
         let mut book_file_storage = BookFileStorage::new(PathBuf::from("books"), String::from_str("book")?, pdfium);
         book_file_storage.scan()?;

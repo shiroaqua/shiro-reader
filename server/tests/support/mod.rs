@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex},
+};
 
 use axum::{
     Router,
@@ -75,6 +78,12 @@ pub const DEFAULT_BOOK_NAME: &str = "书书";
 pub const DEFAULT_BOOKSHELF_NAME: &str = "书shelf";
 pub const DEAFULT_FOLDER_NAME: &str = "文件夹";
 
+static PDFIUM: LazyLock<Arc<Mutex<Pdfium>>> = LazyLock::new(|| {
+    Arc::new(Mutex::new(Pdfium::new(
+        Pdfium::bind_to_system_library().expect("Failed to bind Pdfium"),
+    )))
+});
+
 pub struct TestApp {
     router: Router,
     _temp_dir: TempDir,
@@ -144,11 +153,8 @@ impl TestApp {
 
         let books_dir = temp_dir.path().join("books");
 
-        let mut book_file_storage = BookFileStorage::new(
-            books_dir,
-            "book".to_owned(),
-            Pdfium::new(Pdfium::bind_to_system_library().unwrap()),
-        );
+        let mut book_file_storage =
+            BookFileStorage::new(books_dir, "book".to_owned(), PDFIUM.clone());
         book_file_storage.scan().expect("scan test storage");
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));
