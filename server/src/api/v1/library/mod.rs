@@ -18,6 +18,10 @@ pub fn router() -> Router<AppState> {
             delete(book::handers::delete_book).patch(book::handers::rename_book),
         )
         .route(
+            "/books/{book_id}/cover",
+            get(book::handers::download_cover),
+        )
+        .route(
             "/books/files",
             get(book::file::handlers::get_book).post(book::file::handlers::upload_book),
         )

@@ -10,6 +10,7 @@ use axum::{
 use blake3::Hash;
 use chrono::DateTime;
 use derive_new::new;
+use pdfium_render::prelude::Pdfium;
 use serde_json::{Value, json};
 use shiro_reader_server::{
     app::build_router,
@@ -142,9 +143,12 @@ impl TestApp {
         db::migrate(&pool).await.expect("run migrations");
 
         let books_dir = temp_dir.path().join("books");
-        std::fs::create_dir_all(books_dir.join(".temp")).expect("create test storage directory");
 
-        let mut book_file_storage = BookFileStorage::new(books_dir, "book".to_owned());
+        let mut book_file_storage = BookFileStorage::new(
+            books_dir,
+            "book".to_owned(),
+            Pdfium::new(Pdfium::bind_to_system_library().unwrap()),
+        );
         book_file_storage.scan().expect("scan test storage");
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));
@@ -434,7 +438,7 @@ impl<'a> Bookshelf<'a> {
     }
 
     pub async fn create_default_book(&self) -> Book<'a> {
-        let hash = self.app.upload_sample_book_file(SampleFile::EPUB).await.1;
+        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
         self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
     }
 
@@ -662,13 +666,8 @@ impl<'a> Book<'a> {
     pub fn from(app: &'a TestApp, json: &Value, response: JsonHttpResponse) -> Self {
         Self {
             id: json["id"].as_str().unwrap_or("").to_owned(),
-            bookshelf_id: json["bookshelf_id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            folder_id: json["folder_id"]
-                .as_str()
-                .and_then(|f| Some(f.to_owned())),
+            bookshelf_id: json["bookshelf_id"].as_str().unwrap_or("").to_owned(),
+            folder_id: json["folder_id"].as_str().and_then(|f| Some(f.to_owned())),
             title: json["title"].as_str().unwrap_or("").to_owned(),
             file_type: json["type"].as_str().unwrap_or("").to_owned(),
             hash: json["hash"].as_str().unwrap_or("").to_owned(),
@@ -698,6 +697,11 @@ impl<'a> Book<'a> {
         .await;
         self.title = new_title.to_owned();
         self.response = response;
+    }
+    pub async fn get_cover(&self) -> Response<Body> {
+        self.app
+            .get(&format!("/api/v1/library/books/{}/cover", self.id))
+            .await
     }
     pub fn assert_data(&self) {
         Uuid::parse_str(&self.id).expect("expected valid uuid");

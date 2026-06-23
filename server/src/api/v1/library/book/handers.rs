@@ -1,13 +1,11 @@
 use axum::{
-    Json,
-    extract::{Path, Query, State},
-    http::StatusCode,
+    Json, body::Body, extract::{Path, Query, State}, http::{HeaderValue, Response, StatusCode, header::{CONTENT_TYPE}}
 };
 
 use crate::{
     api::{response::DataResponse, v1::library::book::dto::*},
     application::library::book::commands::{
-        CreateBookCommand, DeleteBookCommand, GetBookCommand, GetBooksCommand, RenameBookCommand,
+        CreateBookCommand, DeleteBookCommand, GetBookCommand, GetBookCoverCommand, GetBooksCommand, RenameBookCommand
     },
     error::AppError,
     state::AppState,
@@ -56,6 +54,20 @@ pub async fn rename_book(
         .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn download_cover(
+    State(state): State<AppState>,
+    Path(book_id): Path<String>,
+) -> Result<Response<Body>, AppError> {
+    let stream = state.book_service.get_cover(GetBookCoverCommand {id: book_id}).await?;
+    let body = Body::from_stream(stream);
+    
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, HeaderValue::from_static("image/png"))
+        .body(body)
+        .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }
 
 pub async fn get_book(
@@ -112,3 +124,5 @@ async fn get_books(
         ))),
     ))
 }
+
+

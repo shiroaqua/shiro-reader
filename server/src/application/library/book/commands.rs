@@ -24,6 +24,11 @@ pub struct RenameBookCommand {
 }
 
 #[derive(Debug)]
+pub struct GetBookCoverCommand {
+    pub id: String,
+}
+
+#[derive(Debug)]
 
 pub struct GetBooksCommand {
     pub bookshelf_id: String,

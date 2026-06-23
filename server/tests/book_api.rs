@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 
-use crate::support::{Book, EMPTY_STRING, INVALID_BOOK_TITLES, INVALID_HASH, INVALID_UUID, SampleFile, TestApp, UNKNOWN_HASH, UNKNOWN_UUID};
+use crate::support::{Book, EMPTY_STRING, INVALID_BOOK_TITLES, INVALID_HASH, INVALID_UUID, SampleFile, TestApp, UNKNOWN_HASH, UNKNOWN_UUID, body_bytes};
 
 mod support;
 
@@ -177,6 +177,36 @@ async fn get_books_from_folder() {
     assert_eq!(books.len(), 2);
     assert_book(books.iter().find(|f| f.id == first.id).unwrap(), &first);
     assert_book(books.iter().find(|f| f.id == second.id).unwrap(), &second);
+}
+
+#[tokio::test]
+async fn get_book_cover() {
+    let app = TestApp::new().await;
+    let bookshelf = app.create_default_bookshelf().await;
+
+    let hash = app.upload_sample_book_file(SampleFile::PDF).await.1;
+    assert_cover_hash(
+        bookshelf.create_book("awa", &hash.to_hex()).await,
+        "d3ceb887c2894a092ee23b815676f06368fbdc50af9a4b62bed62c376a8c0aab",
+    )
+    .await;
+
+    let hash = app.upload_sample_book_file(SampleFile::EPUB).await.1;
+    assert_cover_hash(
+        bookshelf.create_book("qwq", &hash.to_hex()).await,
+        "75e470ff9e488fc6fbd3d122c15f4e4296bcf0ea688ef8c071c5b71c64a03f38",
+    )
+    .await;
+}
+
+async fn assert_cover_hash(book: Book<'_>, expected_hash: &str) {
+    let response = book.get_cover().await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_bytes(response).await;
+    let hash = blake3::hash(&body.to_vec())
+        .to_hex()
+        .to_string();
+    assert_eq!(hash, expected_hash);
 }
 
 fn assert_book(a: &Book, b: &Book) {

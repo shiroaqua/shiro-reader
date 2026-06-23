@@ -1,10 +1,15 @@
 use blake3::Hash;
+use bytes::Bytes;
 use dashmap::DashMap;
+use futures_util::{Stream, StreamExt, stream};
+use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
+use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use std::{
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Cursor, Read, Seek, SeekFrom, Write},
     path::PathBuf,
     sync::Arc,
 };
+use tokio_util::io::ReaderStream;
 
 use tokio::{
     fs::File,
@@ -15,19 +20,24 @@ use rayon::prelude::*;
 
 use crate::domain::library::book::file::entity::BookFileType;
 
-
 pub struct BookFileStorage {
     dir: PathBuf,
     ext: String,
     files: DashMap<blake3::Hash, BookFileType>,
+    pdfium: Pdfium,
 }
 
 impl BookFileStorage {
-    pub fn new(dir: PathBuf, ext: String) -> Self {
+    pub fn new(dir: PathBuf, ext: String, pdfium: Pdfium) -> Self {
+        // 如果无法创建目录理应直接崩溃
+        std::fs::create_dir_all(dir.join("covers")).unwrap();
+        std::fs::create_dir_all(dir.join(".temp")).unwrap(); // 必须保证临时目录和目标目录在同一文件系统中，否则无法保证原子性。
+
         Self {
             dir: dir,
             ext: ext,
             files: DashMap::new(),
+            pdfium: pdfium,
         }
     }
     pub fn scan(&mut self) -> std::io::Result<()> {
@@ -78,7 +88,6 @@ impl BookFileStorage {
                     return;
                 }
 
-
                 let calculated_hash = hasher.finalize();
 
                 if file_hash == calculated_hash {
@@ -115,7 +124,6 @@ impl BookFileStorage {
     where
         R: AsyncRead + Unpin,
     {
-        // 必须保证临时目录和目标目录在同一文件系统中，否则无法保证原子性。
         let path = self.dir.join(".temp");
         let mut temp_file = tempfile::NamedTempFile::new_in(&path)?;
         let mut hasher = blake3::Hasher::new();
@@ -145,19 +153,52 @@ impl BookFileStorage {
         }])?;
         final_temp_file.write_all(file_hash.as_bytes())?;
 
+        let cover = match file_type {
+            BookFileType::PDF => extract_pdf_cover(temp_file.as_file_mut(), &self.pdfium),
+            BookFileType::EPUB => extract_epub_cover(temp_file.as_file_mut()),
+        };
+
         temp_file.seek(std::io::SeekFrom::Start(0))?;
         std::io::copy(&mut temp_file, &mut final_temp_file)?;
+        let _ = temp_file.close(); // 提早清除文件（报错无所谓）
 
-        let _ = temp_file.close(); // 报错无所谓
         let hash = file_hash.to_hex().to_string();
-        let final_path = self.dir.join(&hash).with_extension(&self.ext);
+        if let Ok(cover) = cover {
+            let mut temp_cover_file = tempfile::NamedTempFile::new_in(&path)?;
+            temp_cover_file.write_all(&cover)?;
+            drop(cover);
 
-        match final_temp_file.persist_noclobber(&final_path) {
+            temp_cover_file
+                .persist_noclobber(&self.dir.join("covers").join(&hash).with_extension("png"))?;
+        }
+
+        match final_temp_file.persist_noclobber(&self.dir.join(&hash).with_extension(&self.ext)) {
             Ok(_) => {
                 self.files.insert(file_hash, file_type);
                 Ok(())
             }
             Err(e) => Err(e.error),
+        }
+    }
+
+    pub async fn open_cover(
+        &self,
+        key: Hash,
+    ) -> io::Result<impl Stream<Item = io::Result<Bytes>> + 'static> {
+        let path = self
+            .dir
+            .join("covers")
+            .join(key.to_hex().to_string())
+            .with_extension("png");
+
+        if path.exists() {
+            let file = File::open(path).await?;
+            let stream = ReaderStream::new(file);
+            Ok(stream.boxed())
+        } else {
+            let data = blank_cover();
+            let stream = stream::once(async move { Ok(Bytes::from(data)) });
+            Ok(stream.boxed())
         }
     }
 
@@ -183,7 +224,10 @@ fn read_file_hash_from_book_file(file: &mut std::fs::File) -> io::Result<Hash> {
     Ok(Hash::from_bytes(buf))
 }
 
-fn read_file_type_from_book_file(file: &mut std::fs::File, offset: u64) -> io::Result<BookFileType> {
+fn read_file_type_from_book_file(
+    file: &mut std::fs::File,
+    offset: u64,
+) -> io::Result<BookFileType> {
     let mut buf = [0u8; 1];
     file.seek(SeekFrom::Start(offset))?;
     file.read_exact(&mut buf)?;
@@ -194,6 +238,44 @@ fn read_file_type_from_book_file(file: &mut std::fs::File, offset: u64) -> io::R
     }
 }
 
+fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Pdfium) -> anyhow::Result<Vec<u8>> {
+    let doc = pdfium.load_pdf_from_reader(file, None)?;
+    let page = doc.pages().first()?;
+
+    let render_config = PdfRenderConfig::new()
+        .set_target_width(2000)
+        .set_maximum_height(2000)
+        .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
+
+    let bitmap = page.render_with_config(&render_config)?;
+    let image = bitmap.as_image()?;
+
+    let mut png_bytes = Vec::new();
+    image.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)?;
+
+    Ok(png_bytes)
+}
+
+fn extract_epub_cover(file: &mut std::fs::File) -> anyhow::Result<Vec<u8>> {
+    let mut epub = epub::doc::EpubDoc::from_reader(std::io::BufReader::new(file))?;
+    if let Some(colver) = epub.get_cover() {
+        Ok(colver.0)
+    } else {
+        Err(anyhow::anyhow!("can't read epub cover"))
+    }
+}
+
+fn blank_cover() -> Vec<u8> {
+    let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_pixel(1000, 1600, Rgba([255, 255, 255, 255]));
+
+    let mut buf = Vec::new();
+
+    DynamicImage::ImageRgba8(img)
+        .write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
+        .expect("encode blank cover");
+    buf
+}
 
 fn get_file_type(file: &mut std::fs::File) -> io::Result<BookFileType> {
     if compare_bytes_from_file(file, b"PK\x03\x04" /* ZIP 签名 */, 0)? {

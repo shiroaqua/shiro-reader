@@ -1,13 +1,16 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use derive_new::new;
+use futures_util::Stream;
 
 use crate::{
     application::library::{
         book::{
             commands::{
                 CreateBookCommand, CreateBookOutput, DeleteBookCommand, GetBookCommand,
-                GetBookOutput, GetBooksCommand, GetBooksOutput, RenameBookCommand,
+                GetBookCoverCommand, GetBookOutput, GetBooksCommand, GetBooksOutput,
+                RenameBookCommand,
             },
             errors::BookApplicationError,
             file::service::BookFileService,
@@ -94,6 +97,16 @@ impl BookService {
                 .map(|b| self.into(b))
                 .collect(),
         ))
+    }
+
+    pub async fn get_cover(
+        &self,
+        command: GetBookCoverCommand,
+    ) -> Result<impl Stream<Item = std::io::Result<Bytes>> + 'static, LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let book = self.repository.find_by_id(&id).await?;
+        // 此处获得的是共享书库中的默认封面，此后添加用户系统后需改为获取对应书籍的封面（换句话说就是每个book_id对应的封面）
+        self.bookfile.download_book_cover_file(book.hash).await
     }
 
     pub async fn get_book(
