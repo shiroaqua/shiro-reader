@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Expr, ExprTrait, Iden, Query, SqliteQueryBuilder};
+use sea_query_sqlx::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{

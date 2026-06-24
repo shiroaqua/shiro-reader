@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder, Value};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Expr, ExprTrait ,Iden, Query, SqliteQueryBuilder, Value};
+use sea_query_sqlx::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
@@ -38,7 +38,7 @@ impl FolderRepository for SqliteFolderRepository {
         let mut parent_id = Expr::value(Value::String(None));
 
         if !folder.parent_id.is_root() {
-            parent_id = Expr::value(Value::String(Some(Box::new(folder.parent_id.to_string()))));
+            parent_id = Expr::value(Value::String(Some(folder.parent_id.to_string())));
         }
 
         let (sql, values) = Query::insert()
@@ -53,9 +53,8 @@ impl FolderRepository for SqliteFolderRepository {
                 folder.updated_at.into(),
             ])
             .build_sqlx(SqliteQueryBuilder);
-
+            
         self.db.execute(&sql, values, map_sqlx_error).await?;
-
         Ok(folder)
     }
 
@@ -135,10 +134,7 @@ impl FolderRepository for SqliteFolderRepository {
                 return Err(RepositoryError::ParentFolderNotFound);
             }
             
-
-            Expr::value(Value::String(Some(Box::new(
-                new_parent_folder_id.to_string(),
-            ))))
+            Expr::value(Value::String(Some(new_parent_folder_id.to_string(),)))
         };
 
         let (sql, values) = Query::update()

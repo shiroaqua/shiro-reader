@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use blake3::Hash;
 use sea_query::Iden;
-use sea_query_binder::SqlxValues;
+use sea_query_sqlx::SqlxValues;
 use sqlx::{
     Decode, Row, Sqlite, SqlitePool, Transaction, Type,
     sqlite::{SqliteQueryResult, SqliteRow},
@@ -39,7 +39,7 @@ impl SqliteExecutor {
         values: SqlxValues,
         map_error: impl Fn(sqlx::Error) -> RepositoryError,
     ) -> Result<SqliteQueryResult, RepositoryError> {
-        sqlx::query_with(sql, values)
+        sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .execute(&self.pool)
             .await
             .map_err(map_error)
@@ -71,7 +71,7 @@ impl SqliteExecutor {
     where
         T: for<'row> TryFrom<&'row SqliteRow, Error = RepositoryError>,
     {
-        let row = sqlx::query_with(sql, values)
+        let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_optional(&self.pool)
             .await
             .map_err(map_error)?
@@ -89,7 +89,7 @@ impl SqliteExecutor {
     where
         T: for<'row> TryFrom<&'row SqliteRow, Error = RepositoryError>,
     {
-        let rows = sqlx::query_with(sql, values)
+        let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_all(&self.pool)
             .await
             .map_err(map_error)?;
@@ -105,7 +105,7 @@ impl SqliteTransaction<'_> {
         values: SqlxValues,
         map_error: impl Fn(sqlx::Error) -> RepositoryError,
     ) -> Result<SqliteQueryResult, RepositoryError> {
-        sqlx::query_with(sql, values)
+        sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .execute(self.tx.as_mut())
             .await
             .map_err(map_error)
@@ -133,7 +133,7 @@ impl SqliteTransaction<'_> {
         values: SqlxValues,
         map_error: impl Fn(sqlx::Error) -> RepositoryError,
     ) -> Result<bool, RepositoryError> {
-        let row = sqlx::query_with(sql, values)
+        let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_optional(self.tx.as_mut())
             .await
             .map_err(map_error)?;

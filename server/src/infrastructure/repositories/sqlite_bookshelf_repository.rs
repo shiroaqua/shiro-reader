@@ -14,8 +14,8 @@ use crate::{
     },
 };
 
-use sea_query::{Expr, Iden, Query, SqliteQueryBuilder};
-use sea_query_binder::SqlxBinder;
+use sea_query::{Expr, ExprTrait, Iden, Query, SqliteQueryBuilder};
+use sea_query_sqlx::SqlxBinder;
 
 #[derive(Clone)]
 pub struct SqliteBookshelfRepository {
