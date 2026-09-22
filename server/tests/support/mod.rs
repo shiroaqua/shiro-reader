@@ -185,20 +185,12 @@ impl TestApp {
         )
         .await;
 
-        let created_at = response.json["data"]["created_at"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned();
+        let data = response.data();
+        let created_at = json_string_or_empty(data, "created_at");
 
         Bookshelf {
-            id: response.json["data"]["id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            updated_at: response.json["data"]["updated_at"]
-                .as_str()
-                .unwrap_or(&created_at)
-                .to_owned(),
+            id: json_string_or_empty(data, "id"),
+            updated_at: json_string_or(data, "updated_at", &created_at),
             name: name.to_owned(),
             created_at: created_at,
             response: response,
@@ -221,7 +213,7 @@ impl TestApp {
                 .await,
         )
         .await;
-        Book::from(self, &response.json["data"].to_owned(), response)
+        Book::from_response(self, response)
     }
 
     pub async fn get_bookshelf<'a>(&'a self, id: &str) -> Bookshelf<'a> {
@@ -231,43 +223,17 @@ impl TestApp {
         )
         .await;
 
-        Bookshelf {
-            id: response.json["data"]["id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            name: response.json["data"]["name"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            created_at: response.json["data"]["created_at"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            updated_at: response.json["data"]["updated_at"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            response: response,
-            app: self,
-        }
+        Bookshelf::from_response(self, response)
     }
     pub async fn get_bookshelves<'a>(&'a self) -> Vec<Bookshelf<'a>> {
         let response =
             JsonHttpResponse::from(self.get(&format!("/api/v1/library/bookshelves")).await).await;
 
-        let mut result: Vec<Bookshelf> = vec![];
-        for node in response.json["data"].as_array().unwrap() {
-            result.push(Bookshelf {
-                id: node["id"].as_str().unwrap_or("").to_owned(),
-                name: node["name"].as_str().unwrap_or("").to_owned(),
-                created_at: node["created_at"].as_str().unwrap_or("").to_owned(),
-                updated_at: node["updated_at"].as_str().unwrap_or("").to_owned(),
-                response: response.clone(), // 我知道没必要，但我懒..
-                app: self,
-            });
-        }
-        result
+        response
+            .data_array()
+            .iter()
+            .map(|node| Bookshelf::from_json(self, node, response.clone()))
+            .collect()
     }
 
     async fn create_folder<'a>(
@@ -285,17 +251,13 @@ impl TestApp {
         )
         .await;
 
-        let create_at = response.json["data"]["created_at"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned();
+        let data = response.data();
+        let created_at = json_string_or_empty(data, "created_at");
+
         Folder {
-            id: response.json["data"]["id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            created_at: create_at.to_owned(),
-            updated_at: create_at,
+            id: json_string_or_empty(data, "id"),
+            created_at: created_at.to_owned(),
+            updated_at: created_at,
             bookshelf_id: bookshelf_id.to_owned(),
             response: response,
             name: name.to_owned(),
@@ -366,23 +328,18 @@ impl TestApp {
             .await,
         )
         .await;
-        let create_at = response.json["data"]["created_at"]
-            .as_str()
-            .unwrap_or("")
-            .to_owned();
+        let data = response.data();
+        let created_at = json_string_or_empty(data, "created_at");
 
         Book {
-            id: response.json["data"]["id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
+            id: json_string_or_empty(data, "id"),
             bookshelf_id: bookshelf_id.to_owned(),
             folder_id: folder_id.and_then(|f| Some(f.to_owned())),
             title: title.to_owned(),
             file_type: EMPTY_STRING.to_owned(),
             hash: hash.to_owned(),
-            created_at: create_at.to_owned(),
-            updated_at: create_at,
+            created_at: created_at.to_owned(),
+            updated_at: created_at,
             response: response,
             app: self,
         }
@@ -435,6 +392,41 @@ impl TestApp {
 }
 
 impl<'a> Bookshelf<'a> {
+    fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
+        let (id, name, created_at, updated_at) = Self::fields(response.data());
+
+        Self {
+            id,
+            name,
+            created_at,
+            updated_at,
+            response,
+            app,
+        }
+    }
+
+    fn from_json(app: &'a TestApp, json: &Value, response: JsonHttpResponse) -> Self {
+        let (id, name, created_at, updated_at) = Self::fields(json);
+
+        Self {
+            id,
+            name,
+            created_at,
+            updated_at,
+            response,
+            app,
+        }
+    }
+
+    fn fields(json: &Value) -> (String, String, String, String) {
+        (
+            json_string_or_empty(json, "id"),
+            json_string_or_empty(json, "name"),
+            json_string_or_empty(json, "created_at"),
+            json_string_or_empty(json, "updated_at"),
+        )
+    }
+
     pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
         self.app.create_book(&self.id, None, title, hash).await
     }
@@ -486,27 +478,7 @@ impl<'a> Bookshelf<'a> {
         )
         .await;
 
-        Folder {
-            id: response.json["data"][0]["id"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            name: response.json["data"][0]["name"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            created_at: response.json["data"][0]["created_at"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            updated_at: response.json["data"][0]["updated_at"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned(),
-            bookshelf_id: self.id.to_owned(),
-            response: response,
-            app: self.app,
-        }
+        Folder::from_response(self.app, &self.id, response)
     }
 
     pub async fn get_books(&self) -> Vec<Book<'a>> {
@@ -516,11 +488,7 @@ impl<'a> Bookshelf<'a> {
                 .await,
         )
         .await;
-        let mut books: Vec<Book> = vec![];
-        for json in response.json["data"].as_array().unwrap() {
-            books.push(Book::from(self.app, json, response.to_owned()));
-        }
-        books
+        Book::from_data_array(self.app, response)
     }
 
     pub async fn get_folders(&self) -> Vec<FolderTreeNode<'a>> {
@@ -533,7 +501,7 @@ impl<'a> Bookshelf<'a> {
                 .await,
         )
         .await;
-        self.make_tree(&response.json["data"], &response)
+        self.make_tree(response.data(), &response)
     }
 
     fn make_tree(&self, json: &Value, response: &JsonHttpResponse) -> Vec<FolderTreeNode<'a>> {
@@ -541,15 +509,7 @@ impl<'a> Bookshelf<'a> {
         for n in json.as_array().unwrap() {
             let children = self.make_tree(&n["children"], &response);
             tree.push(FolderTreeNode {
-                folder: Folder {
-                    bookshelf_id: self.id.to_owned(),
-                    id: n["id"].as_str().unwrap_or("").to_owned(),
-                    name: n["name"].as_str().unwrap_or("").to_owned(),
-                    created_at: n["created_at"].as_str().unwrap_or("").to_owned(),
-                    updated_at: n["updated_at"].as_str().unwrap_or("").to_owned(),
-                    response: response.to_owned(),
-                    app: self.app,
-                },
+                folder: Folder::from_json(self.app, &self.id, n, response.clone()),
                 children: children,
             });
         }
@@ -578,6 +538,56 @@ impl<'a> Bookshelf<'a> {
 }
 
 impl<'a> Folder<'a> {
+    fn from_response(
+        app: &'a TestApp,
+        bookshelf_id: &str,
+        response: JsonHttpResponse,
+    ) -> Self {
+        let fields = Self::fields(bookshelf_id, response.data());
+        Self::from_fields(app, response, fields)
+    }
+
+    fn from_json(
+        app: &'a TestApp,
+        bookshelf_id: &str,
+        json: &Value,
+        response: JsonHttpResponse,
+    ) -> Self {
+        let fields = Self::fields(bookshelf_id, json);
+        Self::from_fields(app, response, fields)
+    }
+
+    fn from_fields(
+        app: &'a TestApp,
+        response: JsonHttpResponse,
+        fields: (String, String, String, String, String),
+    ) -> Self {
+        let (bookshelf_id, id, name, created_at, updated_at) = fields;
+
+        Self {
+            bookshelf_id,
+            id,
+            name,
+            created_at,
+            updated_at,
+            response,
+            app,
+        }
+    }
+
+    fn fields(
+        bookshelf_id: &str,
+        json: &Value,
+    ) -> (String, String, String, String, String) {
+        (
+            bookshelf_id.to_owned(),
+            json_string_or_empty(json, "id"),
+            json_string_or_empty(json, "name"),
+            json_string_or_empty(json, "created_at"),
+            json_string_or_empty(json, "updated_at"),
+        )
+    }
+
     pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
         self.app
             .create_book(&self.bookshelf_id, Some(&self.id), title, hash)
@@ -654,11 +664,7 @@ impl<'a> Folder<'a> {
                 .await,
         )
         .await;
-        let mut books: Vec<Book> = vec![];
-        for json in response.json["data"].as_array().unwrap() {
-            books.push(Book::from(self.app, json, response.to_owned()));
-        }
-        books
+        Book::from_data_array(self.app, response)
     }
 
     pub fn assert_data(&self) {
@@ -669,19 +675,58 @@ impl<'a> Folder<'a> {
 }
 
 impl<'a> Book<'a> {
+    fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
+        let fields = Self::fields(response.data());
+        Self::from_fields(app, response, fields)
+    }
+
+    fn from_data_array(app: &'a TestApp, response: JsonHttpResponse) -> Vec<Self> {
+        response
+            .data_array()
+            .iter()
+            .map(|json| Self::from(app, json, response.to_owned()))
+            .collect()
+    }
+
     pub fn from(app: &'a TestApp, json: &Value, response: JsonHttpResponse) -> Self {
+        let fields = Self::fields(json);
+        Self::from_fields(app, response, fields)
+    }
+
+    fn from_fields(
+        app: &'a TestApp,
+        response: JsonHttpResponse,
+        fields: (String, String, Option<String>, String, String, String, String, String),
+    ) -> Self {
+        let (id, bookshelf_id, folder_id, title, file_type, hash, created_at, updated_at) = fields;
+
         Self {
-            id: json["id"].as_str().unwrap_or("").to_owned(),
-            bookshelf_id: json["bookshelf_id"].as_str().unwrap_or("").to_owned(),
-            folder_id: json["folder_id"].as_str().and_then(|f| Some(f.to_owned())),
-            title: json["title"].as_str().unwrap_or("").to_owned(),
-            file_type: json["type"].as_str().unwrap_or("").to_owned(),
-            hash: json["hash"].as_str().unwrap_or("").to_owned(),
-            created_at: json["created_at"].as_str().unwrap_or("").to_owned(),
-            updated_at: json["updated_at"].as_str().unwrap_or("").to_owned(),
-            response: response,
-            app: app,
+            id,
+            bookshelf_id,
+            folder_id,
+            title,
+            file_type,
+            hash,
+            created_at,
+            updated_at,
+            response,
+            app,
         }
+    }
+
+    fn fields(
+        json: &Value,
+    ) -> (String, String, Option<String>, String, String, String, String, String) {
+        (
+            json_string_or_empty(json, "id"),
+            json_string_or_empty(json, "bookshelf_id"),
+            json_optional_string(json, "folder_id"),
+            json_string_or_empty(json, "title"),
+            json_string_or_empty(json, "type"),
+            json_string_or_empty(json, "hash"),
+            json_string_or_empty(json, "created_at"),
+            json_string_or_empty(json, "updated_at"),
+        )
     }
     pub async fn delete(self) -> JsonHttpResponse {
         JsonHttpResponse::from(
@@ -719,6 +764,14 @@ impl<'a> Book<'a> {
 impl JsonHttpResponse {
     pub async fn from(value: Response<Body>) -> Self {
         JsonHttpResponse::new(value.status(), json_body(value).await)
+    }
+
+    pub fn data(&self) -> &Value {
+        &self.json["data"]
+    }
+
+    pub fn data_array(&self) -> &[Value] {
+        self.data().as_array().expect("expected response data array")
     }
 
     pub fn assert_bookshelf_missing_name_error(&self) {
@@ -923,6 +976,30 @@ fn assert_uuid_string(value: &Value) {
 fn assert_rfc3339_datetime_string(value: &Value) {
     let raw = value.as_str().expect("expected datetime string");
     DateTime::parse_from_rfc3339(raw).expect("expected valid RFC3339 datetime");
+}
+
+fn json_string_or_empty(value: &Value, key: &str) -> String {
+    value[key].as_str().unwrap_or("").to_owned()
+}
+
+fn json_string_or(value: &Value, key: &str, default: &str) -> String {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or(default)
+        .to_owned()
+}
+
+fn json_optional_string(value: &Value, key: &str) -> Option<String> {
+    match value.get(key) {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_str()
+                .expect("expected string or null response field")
+                .to_owned(),
+        ),
+    }
 }
 
 fn push_text_part(body: &mut Vec<u8>, boundary: &str, name: &str, value: &str) {
