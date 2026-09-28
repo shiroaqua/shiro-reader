@@ -39,7 +39,6 @@ pub struct GetBookResponse {
     #[serde(rename = "type")]
     pub file_type: String,
     pub bookshelf_id: String,
-    pub folder_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

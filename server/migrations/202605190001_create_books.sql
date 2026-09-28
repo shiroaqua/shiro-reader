@@ -3,13 +3,13 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS books (
     id           TEXT    NOT NULL PRIMARY KEY,
-    title        TEXT    NOT NULL,
+    title        TEXT    NOT NULL, 
     hash         TEXT    NOT NULL,
     bookshelf_id TEXT    NOT NULL,
-    folder_id    TEXT,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL,
 
+    UNIQUE (bookshelf_id, title)
 
     CONSTRAINT chk_books_id_uuid
         CHECK (
@@ -48,17 +48,6 @@ CREATE TABLE IF NOT EXISTS books (
             AND replace(bookshelf_id, '-', '') NOT GLOB '*[^0-9a-f]*'
         ),
 
-    CONSTRAINT chk_books_folder_id_uuid
-        CHECK (
-            length(folder_id) = 36
-            AND substr(folder_id, 9, 1) = '-'
-            AND substr(folder_id, 14, 1) = '-'
-            AND substr(folder_id, 19, 1) = '-'
-            AND substr(folder_id, 24, 1) = '-'
-            AND lower(folder_id) = folder_id
-            AND replace(folder_id, '-', '') NOT GLOB '*[^0-9a-f]*'
-        ),
-
     CONSTRAINT chk_books_created_at_positive
         CHECK (created_at > 0),
 
@@ -73,23 +62,7 @@ CREATE TABLE IF NOT EXISTS books (
         REFERENCES bookshelves(id)
         ON UPDATE CASCADE
         ON DELETE CASCADE,
-
-    CONSTRAINT fk_books_folder
-        FOREIGN KEY (folder_id)
-        REFERENCES folders(id)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE
 );
-
-
--- 禁止重复书名
-CREATE UNIQUE INDEX uq_books_title_not_null 
-ON books (bookshelf_id, folder_id, title) 
-WHERE folder_id IS NOT NULL;
-
-CREATE UNIQUE INDEX uq_books_title_null 
-ON books (bookshelf_id, title) 
-WHERE folder_id IS NULL;
 
 
 -- 禁止修改书籍条目的身份、物理文件 hash、创建时间。

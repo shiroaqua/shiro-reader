@@ -8,7 +8,6 @@ pub(super) enum Books {
     Title,
     Hash,
     BookshelfId,
-    FolderId,
     CreatedAt,
     UpdatedAt,
 }
@@ -20,25 +19,14 @@ pub(super) enum Bookshelves {
     Name,
     CreatedAt,
     UpdatedAt,
-}
-#[derive(Iden)]
-pub(super) enum Folders {
-    #[iden = "folders"]
-    Table,
-    Id,
-    BookshelfId,
-    ParentId,
-    Name,
-    CreatedAt,
-    UpdatedAt,
+    Version
 }
 
-pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 7] = [
+pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 6] = [
     Books::Id,
     Books::Title,
     Books::Hash,
     Books::BookshelfId,
-    Books::FolderId,
     Books::CreatedAt,
     Books::UpdatedAt,
 ];
@@ -50,11 +38,3 @@ pub(super) const FULL_BOOKSHELVES_TABLE_COLUMNS: [Bookshelves; 4] = [
     Bookshelves::UpdatedAt,
 ];
 
-pub(super) const FULL_FOLDERS_TABLE_COLUMNS: [Folders; 6] = [
-    Folders::Id,
-    Folders::BookshelfId,
-    Folders::ParentId,
-    Folders::Name,
-    Folders::CreatedAt,
-    Folders::UpdatedAt,
-];

@@ -7,18 +7,6 @@ pub enum RepositoryError {
     #[error("bookshelf not found")]
     BookshelfNotFound,
 
-    #[error("folder not found")]
-    FolderNotFound,
-
-    #[error("parent folder not found")]
-    ParentFolderNotFound,
-
-    #[error("folder name conflict")]
-    FolderNameConflict,
-
-    #[error("folder cycle detected")]
-    FolderCycled,
-
     #[error("book file type is inviled")]
     InvalidBookFileType,
 

@@ -1,6 +1,6 @@
 use crate::domain::library::{
     book::{file::entity::BookFileType, value_objects::{BookId, BookTitle}},
-    bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId},
+    bookshelf::value_objects::BookshelfId,
 };
 
 
@@ -9,7 +9,6 @@ pub struct CreateBookCommand {
     pub title: String,
     pub hash: String,
     pub bookshelf_id: String,
-    pub folder_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -32,7 +31,6 @@ pub struct GetBookCoverCommand {
 
 pub struct GetBooksCommand {
     pub bookshelf_id: String,
-    pub folder_id: Option<String>
 }
 
 #[derive(Debug)]
@@ -56,7 +54,6 @@ pub struct GetBookOutput {
     pub hash: blake3::Hash,
     pub file_type: BookFileType,
     pub bookshelf_id: BookshelfId,
-    pub folder_id: Option<FolderId>,
     pub created_at: i64,
     pub updated_at: i64,
 }

@@ -24,7 +24,7 @@ use crate::{
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
         },
-        bookshelf::{folder::value_objects::FolderId, value_objects::BookshelfId},
+        bookshelf::value_objects::BookshelfId,
     },
     shared::time::now_ms,
 };
@@ -44,18 +44,15 @@ impl BookService {
         let title = BookTitle::parse(command.title)?;
         let hash = self.bookfile.parse_existing_hash(&command.hash)?;
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
-        let folder_id = command
-            .folder_id
-            .map(FolderId::parse_folder_id)
-            .transpose()?;
+       
         let now = now_ms();
 
-        let book = Book::new(id, title, hash, bookshelf_id, folder_id, now, now);
+        let book = Book::new(id, title, hash, bookshelf_id, now, now);
         let created = self.repository.create(book).await?;
 
         Ok(CreateBookOutput {
-            id: created.id,
-            created_at: created.created_at,
+            id: created.id().clone(),
+            created_at: created.created_at(),
         })
     }
 
@@ -84,14 +81,10 @@ impl BookService {
         command: GetBooksCommand,
     ) -> Result<GetBooksOutput, LibraryApplicationError> {
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
-        let folder_id = command
-            .folder_id
-            .and_then(|f| Some(FolderId::parse_folder_id(f)))
-            .transpose()?;
-
+        
         Ok(GetBooksOutput(
             self.repository
-                .list(&bookshelf_id, folder_id.as_ref())
+                .list(&bookshelf_id)
                 .await?
                 .into_iter()
                 .map(|b| self.into(b))
@@ -106,7 +99,7 @@ impl BookService {
         let id = BookId::parse(command.id)?;
         let book = self.repository.find_by_id(&id).await?;
         // 此处获得的是共享书库中的默认封面，此后添加用户系统后需改为获取对应书籍的封面（换句话说就是每个book_id对应的封面）
-        self.bookfile.download_book_cover_file(book.hash).await
+        self.bookfile.download_book_cover_file(*book.hash()).await
     }
 
     pub async fn get_book(
@@ -120,17 +113,16 @@ impl BookService {
     fn into(&self, book: Book) -> GetBookOutput {
         let file_type = self
             .bookfile
-            .get_book_type(&book.hash)
+            .get_book_type(book.hash())
             .expect("Unable to get book file type.");
         GetBookOutput {
-            id: book.id,
-            title: book.title,
-            hash: book.hash,
+            id: book.id().clone(),
+            title: book.title().clone(),
+            hash: *book.hash(),
             file_type: file_type,
-            bookshelf_id: book.bookshelf_id,
-            folder_id: book.folder_id,
-            created_at: book.created_at,
-            updated_at: book.updated_at,
+            bookshelf_id: book.bookshelf_id().clone(),
+            created_at: book.created_at(),
+            updated_at: book.updated_at(),
         }
     }
 }

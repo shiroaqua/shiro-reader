@@ -21,7 +21,6 @@ pub async fn create_book(
             title: request.title,
             hash: request.hash,
             bookshelf_id: request.bookshelf_id,
-            folder_id: request.folder_id,
         })
         .await?;
 
@@ -90,22 +89,7 @@ pub async fn get_books_from_bookshelf(
         state,
         GetBooksCommand {
             bookshelf_id: bookshelf_id,
-            folder_id: None,
-        },
-    )
-    .await
-}
-
-pub async fn get_books_from_folder(
-    State(state): State<AppState>,
-    Path((bookshelf_id, folder_id)): Path<(String, String)>,
-) -> Result<(StatusCode, Json<DataResponse<GetBooksResponse>>), AppError> {
-    get_books(
-        state,
-        GetBooksCommand {
-            bookshelf_id: bookshelf_id,
-            folder_id: Some(folder_id),
-        },
+          },
     )
     .await
 }

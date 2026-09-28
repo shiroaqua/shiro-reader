@@ -3,10 +3,8 @@ use thiserror::Error;
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
 use crate::application::library::bookshelf::errors::BookshelfApplicationError;
-use crate::application::library::bookshelf::folder::errors::FolderApplicationError;
 use crate::domain::library::book::errors::BookDomainError;
 use crate::domain::library::bookshelf::errors::BookshelfDomainError;
-use crate::domain::library::bookshelf::folder::errors::FolderDomainError;
 use crate::infrastructure::repositories::errors::RepositoryError;
 
 #[derive(Debug, Error)]
@@ -20,9 +18,6 @@ pub enum LibraryApplicationError {
     #[error("Bookshelf error: {0}")]
     Bookshelf(#[from] BookshelfApplicationError),
 
-    #[error("Folder error: {0}")]
-    Folder(#[from] FolderApplicationError),
-
 }
 
 impl From<BookDomainError> for LibraryApplicationError {
@@ -34,12 +29,6 @@ impl From<BookDomainError> for LibraryApplicationError {
 impl From<BookshelfDomainError> for LibraryApplicationError {
     fn from(err: BookshelfDomainError) -> Self {
         LibraryApplicationError::Bookshelf(err.into())
-    }
-}
-
-impl From<FolderDomainError> for LibraryApplicationError {
-    fn from(err: FolderDomainError) -> Self {
-        LibraryApplicationError::Folder(err.into())
     }
 }
 
@@ -60,18 +49,6 @@ impl From<RepositoryError> for LibraryApplicationError {
             }
             RepositoryError::BookshelfNameConflict => {
                 LibraryApplicationError::Bookshelf(BookshelfApplicationError::NameConflict)
-            }
-            RepositoryError::FolderNotFound => {
-                LibraryApplicationError::Folder(FolderApplicationError::NotFound)
-            }
-            RepositoryError::ParentFolderNotFound => {
-                LibraryApplicationError::Folder(FolderApplicationError::ParentNotFound)
-            }
-            RepositoryError::FolderNameConflict => {
-                LibraryApplicationError::Folder(FolderApplicationError::NameConflict)
-            }
-            RepositoryError::FolderCycled => {
-                LibraryApplicationError::Folder(FolderApplicationError::Cycled)
             }
             RepositoryError::Storage(error) => {
                 LibraryApplicationError::Book(BookApplicationError::Storage(error))

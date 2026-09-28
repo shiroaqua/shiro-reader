@@ -11,7 +11,7 @@ use crate::{
     api::v1::library::book::file::errors::BookFileAPIError,
     application::library::{
         book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
-        bookshelf::{errors::BookshelfApplicationError, folder::errors::FolderApplicationError},
+        bookshelf::{errors::BookshelfApplicationError},
         errors::LibraryApplicationError,
     },
 };
@@ -91,36 +91,6 @@ impl From<LibraryApplicationError> for AppError {
                     message: "library.bookshelf.name_conflict",
                 },
                 BookshelfApplicationError::Storage(error) => AppError::Internal(error),
-            },
-            LibraryApplicationError::Folder(f) => match f {
-                FolderApplicationError::InvalidId => AppError::BadRequest {
-                    message: "library.bookshelf.folder.invalid_id",
-                },
-                FolderApplicationError::InvalidParentId => AppError::BadRequest {
-                    message: "library.bookshelf.folder.invalid_parent_id",
-                },
-                FolderApplicationError::MissingFolderId => AppError::BadRequest {
-                    message: "library.bookshelf.folder.missing_id",
-                },
-                FolderApplicationError::MissingName => AppError::BadRequest {
-                    message: "library.bookshelf.folder.missing_name",
-                },
-                FolderApplicationError::InvalidNameFormat => AppError::BadRequest {
-                    message: "library.bookshelf.folder.invalid_name_format",
-                },
-                FolderApplicationError::NotFound => AppError::NotFound {
-                    message: "library.bookshelf.folder.not_found",
-                },
-                FolderApplicationError::ParentNotFound => AppError::NotFound {
-                    message: "library.bookshelf.folder.parent_not_found",
-                },
-                FolderApplicationError::NameConflict => AppError::Conflict {
-                    message: "library.bookshelf.folder.name_conflict",
-                },
-                FolderApplicationError::Cycled => AppError::Conflict {
-                    message: "library.bookshelf.folder.cycled",
-                },
-                FolderApplicationError::Storage(error) => AppError::Internal(error),
             },
             LibraryApplicationError::Book(b) => match b {
                 BookApplicationError::InvalidId => AppError::BadRequest {

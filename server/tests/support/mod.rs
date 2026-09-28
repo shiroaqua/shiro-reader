@@ -20,7 +20,6 @@ use shiro_reader_server::{
     application::library::{
         book::{file::service::BookFileService, ports::BookRepository, service::BookService},
         bookshelf::{
-            folder::{ports::FolderRepository, service::FolderService},
             ports::BookshelfRepository,
             service::BookshelfService,
         },
@@ -30,7 +29,6 @@ use shiro_reader_server::{
         repositories::{
             sqlite_book_repository::SqliteBookRepository,
             sqlite_bookshelf_repository::SqliteBookshelfRepository,
-            sqlite_folder_repository::SqliteFolderRepository,
         },
         storage::book_file_storage::BookFileStorage,
     },
@@ -60,23 +58,10 @@ pub const INVALID_BOOKSHELF_NAMES: [&str; 8] = [
     "书架\n架",
 ];
 
-pub const INVALID_FOLDER_NAMES: [&str; 8] = [
-    "一只 文件夹",
-    " Folder",
-    "Folder ",
-    "Folder-xxx",
-    "Folder_不行",
-    "Folder.不行不行不行",
-    "Folder/不",
-    "Folder\nsubFolder",
-];
-
 pub const UNKNOWN_UUID: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 pub const UNKNOWN_HASH: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-pub const ROOT_FOLDER_ID: &str = "00000000-0000-0000-0000-000000000000";
 pub const DEFAULT_BOOK_NAME: &str = "书书";
 pub const DEFAULT_BOOKSHELF_NAME: &str = "书shelf";
-pub const DEAFULT_FOLDER_NAME: &str = "文件夹";
 
 static PDFIUM: LazyLock<Arc<Mutex<Pdfium>>> = LazyLock::new(|| {
     Arc::new(Mutex::new(Pdfium::new(
@@ -98,26 +83,9 @@ pub struct Bookshelf<'a> {
     app: &'a TestApp,
 }
 
-pub struct Folder<'a> {
-    pub bookshelf_id: String,
-    pub id: String,
-    pub name: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub response: JsonHttpResponse,
-    app: &'a TestApp,
-}
-
-pub struct FolderTreeNode<'a> {
-    pub folder: Folder<'a>,
-    pub children: Vec<FolderTreeNode<'a>>,
-}
-
 pub struct Book<'a> {
     pub id: String,
     pub bookshelf_id: String,
-    pub folder_id: Option<String>,
-
     pub title: String,
     pub file_type: String,
     pub hash: String,
@@ -160,15 +128,12 @@ impl TestApp {
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));
         let bookshelf_repository: Arc<dyn BookshelfRepository> =
             Arc::new(SqliteBookshelfRepository::new(pool.clone()));
-        let folder_repository: Arc<dyn FolderRepository> =
-            Arc::new(SqliteFolderRepository::new(pool.clone()));
         let book_repository: Arc<dyn BookRepository> =
             Arc::new(SqliteBookRepository::new(pool.clone()));
 
         let state = AppState {
             book_service: Arc::new(BookService::new(book_repository, bookfile_service.clone())),
             bookshelf_service: Arc::new(BookshelfService::new(bookshelf_repository)),
-            folder_service: Arc::new(FolderService::new(folder_repository)),
             bookfile_service: bookfile_service,
         };
 
@@ -236,35 +201,6 @@ impl TestApp {
             .collect()
     }
 
-    async fn create_folder<'a>(
-        &'a self,
-        bookshelf_id: &str,
-        parent_id: &str,
-        name: &str,
-    ) -> Folder<'a> {
-        let response = JsonHttpResponse::from(
-            self.post_json(
-                &format!("/api/v1/library/bookshelves/{bookshelf_id}/folders"),
-                json!({ "parent_id": parent_id, "name": name }),
-            )
-            .await,
-        )
-        .await;
-
-        let data = response.data();
-        let created_at = json_string_or_empty(data, "created_at");
-
-        Folder {
-            id: json_string_or_empty(data, "id"),
-            created_at: created_at.to_owned(),
-            updated_at: created_at,
-            bookshelf_id: bookshelf_id.to_owned(),
-            response: response,
-            name: name.to_owned(),
-            app: self,
-        }
-    }
-
     pub async fn upload_book_file(&self, bytes: &[u8], hash: &str) -> JsonHttpResponse {
         let boundary = "shiro-reader-test-boundary";
         let mut body = Vec::new();
@@ -311,7 +247,6 @@ impl TestApp {
     async fn create_book<'a>(
         &'a self,
         bookshelf_id: &str,
-        folder_id: Option<&str>,
         title: &str,
         hash: &str,
     ) -> Book<'a> {
@@ -322,7 +257,6 @@ impl TestApp {
                 "title": title,
                 "hash": hash,
                 "bookshelf_id": bookshelf_id,
-                "folder_id": folder_id
                 }),
             )
             .await,
@@ -334,7 +268,6 @@ impl TestApp {
         Book {
             id: json_string_or_empty(data, "id"),
             bookshelf_id: bookshelf_id.to_owned(),
-            folder_id: folder_id.and_then(|f| Some(f.to_owned())),
             title: title.to_owned(),
             file_type: EMPTY_STRING.to_owned(),
             hash: hash.to_owned(),
@@ -428,11 +361,7 @@ impl<'a> Bookshelf<'a> {
     }
 
     pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
-        self.app.create_book(&self.id, None, title, hash).await
-    }
-
-    pub async fn create_folder(&self, name: &str) -> Folder<'a> {
-        self.app.create_folder(&self.id, ROOT_FOLDER_ID, name).await
+        self.app.create_book(&self.id, title, hash).await
     }
 
     pub async fn create_default_book(&self) -> Book<'a> {
@@ -440,9 +369,6 @@ impl<'a> Bookshelf<'a> {
         self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
     }
 
-    pub async fn create_default_folder(&self) -> Folder<'a> {
-        self.create_folder(DEAFULT_FOLDER_NAME).await
-    }
 
     pub async fn delete(self) -> JsonHttpResponse {
         JsonHttpResponse::from(
@@ -467,200 +393,10 @@ impl<'a> Bookshelf<'a> {
         self.response = response;
     }
 
-    pub async fn get_folder(&self, folder_id: &str) -> Folder<'a> {
-        let response = JsonHttpResponse::from(
-            self.app
-                .get(&format!(
-                    "/api/v1/library/bookshelves/{}/folders?id={}",
-                    self.id, folder_id
-                ))
-                .await,
-        )
-        .await;
-
-        Folder::from_response(self.app, &self.id, response)
-    }
-
     pub async fn get_books(&self) -> Vec<Book<'a>> {
         let response = JsonHttpResponse::from(
             self.app
                 .get(&format!("/api/v1/library/bookshelves/{}/books", self.id))
-                .await,
-        )
-        .await;
-        Book::from_data_array(self.app, response)
-    }
-
-    pub async fn get_folders(&self) -> Vec<FolderTreeNode<'a>> {
-        let response = JsonHttpResponse::from(
-            self.app
-                .get(&format!(
-                    "/api/v1/library/bookshelves/{}/folders?recursive=true",
-                    self.id
-                ))
-                .await,
-        )
-        .await;
-        self.make_tree(response.data(), &response)
-    }
-
-    fn make_tree(&self, json: &Value, response: &JsonHttpResponse) -> Vec<FolderTreeNode<'a>> {
-        let mut tree: Vec<FolderTreeNode<'a>> = vec![];
-        for n in json.as_array().unwrap() {
-            let children = self.make_tree(&n["children"], &response);
-            tree.push(FolderTreeNode {
-                folder: Folder::from_json(self.app, &self.id, n, response.clone()),
-                children: children,
-            });
-        }
-        tree
-    }
-
-    pub async fn create_folder_tree(&self) {
-        for i in 0..2 {
-            let folder_first = self.create_folder(&format!("{}00", i)).await;
-            for j in 0..3 {
-                let folder_second = folder_first.create_folder(&format!("{}{}0", i, j)).await;
-                for n in 0..3 {
-                    folder_second
-                        .create_folder(&format!("{}{}{}", i, j, n))
-                        .await;
-                }
-            }
-        }
-    }
-
-    pub fn assert_data(&self) {
-        Uuid::parse_str(&self.id).expect("expected valid uuid");
-        DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
-        DateTime::parse_from_rfc3339(&self.updated_at).expect("expected valid RFC3339 datetime");
-    }
-}
-
-impl<'a> Folder<'a> {
-    fn from_response(
-        app: &'a TestApp,
-        bookshelf_id: &str,
-        response: JsonHttpResponse,
-    ) -> Self {
-        let fields = Self::fields(bookshelf_id, response.data());
-        Self::from_fields(app, response, fields)
-    }
-
-    fn from_json(
-        app: &'a TestApp,
-        bookshelf_id: &str,
-        json: &Value,
-        response: JsonHttpResponse,
-    ) -> Self {
-        let fields = Self::fields(bookshelf_id, json);
-        Self::from_fields(app, response, fields)
-    }
-
-    fn from_fields(
-        app: &'a TestApp,
-        response: JsonHttpResponse,
-        fields: (String, String, String, String, String),
-    ) -> Self {
-        let (bookshelf_id, id, name, created_at, updated_at) = fields;
-
-        Self {
-            bookshelf_id,
-            id,
-            name,
-            created_at,
-            updated_at,
-            response,
-            app,
-        }
-    }
-
-    fn fields(
-        bookshelf_id: &str,
-        json: &Value,
-    ) -> (String, String, String, String, String) {
-        (
-            bookshelf_id.to_owned(),
-            json_string_or_empty(json, "id"),
-            json_string_or_empty(json, "name"),
-            json_string_or_empty(json, "created_at"),
-            json_string_or_empty(json, "updated_at"),
-        )
-    }
-
-    pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
-        self.app
-            .create_book(&self.bookshelf_id, Some(&self.id), title, hash)
-            .await
-    }
-
-    pub async fn create_folder(&self, name: &str) -> Folder<'a> {
-        self.app
-            .create_folder(&self.bookshelf_id, &self.id, name)
-            .await
-    }
-
-    pub async fn create_default_book(&self) -> Book<'a> {
-        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
-        self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
-    }
-
-    pub async fn create_default_folder(&self) -> Folder<'a> {
-        self.create_folder(DEAFULT_FOLDER_NAME).await
-    }
-
-    pub async fn delete(self) -> JsonHttpResponse {
-        JsonHttpResponse::from(
-            self.app
-                .delete(&format!(
-                    "/api/v1/library/bookshelves/{}/folders/{}",
-                    &self.bookshelf_id, &self.id
-                ))
-                .await,
-        )
-        .await
-    }
-
-    pub async fn rename(&mut self, new_name: &str) {
-        let response = JsonHttpResponse::from(
-            self.app
-                .patch_json(
-                    &format!(
-                        "/api/v1/library/bookshelves/{}/folders/{}",
-                        &self.bookshelf_id, &self.id
-                    ),
-                    json!({ "name": new_name , "parent_id": null}),
-                )
-                .await,
-        )
-        .await;
-        self.name = new_name.to_owned();
-        self.response = response;
-    }
-
-    pub async fn move_to(&mut self, parent_id: &str) {
-        let response = JsonHttpResponse::from(
-            self.app
-                .patch_json(
-                    &format!(
-                        "/api/v1/library/bookshelves/{}/folders/{}",
-                        &self.bookshelf_id, &self.id
-                    ),
-                    json!({ "name": null , "parent_id": parent_id}),
-                )
-                .await,
-        )
-        .await;
-        self.response = response;
-    }
-
-    pub async fn get_books(&self) -> Vec<Book<'a>> {
-        let response = JsonHttpResponse::from(
-            self.app
-                .get(&format!(
-                    "/api/v1/library/bookshelves/{}/folders/{}/books",
-                    self.bookshelf_id, self.id
-                ))
                 .await,
         )
         .await;
@@ -696,14 +432,13 @@ impl<'a> Book<'a> {
     fn from_fields(
         app: &'a TestApp,
         response: JsonHttpResponse,
-        fields: (String, String, Option<String>, String, String, String, String, String),
+        fields: (String, String, String, String, String, String, String),
     ) -> Self {
-        let (id, bookshelf_id, folder_id, title, file_type, hash, created_at, updated_at) = fields;
+        let (id, bookshelf_id, title, file_type, hash, created_at, updated_at) = fields;
 
         Self {
             id,
             bookshelf_id,
-            folder_id,
             title,
             file_type,
             hash,
@@ -716,11 +451,10 @@ impl<'a> Book<'a> {
 
     fn fields(
         json: &Value,
-    ) -> (String, String, Option<String>, String, String, String, String, String) {
+    ) -> (String, String, String, String, String, String, String) {
         (
             json_string_or_empty(json, "id"),
             json_string_or_empty(json, "bookshelf_id"),
-            json_optional_string(json, "folder_id"),
             json_string_or_empty(json, "title"),
             json_string_or_empty(json, "type"),
             json_string_or_empty(json, "hash"),
@@ -808,70 +542,6 @@ impl JsonHttpResponse {
         assert_eq!(
             self.json["error"]["message"],
             "library.bookshelf.name_conflict"
-        );
-    }
-
-    pub fn assert_folder_missing_name_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.missing_name"
-        );
-    }
-
-    pub fn assert_folder_name_conflict_error(&self) {
-        assert_eq!(self.status_code, StatusCode::CONFLICT);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.name_conflict"
-        );
-    }
-
-    pub fn assert_folder_cycled_error(&self) {
-        assert_eq!(self.status_code, StatusCode::CONFLICT);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.cycled"
-        );
-    }
-
-    pub fn assert_folder_not_found_error(&self) {
-        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.not_found"
-        );
-    }
-
-    pub fn assert_folder_invalid_id_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.invalid_id"
-        );
-    }
-
-    pub fn assert_folder_parent_not_found_error(&self) {
-        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.parent_not_found"
-        );
-    }
-
-    pub fn assert_folder_invalid_name_format_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.invalid_name_format"
-        );
-    }
-
-    pub fn assert_folder_invalid_parent_id_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.folder.invalid_parent_id"
         );
     }
 

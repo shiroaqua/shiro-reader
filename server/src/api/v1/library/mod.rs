@@ -42,18 +42,4 @@ pub fn router() -> Router<AppState> {
             "/bookshelves/{bookshelf_id}/books",
             get(book::handers::get_books_from_bookshelf),
         )
-        .route(
-            "/bookshelves/{bookshelf_id}/folders",
-            get(bookshelf::folder::handlers::get_folders)
-                .post(bookshelf::folder::handlers::create_folder),
-        )
-        .route(
-            "/bookshelves/{bookshelf_id}/folders/{folder_id}",
-            delete(bookshelf::folder::handlers::delete_folder)
-                .patch(bookshelf::folder::handlers::update_folder),
-        )
-        .route(
-            "/bookshelves/{bookshelf_id}/folders/{folder_id}/books",
-            get(book::handers::get_books_from_folder),
-        )
 }
