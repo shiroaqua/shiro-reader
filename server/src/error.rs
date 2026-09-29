@@ -90,7 +90,11 @@ impl From<LibraryApplicationError> for AppError {
                 BookshelfApplicationError::NameConflict => AppError::Conflict {
                     message: "library.bookshelf.name_conflict",
                 },
+                BookshelfApplicationError::UnchangedName => AppError::Conflict {
+                    message: "library.bookshelf.name_unchanged",
+                },
                 BookshelfApplicationError::Storage(error) => AppError::Internal(error),
+                
             },
             LibraryApplicationError::Book(b) => match b {
                 BookApplicationError::InvalidId => AppError::BadRequest {
@@ -113,6 +117,9 @@ impl From<LibraryApplicationError> for AppError {
                 },
                 BookApplicationError::TitleConflict => AppError::Conflict {
                     message: "library.book.title_conflict",
+                },
+                BookApplicationError::TitleUnchanged => AppError::BadRequest {
+                    message: "library.book.title_unchanged",
                 },
                 BookApplicationError::Storage(error) => AppError::Internal(error),
             },

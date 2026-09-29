@@ -2,11 +2,8 @@ use async_trait::async_trait;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
-    application::library::bookshelf::ports::BookshelfRepository,
-    domain::library::bookshelf::{
-        entity::Bookshelf,
-        value_objects::{BookshelfId, BookshelfName},
-    },
+    application::library::bookshelf::{dto::GetBookshelfOutput, ports::BookshelfRepository},
+    domain::library::bookshelf::{entity::Bookshelf, value_objects::BookshelfId},
     infrastructure::repositories::{
         errors::RepositoryError,
         idens::{Bookshelves, FULL_BOOKSHELVES_TABLE_COLUMNS},
@@ -32,42 +29,20 @@ impl SqliteBookshelfRepository {
 
 #[async_trait]
 impl BookshelfRepository for SqliteBookshelfRepository {
-    async fn create(&self, bookshelf: Bookshelf) -> Result<Bookshelf, RepositoryError> {
+    async fn create(&self, bookshelf: &Bookshelf) -> Result<(), RepositoryError> {
         let (sql, values) = Query::insert()
             .into_table(Bookshelves::Table)
             .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
             .values_panic([
-                bookshelf.id.to_string().into(),
-                bookshelf.name.to_string().into(),
-                bookshelf.created_at.into(),
-                bookshelf.updated_at.into(),
+                bookshelf.id().to_string().into(),
+                bookshelf.name().to_string().into(),
+                bookshelf.created_at().into(),
+                bookshelf.updated_at().into(),
+                bookshelf.version().into(),
             ])
             .build_sqlx(SqliteQueryBuilder);
 
         self.db.execute(&sql, values, map_sqlx_error).await?;
-
-        Ok(bookshelf)
-    }
-
-    async fn rename(
-        &self,
-        id: &BookshelfId,
-        new_name: &BookshelfName,
-    ) -> Result<(), RepositoryError> {
-        let (sql, values) = Query::update()
-            .table(Bookshelves::Table)
-            .value(Bookshelves::Name, new_name.as_str())
-            .and_where(Expr::col(Bookshelves::Id).eq(id.to_string()))
-            .build_sqlx(SqliteQueryBuilder);
-
-        self.db
-            .execute_affected(
-                &sql,
-                values,
-                RepositoryError::BookshelfNotFound,
-                map_sqlx_error,
-            )
-            .await?;
 
         Ok(())
     }
@@ -90,6 +65,24 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         Ok(())
     }
 
+    async fn list(
+        &self,
+        ids: Vec<BookshelfId>,
+    ) -> Result<Vec<GetBookshelfOutput>, RepositoryError> {
+        let mut query = Query::select();
+        query
+            .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
+            .from(Bookshelves::Table);
+
+        if !ids.is_empty() {
+            query.and_where(Expr::col(Bookshelves::Id).is_in(ids.iter().map(|id| id.to_string())));
+        }
+
+        let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
+
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
+    }
+
     async fn find_by_id(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
         let (sql, values) = Query::select()
             .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
@@ -107,22 +100,50 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .await
     }
 
-    async fn list(&self) -> Result<Vec<Bookshelf>, RepositoryError> {
-        let (sql, values) = Query::select()
-            .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
-            .from(Bookshelves::Table)
+    async fn update(&self, bookshelf: Bookshelf) -> Result<(), RepositoryError> {
+        let version = bookshelf.version();
+
+        let (sql, values) = Query::update()
+            .table(Bookshelves::Table)
+            .values([
+                (Bookshelves::Name, bookshelf.name().to_string().into()),
+                (Bookshelves::Version, (version + 1).into()),
+            ])
+            .and_where(Expr::col(Bookshelves::Id).eq(bookshelf.id().to_string()))
+            .and_where(Expr::col(Bookshelves::Version).eq(version))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.db.fetch_all(&sql, values, map_sqlx_error).await
+        self.db
+            .execute_affected(
+                &sql,
+                values,
+                RepositoryError::BookshelfNotFound, // 此处错误处理存在歧义，到底是根本不存在还是单纯因为版本号不对呢？
+                map_sqlx_error,
+            )
+            .await?;
+        Ok(())
     }
 }
 
 impl TryFrom<&SqliteRow> for Bookshelf {
     type Error = RepositoryError;
+    fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        Ok(Bookshelf::reconstitute(
+            row.get_uuid(&Bookshelves::Id.to_string())?,
+            row.get_string(&Bookshelves::Name.to_string())?,
+            row.get(&Bookshelves::CreatedAt.to_string())?,
+            row.get(&Bookshelves::UpdatedAt.to_string())?,
+            row.get(&Bookshelves::Version.to_string())?,
+        ))
+    }
+}
+
+impl TryFrom<&SqliteRow> for GetBookshelfOutput {
+    type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        Ok(Bookshelf {
-            id: row.get_uuid(&Bookshelves::Id.to_string())?,
+        Ok(GetBookshelfOutput {
+            id: row.get_string(&Bookshelves::Id.to_string())?,
             name: row.get_string(&Bookshelves::Name.to_string())?,
             created_at: row.get(&Bookshelves::CreatedAt.to_string())?,
             updated_at: row.get(&Bookshelves::UpdatedAt.to_string())?,

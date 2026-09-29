@@ -14,7 +14,8 @@ pub struct RenameBookshelfRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct BookshelvesQuery {
-    pub id: Option<String>,
+    #[serde(default)]
+    pub id: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

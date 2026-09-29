@@ -4,7 +4,7 @@ use sea_query_sqlx::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
-    application::library::book::ports::BookRepository,
+    application::library::book::{dto::GetBookOutput, ports::BookRepository},
     domain::library::{
         book::{
             entity::Book,
@@ -15,7 +15,10 @@ use crate::{
     infrastructure::repositories::{
         errors::RepositoryError,
         idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS},
-        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
+        sqlite::{
+            SqliteExecutor, SqliteRowExt, map_database_error, map_invalid_data,
+            message_contains_columns,
+        },
     },
 };
 
@@ -34,7 +37,7 @@ impl SqliteBookRepository {
 
 #[async_trait]
 impl BookRepository for SqliteBookRepository {
-    async fn create(&self, book: Book) -> Result<Book, RepositoryError> {
+    async fn create(&self, book: &Book) -> Result<(), RepositoryError> {
         let mut tx = self.db.begin(map_sqlx_error).await?;
         let (sql, values) = Query::select()
             .expr(Expr::val(1))
@@ -54,15 +57,17 @@ impl BookRepository for SqliteBookRepository {
                 book.id().to_string().into(),
                 book.title().to_string().into(),
                 book.hash().to_hex().to_string().into(),
+                book.file_type().to_string().into(),
                 book.bookshelf_id().to_string().into(),
                 book.created_at().into(),
                 book.updated_at().into(),
+                book.version().into(),
             ])
             .build_sqlx(SqliteQueryBuilder);
 
         tx.execute(&sql, values, map_sqlx_error).await?;
         tx.commit(map_sqlx_error).await?;
-        Ok(book)
+        Ok(())
     }
 
     async fn delete(&self, id: &BookId) -> Result<(), RepositoryError> {
@@ -74,20 +79,6 @@ impl BookRepository for SqliteBookRepository {
         self.db
             .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
             .await?;
-        Ok(())
-    }
-
-    async fn rename(&self, id: &BookId, new_title: &BookTitle) -> Result<(), RepositoryError> {
-        let (sql, values) = Query::update()
-            .table(Books::Table)
-            .value(Books::Title, new_title.as_str())
-            .and_where(Expr::col(Books::Id).eq(id.to_string()))
-            .build_sqlx(SqliteQueryBuilder);
-
-        self.db
-            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
-            .await?;
-
         Ok(())
     }
 
@@ -103,18 +94,39 @@ impl BookRepository for SqliteBookRepository {
             .await
     }
 
+    async fn update(&self, book: Book) -> Result<(), RepositoryError> {
+        let version = book.version();
+        let (sql, values) = Query::update()
+            .table(Books::Table)
+            .values([
+                (Books::Title, book.title().to_string().into()),
+                (Books::Version, (version + 1).into()),
+            ])
+            .and_where(Expr::col(Books::Id).eq(book.id().to_string()))
+            .and_where(Expr::col(Books::Version).eq(version))
+            .build_sqlx(SqliteQueryBuilder);
+        
+        self.db
+            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .await
+    }
+
     async fn list(
         &self,
         bookshelf_id: &BookshelfId,
-    ) -> Result<Vec<Book>, RepositoryError> {
+        book_ids: Vec<BookId>,
+    ) -> Result<Vec<GetBookOutput>, RepositoryError> {
         let mut query = Query::select();
         query
             .columns(FULL_BOOKS_TABLE_COLUMNS)
             .from(Books::Table)
             .and_where(Expr::col(Books::BookshelfId).eq(bookshelf_id.to_string()));
 
-        let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
+        if !book_ids.is_empty() {
+            query.and_where(Expr::col(Books::Id).is_in(book_ids.iter().map(ToString::to_string)));
+        }
 
+        let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
         self.db.fetch_all(&sql, values, map_sqlx_error).await
     }
 }
@@ -123,14 +135,40 @@ impl TryFrom<&SqliteRow> for Book {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        Ok(Book::new(
+        Ok(Book::reconstitute(
             row.get_uuid(&Books::Id.to_string())?,
-            row.get_string(&Books::Title.to_string())?,
+            BookTitle::parse(row.get_string::<String>(&Books::Title.to_string())?)
+                .map_err(map_invalid_data)?,
             row.get_hash(&Books::Hash.to_string())?,
+            match row
+                .get_string::<String>(&Books::FileType.to_string())?
+                .as_str()
+            {
+                "PDF" => crate::domain::library::book::file::entity::BookFileType::PDF,
+                "EPUB" => crate::domain::library::book::file::entity::BookFileType::EPUB,
+                _ => return Err(RepositoryError::InvalidBookFileType),
+            },
             row.get_uuid(&Books::BookshelfId.to_string())?,
             row.get(&Books::CreatedAt.to_string())?,
             row.get(&Books::UpdatedAt.to_string())?,
+            row.get(&Books::Version.to_string())?,
         ))
+    }
+}
+
+impl TryFrom<&SqliteRow> for GetBookOutput {
+    type Error = RepositoryError;
+
+    fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        Ok(GetBookOutput {
+            id: row.get_string(&Books::Id.to_string())?,
+            title: row.get_string(&Books::Title.to_string())?,
+            hash: row.get_string(&Books::Hash.to_string())?,
+            file_type: row.get_string(&Books::FileType.to_string())?,
+            bookshelf_id: row.get_string(&Books::BookshelfId.to_string())?,
+            created_at: row.get(&Books::CreatedAt.to_string())?,
+            updated_at: row.get(&Books::UpdatedAt.to_string())?,
+        })
     }
 }
 
@@ -142,9 +180,7 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
             [Books::BookshelfId, Books::Title],
         );
 
-        if database_error.is_unique_constraint()
-            && is_root_book_title_conflict
-        {
+        if database_error.is_unique_constraint() && is_root_book_title_conflict {
             Some(RepositoryError::BookTitleConflict)
         } else {
             None

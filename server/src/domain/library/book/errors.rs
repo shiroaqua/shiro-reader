@@ -11,4 +11,7 @@ pub enum BookDomainError {
 
     #[error("invalid book hash")]
     InvalidHash,
+
+    #[error("unchanged book title")]
+    TitleUnchanged,
 }

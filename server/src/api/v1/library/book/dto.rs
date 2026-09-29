@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 pub struct CreateBookRequest {
     pub title: String,
     pub hash: String,
-    pub bookshelf_id: String,
-    pub folder_id: Option<String>,
 }
 
 
@@ -19,7 +17,8 @@ pub struct RenameBookRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct BooksQuery {
-    pub id: String
+    #[serde(default)]
+    pub id: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,9 +26,6 @@ pub struct CreateBookResponse {
     pub id: String,
     pub created_at: DateTime<Utc>,
 }
-
-#[derive(Debug, Serialize)]
-pub struct GetBooksResponse(pub Vec<GetBookResponse>);
 
 #[derive(Debug, Serialize)]
 pub struct GetBookResponse {

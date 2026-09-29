@@ -5,22 +5,13 @@ use derive_new::new;
 use crate::{
     application::library::{
         bookshelf::{
-            commands::{
-                CreateBookshelfCommand, CreateBookshelfOutput, DeleteBookshelfCommand,
-                GetAllBookshelfOutput, GetBookshelfCommand, GetBookshelfOutput,
-                RenameBookshelfCommand,
-            },
-            errors::BookshelfApplicationError,
-            ports::BookshelfRepository,
-        },
-        errors::LibraryApplicationError,
-    },
-    domain::library::bookshelf::{
+            commands::{CreateBookshelfCommand, DeleteBookshelfCommand, RenameBookshelfCommand}, dto::{CreateBookshelfOutput, GetBookshelfOutput}, errors::BookshelfApplicationError, ports::BookshelfRepository, queries::GetBookshelvesQuery,
+        }, errors::LibraryApplicationError,
+    }, domain::library::bookshelf::{
         entity::Bookshelf,
         errors::BookshelfDomainError,
         value_objects::{BookshelfId, BookshelfName},
     },
-    shared::time::now_ms,
 };
 
 #[derive(new)]
@@ -35,25 +26,25 @@ impl BookshelfService {
     ) -> Result<CreateBookshelfOutput, LibraryApplicationError> {
         let id = BookshelfId::new();
         let name = BookshelfName::parse(command.name)?;
-        let now = now_ms();
-
-        let result = self
-            .repositories
-            .create(Bookshelf::new(id, name, now, now))
-            .await?;
+        let bookshelf = Bookshelf::new(id, name);
+        self.repositories.create(&bookshelf).await?;
 
         Ok(CreateBookshelfOutput {
-            id: result.id,
-            created_at: result.created_at,
+            id: bookshelf.id().to_string(),
+            created_at: bookshelf.created_at(),
         })
     }
+
     pub async fn rename_bookshelf(
         &self,
         command: RenameBookshelfCommand,
     ) -> Result<(), LibraryApplicationError> {
         let id = BookshelfId::parse(command.id)?;
         let new_name = BookshelfName::parse(command.name)?;
-        self.repositories.rename(&id, &new_name).await?;
+        
+        let mut bookshelf = self.repositories.find_by_id(&id).await?;
+        bookshelf.rename(new_name)?;
+        self.repositories.update(bookshelf).await?;
         Ok(())
     }
 
@@ -68,25 +59,16 @@ impl BookshelfService {
         Ok(())
     }
 
-    pub async fn get_bookshelf(
+    pub async fn get_bookshelves(
         &self,
-        command: GetBookshelfCommand,
-    ) -> Result<GetBookshelfOutput, LibraryApplicationError> {
-        let id = BookshelfId::parse(command.id)?;
-        Ok(self.repositories.find_by_id(&id).await?.into())
-    }
-
-    pub async fn get_all_bookshelf(
-        &self,
-    ) -> Result<GetAllBookshelfOutput, LibraryApplicationError> {
-        Ok(GetAllBookshelfOutput(
-            self.repositories
-                .list()
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        ))
+        query: GetBookshelvesQuery,
+    ) -> Result<Vec<GetBookshelfOutput>, LibraryApplicationError> {
+        let ids = query
+            .ids
+            .iter()
+            .map(|id| BookshelfId::parse(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.repositories.list(ids).await?)
     }
 }
 
@@ -96,6 +78,7 @@ impl From<BookshelfDomainError> for BookshelfApplicationError {
             BookshelfDomainError::InvalidId => Self::InvalidId,
             BookshelfDomainError::MissingName => Self::MissingName,
             BookshelfDomainError::InvalidNameFormat => Self::InvalidNameFormat,
+            BookshelfDomainError::UnchangedName => Self::UnchangedName,
         }
     }
 }

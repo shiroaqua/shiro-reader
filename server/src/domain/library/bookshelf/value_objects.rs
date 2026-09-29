@@ -1,9 +1,9 @@
-use derive_more::{AsRef, Deref, Display, From};
+use derive_more::{AsRef, Display, From};
 use uuid::Uuid;
 
 use crate::domain::library::bookshelf::errors::BookshelfDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Deref)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, From)]
 pub struct BookshelfId(Uuid);
 
 impl BookshelfId {
@@ -29,7 +29,7 @@ impl Default for BookshelfId {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, From, AsRef, Deref)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, From)]
 pub struct BookshelfName(String);
 
 impl BookshelfName {

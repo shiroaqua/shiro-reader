@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS bookshelves (
     name       TEXT    NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    version    INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT chk_bookshelves_id_uuid
         CHECK (
@@ -51,4 +52,3 @@ BEGIN
         'bookshelves.updated_at cannot move backwards'
     );
 END;
-

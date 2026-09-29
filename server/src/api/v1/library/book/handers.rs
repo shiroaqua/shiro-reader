@@ -1,11 +1,16 @@
 use axum::{
-    Json, body::Body, extract::{Path, Query, State}, http::{HeaderValue, Response, StatusCode, header::{CONTENT_TYPE}}
+    Json,
+    body::Body,
+    extract::{Path, State},
+    http::{HeaderValue, Response, StatusCode, header::CONTENT_TYPE},
 };
+use axum_extra::extract::Query;
 
 use crate::{
     api::{response::DataResponse, v1::library::book::dto::*},
-    application::library::book::commands::{
-        CreateBookCommand, DeleteBookCommand, GetBookCommand, GetBookCoverCommand, GetBooksCommand, RenameBookCommand
+    application::library::book::{
+        commands::{CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand},
+        queries::GetBooksQuery,
     },
     error::AppError,
     state::AppState,
@@ -13,14 +18,15 @@ use crate::{
 
 pub async fn create_book(
     State(state): State<AppState>,
+    Path(bookshelf_id): Path<String>,
     Json(request): Json<CreateBookRequest>,
 ) -> Result<(StatusCode, Json<DataResponse<CreateBookResponse>>), AppError> {
     let output = state
         .book_service
         .create_book(CreateBookCommand {
+            bookshelf_id: bookshelf_id,
             title: request.title,
             hash: request.hash,
-            bookshelf_id: request.bookshelf_id,
         })
         .await?;
 
@@ -59,9 +65,12 @@ pub async fn download_cover(
     State(state): State<AppState>,
     Path(book_id): Path<String>,
 ) -> Result<Response<Body>, AppError> {
-    let stream = state.book_service.get_cover(GetBookCoverCommand {id: book_id}).await?;
+    let stream = state
+        .book_service
+        .get_cover(GetBookCoverCommand { id: book_id })
+        .await?;
     let body = Body::from_stream(stream);
-    
+
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, HeaderValue::from_static("image/png"))
@@ -69,44 +78,20 @@ pub async fn download_cover(
         .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }
 
-pub async fn get_book(
-    State(state): State<AppState>,
-    Query(query): Query<BooksQuery>,
-) -> Result<(StatusCode, Json<DataResponse<GetBookResponse>>), AppError> {
-    let output = state
-        .book_service
-        .get_book(GetBookCommand { id: query.id })
-        .await?;
-
-    Ok((StatusCode::OK, Json(DataResponse::new(output.into()))))
-}
-
-pub async fn get_books_from_bookshelf(
+pub async fn get_books(
     State(state): State<AppState>,
     Path(bookshelf_id): Path<String>,
-) -> Result<(StatusCode, Json<DataResponse<GetBooksResponse>>), AppError> {
-    get_books(
-        state,
-        GetBooksCommand {
-            bookshelf_id: bookshelf_id,
-          },
-    )
-    .await
+    Query(query): Query<BooksQuery>,
+) -> Result<(StatusCode, Json<DataResponse<Vec<GetBookResponse>>>), AppError> {
+    let response_data: Vec<GetBookResponse> = state
+        .book_service
+        .get_books(GetBooksQuery {
+            bookshelf_id,
+            book_ids: query.id,
+        })
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok((StatusCode::OK, Json(DataResponse::new(response_data))))
 }
-
-#[inline]
-async fn get_books(
-    state: AppState,
-    command: GetBooksCommand,
-) -> Result<(StatusCode, Json<DataResponse<GetBooksResponse>>), AppError> {
-    let output = state.book_service.get_books(command).await?;
-
-    Ok((
-        StatusCode::OK,
-        Json(DataResponse::new(GetBooksResponse(
-            output.0.into_iter().map(Into::into).collect(),
-        ))),
-    ))
-}
-
-

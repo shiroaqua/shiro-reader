@@ -1,18 +1,19 @@
 use async_trait::async_trait;
 
 use crate::{
-    domain::library::{book::{
+    application::library::book::dto::GetBookOutput, domain::library::{book::{
         entity::Book,
-        value_objects::{BookId, BookTitle},
-    }, bookshelf::value_objects::BookshelfId},
-    infrastructure::repositories::errors::RepositoryError,
+        value_objects::BookId,
+    }, bookshelf::value_objects::BookshelfId}, infrastructure::repositories::errors::RepositoryError,
 };
 
 #[async_trait]
 pub trait BookRepository: Send + Sync {
-    async fn create(&self, book: Book) -> Result<Book, RepositoryError>;
+    async fn create(&self, book: &Book) -> Result<(), RepositoryError>;
     async fn delete(&self, id: &BookId) -> Result<(), RepositoryError>;
-    async fn rename(&self, id: &BookId, new_title: &BookTitle) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, id: &BookId) -> Result<Book, RepositoryError>;
-    async fn list(&self, bookshelf_id: &BookshelfId) -> Result<Vec<Book>, RepositoryError>;
+    async fn update(&self, book: Book) -> Result<(), RepositoryError>;
+
+    
+    async fn list(&self, bookshelf_id: &BookshelfId, book_ids: Vec<BookId>) -> Result<Vec<GetBookOutput>, RepositoryError>;    
 }

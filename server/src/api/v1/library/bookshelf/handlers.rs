@@ -1,18 +1,19 @@
-use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    Json,
-};
-
 use crate::{
     api::{response::DataResponse, v1::library::bookshelf::dto::*},
-    application::library::bookshelf::commands::{
-        CreateBookshelfCommand, DeleteBookshelfCommand, GetBookshelfCommand, RenameBookshelfCommand,
+    application::library::bookshelf::{
+        commands::{CreateBookshelfCommand, DeleteBookshelfCommand, RenameBookshelfCommand},
+        queries::GetBookshelvesQuery,
     },
     error::AppError,
     state::AppState,
 };
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use axum_extra::extract::Query;
 
 pub async fn create_bookshelf(
     State(state): State<AppState>,
@@ -58,18 +59,12 @@ pub async fn get_bookshelves(
     State(state): State<AppState>,
     Query(query): Query<BookshelvesQuery>,
 ) -> Result<Response, AppError> {
-    if let Some(id) = query.id {
-        let output = state
-            .bookshelf_service
-            .get_bookshelf(GetBookshelfCommand { id })
-            .await?;
-
-        let response_data: GetBookshelfResponse = output.into();
-        return Ok((StatusCode::OK, Json(DataResponse::new(response_data))).into_response());
-    } else {
-        let output = state.bookshelf_service.get_all_bookshelf().await?;
-        let response_data: Vec<GetBookshelfResponse> =
-            output.0.into_iter().map(Into::into).collect();
-        return Ok((StatusCode::OK, Json(DataResponse::new(response_data))).into_response());
-    }
+    let response_data: Vec<GetBookshelfResponse> = state
+        .bookshelf_service
+        .get_bookshelves(GetBookshelvesQuery { ids: query.id })
+        .await?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    Ok((StatusCode::OK, Json(DataResponse::new(response_data))).into_response())
 }

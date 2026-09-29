@@ -70,8 +70,9 @@ async fn rename_bookshelf() {
     bookshelf.rename("nya").await;
     assert_eq!(bookshelf.response.status_code, StatusCode::NO_CONTENT);
 
-    let bookshelf = app.get_bookshelf(&bookshelf.id).await;
-    assert_eq!(bookshelf.name, "nya");
+    let bookshelves = app.get_bookshelves_by_ids(&[&bookshelf.id]).await;
+    assert_eq!(bookshelves.status_code, StatusCode::OK);
+    assert_eq!(bookshelves.data_array()[0]["name"], "nya");
 }
 
 #[tokio::test]
@@ -97,17 +98,17 @@ async fn rename_bookshelf_invalid_name_format_error() {
 }
 
 #[tokio::test]
-async fn get_bookshelf_by_id() {
+async fn get_bookshelves_by_ids() {
     let app = TestApp::new().await;
-    let bookshelf = app.create_bookshelf("qwq").await;
+    let first = app.create_bookshelf("first").await;
+    let second = app.create_bookshelf("second").await;
 
-    let bookshelf_id = bookshelf.id;
-    let bookshelf = app.get_bookshelf(&bookshelf_id).await;
-
-    bookshelf.assert_data();
-    assert_eq!(bookshelf.response.status_code, StatusCode::OK);
-    assert_eq!(bookshelf.id, bookshelf_id);
-    assert_eq!(bookshelf.name, "qwq");
+    let bookshelves = app.get_bookshelves_by_ids(&[&first.id, &second.id]).await;
+    assert_eq!(bookshelves.status_code, StatusCode::OK);
+    let bookshelves = bookshelves.data_array();
+    assert_eq!(bookshelves.len(), 2);
+    assert_eq!(bookshelves.iter().find(|bookshelf| bookshelf["id"] == first.id).unwrap()["name"], "first");
+    assert_eq!(bookshelves.iter().find(|bookshelf| bookshelf["id"] == second.id).unwrap()["name"], "second");
 }
 
 #[tokio::test]
@@ -131,16 +132,4 @@ async fn list_bookshelves() {
             assert_eq!(&bookshelf.name, &id.1.to_string());
         }
     }
-}
-
-#[tokio::test]
-async fn get_bookshelf_invalid_id_error() {
-    let app = TestApp::new().await;
-    app.get_bookshelf(INVALID_UUID).await.response.assert_bookshelf_invalid_id_error();
-}
-
-#[tokio::test]
-async fn get_bookshelf_not_found_error() {
-    let app = TestApp::new().await;
-    app.get_bookshelf(UNKNOWN_UUID).await.response.assert_bookshelf_not_found_error();
 }

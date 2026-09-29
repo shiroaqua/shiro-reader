@@ -8,4 +8,7 @@ pub enum BookshelfDomainError {
 
     #[error("invalid bookshelf name format")]
     InvalidNameFormat,
+
+    #[error("unchanged bookshelf name")]
+    UnchangedName,
 }

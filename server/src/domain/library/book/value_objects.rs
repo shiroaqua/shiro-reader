@@ -1,12 +1,12 @@
-use derive_more::{AsRef, Deref, Display, From};
+use derive_more::{AsRef, Display, From};
 use uuid::Uuid;
 
 use crate::domain::library::book::errors::BookDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Deref)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef)]
 pub struct BookId(Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Deref)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef)]
 pub struct BookTitle(String);
 
 impl BookId {

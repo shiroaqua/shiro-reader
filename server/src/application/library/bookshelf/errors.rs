@@ -8,13 +8,16 @@ pub enum BookshelfApplicationError {
 
     #[error("invalid bookshelf name format")]
     InvalidNameFormat,
+    
+    #[error("unchanged bookshelf name")]
+    UnchangedName,
 
     #[error("bookshelf not found")]
     NotFound,
 
     #[error("bookshelf name conflict")]
     NameConflict,
-    
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

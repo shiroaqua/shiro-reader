@@ -172,24 +172,6 @@ impl TestApp {
             .await
     }
 
-    pub async fn get_book<'a>(&'a self, book_id: &str) -> Book<'a> {
-        let response = JsonHttpResponse::from(
-            self.get(&format!("/api/v1/library/books?id={book_id}"))
-                .await,
-        )
-        .await;
-        Book::from_response(self, response)
-    }
-
-    pub async fn get_bookshelf<'a>(&'a self, id: &str) -> Bookshelf<'a> {
-        let response = JsonHttpResponse::from(
-            self.get(&format!("/api/v1/library/bookshelves?id={id}"))
-                .await,
-        )
-        .await;
-
-        Bookshelf::from_response(self, response)
-    }
     pub async fn get_bookshelves<'a>(&'a self) -> Vec<Bookshelf<'a>> {
         let response =
             JsonHttpResponse::from(self.get(&format!("/api/v1/library/bookshelves")).await).await;
@@ -199,6 +181,19 @@ impl TestApp {
             .iter()
             .map(|node| Bookshelf::from_json(self, node, response.clone()))
             .collect()
+    }
+
+    pub async fn get_bookshelves_by_ids<'a>(&'a self, ids: &[&str]) -> JsonHttpResponse {
+        let query = ids
+            .iter()
+            .map(|id| format!("id={id}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        JsonHttpResponse::from(
+            self.get(&format!("/api/v1/library/bookshelves?{query}"))
+                .await,
+        )
+        .await
     }
 
     pub async fn upload_book_file(&self, bytes: &[u8], hash: &str) -> JsonHttpResponse {
@@ -252,11 +247,10 @@ impl TestApp {
     ) -> Book<'a> {
         let response = JsonHttpResponse::from(
             self.post_json(
-                "/api/v1/library/books",
+                &format!("/api/v1/library/bookshelves/{bookshelf_id}/books"),
                 json!({
                 "title": title,
                 "hash": hash,
-                "bookshelf_id": bookshelf_id,
                 }),
             )
             .await,
@@ -403,6 +397,20 @@ impl<'a> Bookshelf<'a> {
         Book::from_data_array(self.app, response)
     }
 
+    pub async fn get_books_by_ids(&self, ids: &[&str]) -> JsonHttpResponse {
+        let query = ids
+            .iter()
+            .map(|id| format!("id={id}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        JsonHttpResponse::from(
+            self.app
+                .get(&format!("/api/v1/library/bookshelves/{}/books?{query}", self.id))
+                .await,
+        )
+        .await
+    }
+
     pub fn assert_data(&self) {
         Uuid::parse_str(&self.id).expect("expected valid uuid");
         DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
@@ -416,7 +424,7 @@ impl<'a> Book<'a> {
         Self::from_fields(app, response, fields)
     }
 
-    fn from_data_array(app: &'a TestApp, response: JsonHttpResponse) -> Vec<Self> {
+    pub fn from_data_array(app: &'a TestApp, response: JsonHttpResponse) -> Vec<Self> {
         response
             .data_array()
             .iter()

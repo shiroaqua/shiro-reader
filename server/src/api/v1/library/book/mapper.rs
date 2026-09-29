@@ -1,7 +1,5 @@
 use crate::{
-    api::v1::library::book::dto::{CreateBookResponse, GetBookResponse},
-    application::library::book::commands::{CreateBookOutput, GetBookOutput},
-    shared::time,
+    api::v1::library::book::dto::{CreateBookResponse, GetBookResponse}, application::library::book::dto::{CreateBookOutput, GetBookOutput}, shared::time,
 };
 
 impl From<CreateBookOutput> for CreateBookResponse {
@@ -16,11 +14,11 @@ impl From<CreateBookOutput> for CreateBookResponse {
 impl From<GetBookOutput> for GetBookResponse {
     fn from(output: GetBookOutput) -> Self {
         Self {
-            id: output.id.to_string(),
-            title: output.title.to_string(),
-            hash: output.hash.to_hex().to_string(),
-            file_type: output.file_type.to_string(),
-            bookshelf_id: output.bookshelf_id.to_string(),
+            id: output.id,
+            title: output.title,
+            hash: output.hash,
+            file_type: output.file_type,
+            bookshelf_id: output.bookshelf_id,
             created_at: time::ms_to_datetime(output.created_at),
             updated_at: time::ms_to_datetime(output.updated_at),
         }

@@ -20,6 +20,9 @@ pub enum BookApplicationError {
 
     #[error("book title conflict")]
     TitleConflict,
+    
+    #[error("unchanged book title")]
+    TitleUnchanged,
 
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

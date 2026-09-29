@@ -5,9 +5,11 @@ CREATE TABLE IF NOT EXISTS books (
     id           TEXT    NOT NULL PRIMARY KEY,
     title        TEXT    NOT NULL, 
     hash         TEXT    NOT NULL,
+    file_type    TEXT    NOT NULL CHECK (file_type IN ('PDF', 'EPUB')),
     bookshelf_id TEXT    NOT NULL,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL,
+    version      INTEGER NOT NULL DEFAULT 0,
 
     UNIQUE (bookshelf_id, title)
 
@@ -61,7 +63,7 @@ CREATE TABLE IF NOT EXISTS books (
         FOREIGN KEY (bookshelf_id)
         REFERENCES bookshelves(id)
         ON UPDATE CASCADE
-        ON DELETE CASCADE,
+        ON DELETE CASCADE
 );
 
 
@@ -88,4 +90,3 @@ BEGIN
         'books.updated_at cannot move backwards'
     );
 END;
-

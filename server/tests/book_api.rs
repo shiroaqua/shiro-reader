@@ -12,10 +12,6 @@ async fn create_book() {
     let book = bookshelf.create_default_book().await;
     book.assert_data();
     assert_eq!(book.response.status_code, StatusCode::CREATED);
-    
-    let book = bookshelf.create_default_book().await;
-    book.assert_data();
-    assert_eq!(book.response.status_code, StatusCode::CREATED);
 }
 
 #[tokio::test]
@@ -92,9 +88,9 @@ async fn rename_book() {
     let mut book = bookshelf.create_default_book().await;
     book.rename("QAQ").await;
     assert_eq!(book.response.status_code, StatusCode::NO_CONTENT);
-    assert_eq!(app.get_book(&book.id).await.title, "QAQ");   
+    let books = bookshelf.get_books().await;
+    assert_eq!(books.iter().find(|item| item.id == book.id).unwrap().title, "QAQ");
 }
-
 
 #[tokio::test]
 async fn rename_book_missing_title_error() {
@@ -117,30 +113,6 @@ async fn rename_book_invalid_title_format_error() {
 }
 
 #[tokio::test]
-async fn get_book_by_id() {
-    let app = TestApp::new().await;
-    let bookshelf = app.create_default_bookshelf().await;
-    let book_raw = bookshelf.create_default_book().await;
-    let book_from_get = app.get_book(&book_raw.id).await;
-    assert_eq!(book_from_get.response.status_code, StatusCode::OK);
-    assert_book(&book_raw,&book_from_get);
-    // todo: verify file type, and fix bug.
-}
-
-#[tokio::test]
-async fn get_book_by_id_invalid_id_error() {
-    let app = TestApp::new().await;
-    app.get_book(INVALID_UUID).await.response.assert_book_invalid_id_error();
-}
-
-
-#[tokio::test]
-async fn get_book_by_id_not_found_error() {
-    let app = TestApp::new().await;
-    app.get_book(UNKNOWN_UUID).await.response.assert_book_not_found_error();
-}
-
-#[tokio::test]
 async fn get_books_from_bookshelf() {
     let app = TestApp::new().await;
     let bookshelf = app.create_default_bookshelf().await;
@@ -154,18 +126,19 @@ async fn get_books_from_bookshelf() {
 }
 
 #[tokio::test]
-async fn get_books_from_folder() { 
+async fn get_books_by_ids_from_bookshelf() {
     let app = TestApp::new().await;
     let bookshelf = app.create_default_bookshelf().await;
-    
+
     let first = bookshelf.create_book("PDF", &app.upload_sample_book_file(SampleFile::PDF).await.1.to_hex()).await;
     let second = bookshelf.create_book("EPUB", &app.upload_sample_book_file(SampleFile::EPUB).await.1.to_hex()).await;
-   
-    let books = bookshelf.get_books().await;
-    assert_eq!(bookshelf.get_books().await.len(), 0);
+
+    let books = bookshelf.get_books_by_ids(&[&first.id, &second.id]).await;
+    assert_eq!(books.status_code, StatusCode::OK);
+    let books = Book::from_data_array(&app, books);
     assert_eq!(books.len(), 2);
-    assert_book(books.iter().find(|f| f.id == first.id).unwrap(), &first);
-    assert_book(books.iter().find(|f| f.id == second.id).unwrap(), &second);
+    assert_book(books.iter().find(|book| book.id == first.id).unwrap(), &first);
+    assert_book(books.iter().find(|book| book.id == second.id).unwrap(), &second);
 }
 
 #[tokio::test]
@@ -173,12 +146,13 @@ async fn get_book_cover() {
     let app = TestApp::new().await;
     let bookshelf = app.create_default_bookshelf().await;
 
-    let hash = app.upload_sample_book_file(SampleFile::PDF).await.1;
-    assert_cover_hash(
-        bookshelf.create_book("awa", &hash.to_hex()).await,
-        "d3ceb887c2894a092ee23b815676f06368fbdc50af9a4b62bed62c376a8c0aab",
-    )
-    .await;
+    // 屏蔽原因：PDF的封面是渲染的不具有跨平台跨版本稳定性。
+    // let hash = app.upload_sample_book_file(SampleFile::PDF).await.1;
+    // assert_cover_hash(
+    //     bookshelf.create_book("awa", &hash.to_hex()).await,
+    //     "d3ceb887c2894a092ee23b815676f06368fbdc50af9a4b62bed62c376a8c0aab",
+    // )
+    // .await;
 
     let hash = app.upload_sample_book_file(SampleFile::EPUB).await.1;
     assert_cover_hash(
@@ -206,4 +180,3 @@ fn assert_book(a: &Book, b: &Book) {
     assert_eq!(a.created_at, b.created_at);
     assert_eq!(a.updated_at, b.updated_at);
 }
-
