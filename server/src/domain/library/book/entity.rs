@@ -21,7 +21,6 @@ pub struct Book {
     bookshelf_id: BookshelfId,
     created_at: i64,
     updated_at: i64,
-    version: i64,
 }
 
 impl Book {
@@ -35,7 +34,6 @@ impl Book {
             bookshelf_id,
             created_at: now,
             updated_at: now,
-            version: 0,
         }
     }
 
@@ -47,7 +45,6 @@ impl Book {
         bookshelf_id: BookshelfId,
         created_at: i64,
         updated_at: i64,
-        version: i64,
     ) -> Self {
         Self {
             id,
@@ -57,7 +54,6 @@ impl Book {
             bookshelf_id,
             created_at,
             updated_at,
-            version,
         }
     }
 
@@ -79,9 +75,6 @@ impl Book {
     }
     pub fn updated_at(&self) -> i64 {
         self.updated_at
-    }
-    pub(crate) fn version(&self) -> i64 {
-        self.version
     }
 
     pub fn rename(&mut self, new_title: BookTitle) -> Result<(), BookDomainError> {

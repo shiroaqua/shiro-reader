@@ -64,7 +64,7 @@ impl BookService {
         let new_title = BookTitle::parse(command.title)?;
         let mut book = self.repository.find_by_id(&id).await?;
         book.rename(new_title)?;
-        self.repository.update(book).await?;
+        self.repository.commit(book).await?;
         Ok(())
     }
 

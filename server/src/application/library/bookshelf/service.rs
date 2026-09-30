@@ -44,7 +44,7 @@ impl BookshelfService {
         
         let mut bookshelf = self.repositories.find_by_id(&id).await?;
         bookshelf.rename(new_name)?;
-        self.repositories.update(bookshelf).await?;
+        self.repositories.commit(bookshelf).await?;
         Ok(())
     }
 

@@ -7,7 +7,10 @@ use crate::{
     infrastructure::repositories::{
         errors::RepositoryError,
         idens::{Bookshelves, FULL_BOOKSHELVES_TABLE_COLUMNS},
-        sqlite::{SqliteExecutor, SqliteRowExt, map_database_error, message_contains_columns},
+        sqlite::{
+            SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error,
+            message_contains_columns,
+        },
     },
 };
 
@@ -38,7 +41,7 @@ impl BookshelfRepository for SqliteBookshelfRepository {
                 bookshelf.name().to_string().into(),
                 bookshelf.created_at().into(),
                 bookshelf.updated_at().into(),
-                bookshelf.version().into(),
+                0.into(),
             ])
             .build_sqlx(SqliteQueryBuilder);
 
@@ -83,7 +86,10 @@ impl BookshelfRepository for SqliteBookshelfRepository {
         self.db.fetch_all(&sql, values, map_sqlx_error).await
     }
 
-    async fn find_by_id(&self, id: &BookshelfId) -> Result<Bookshelf, RepositoryError> {
+    async fn find_by_id(
+        &self,
+        id: &BookshelfId,
+    ) -> Result<VersionedRecord<Bookshelf>, RepositoryError> {
         let (sql, values) = Query::select()
             .columns(FULL_BOOKSHELVES_TABLE_COLUMNS)
             .from(Bookshelves::Table)
@@ -100,17 +106,16 @@ impl BookshelfRepository for SqliteBookshelfRepository {
             .await
     }
 
-    async fn update(&self, bookshelf: Bookshelf) -> Result<(), RepositoryError> {
-        let version = bookshelf.version();
-
+    async fn commit(&self, bookshelf: VersionedRecord<Bookshelf>) -> Result<(), RepositoryError> {
         let (sql, values) = Query::update()
             .table(Bookshelves::Table)
             .values([
                 (Bookshelves::Name, bookshelf.name().to_string().into()),
-                (Bookshelves::Version, (version + 1).into()),
+                (Bookshelves::UpdatedAt, bookshelf.updated_at().into()),
+                (Bookshelves::Version, (bookshelf.version + 1).into()),
             ])
             .and_where(Expr::col(Bookshelves::Id).eq(bookshelf.id().to_string()))
-            .and_where(Expr::col(Bookshelves::Version).eq(version))
+            .and_where(Expr::col(Bookshelves::Version).eq(bookshelf.version))
             .build_sqlx(SqliteQueryBuilder);
 
         self.db
@@ -125,16 +130,18 @@ impl BookshelfRepository for SqliteBookshelfRepository {
     }
 }
 
-impl TryFrom<&SqliteRow> for Bookshelf {
+impl TryFrom<&SqliteRow> for VersionedRecord<Bookshelf> {
     type Error = RepositoryError;
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        Ok(Bookshelf::reconstitute(
-            row.get_uuid(&Bookshelves::Id.to_string())?,
-            row.get_string(&Bookshelves::Name.to_string())?,
-            row.get(&Bookshelves::CreatedAt.to_string())?,
-            row.get(&Bookshelves::UpdatedAt.to_string())?,
-            row.get(&Bookshelves::Version.to_string())?,
-        ))
+        Ok(VersionedRecord {
+            value: Bookshelf::reconstitute(
+                row.get_uuid(&Bookshelves::Id.to_string())?,
+                row.get_string(&Bookshelves::Name.to_string())?,
+                row.get(&Bookshelves::CreatedAt.to_string())?,
+                row.get(&Bookshelves::UpdatedAt.to_string())?,
+            ),
+            version: row.get(&Bookshelves::Version.to_string())?,
+        })
     }
 }
 

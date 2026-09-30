@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::{Deref, DerefMut}};
 
 use blake3::Hash;
 use sea_query::Iden;
@@ -18,6 +18,26 @@ pub struct SqliteExecutor {
 
 pub struct SqliteTransaction<'a> {
     tx: Transaction<'a, Sqlite>,
+}
+
+
+pub struct VersionedRecord<T> {
+    pub(super) value: T,
+    pub(super) version: i64
+}
+
+impl<T> Deref for VersionedRecord<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> DerefMut for VersionedRecord<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
 }
 
 impl SqliteExecutor {

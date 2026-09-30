@@ -16,7 +16,7 @@ use crate::{
         errors::RepositoryError,
         idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS},
         sqlite::{
-            SqliteExecutor, SqliteRowExt, map_database_error, map_invalid_data,
+            SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error, map_invalid_data,
             message_contains_columns,
         },
     },
@@ -61,7 +61,7 @@ impl BookRepository for SqliteBookRepository {
                 book.bookshelf_id().to_string().into(),
                 book.created_at().into(),
                 book.updated_at().into(),
-                book.version().into(),
+                0.into(),
             ])
             .build_sqlx(SqliteQueryBuilder);
 
@@ -82,7 +82,7 @@ impl BookRepository for SqliteBookRepository {
         Ok(())
     }
 
-    async fn find_by_id(&self, id: &BookId) -> Result<Book, RepositoryError> {
+    async fn find_by_id(&self, id: &BookId) -> Result<VersionedRecord<Book>, RepositoryError> {
         let (sql, values) = Query::select()
             .columns(FULL_BOOKS_TABLE_COLUMNS)
             .from(Books::Table)
@@ -94,18 +94,20 @@ impl BookRepository for SqliteBookRepository {
             .await
     }
 
-    async fn update(&self, book: Book) -> Result<(), RepositoryError> {
-        let version = book.version();
+    async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), RepositoryError> {
         let (sql, values) = Query::update()
             .table(Books::Table)
             .values([
                 (Books::Title, book.title().to_string().into()),
-                (Books::Version, (version + 1).into()),
+                (Books::FileType, book.file_type().to_string().into()),
+                (Books::BookshelfId, book.bookshelf_id().to_string().into()),
+                (Books::UpdatedAt, book.updated_at().into()),
+                (Books::Version, (book.version + 1).into()),
             ])
             .and_where(Expr::col(Books::Id).eq(book.id().to_string()))
-            .and_where(Expr::col(Books::Version).eq(version))
+            .and_where(Expr::col(Books::Version).eq(book.version))
             .build_sqlx(SqliteQueryBuilder);
-        
+
         self.db
             .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
             .await
@@ -131,28 +133,30 @@ impl BookRepository for SqliteBookRepository {
     }
 }
 
-impl TryFrom<&SqliteRow> for Book {
+impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
     type Error = RepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        Ok(Book::reconstitute(
-            row.get_uuid(&Books::Id.to_string())?,
-            BookTitle::parse(row.get_string::<String>(&Books::Title.to_string())?)
-                .map_err(map_invalid_data)?,
-            row.get_hash(&Books::Hash.to_string())?,
-            match row
-                .get_string::<String>(&Books::FileType.to_string())?
-                .as_str()
-            {
-                "PDF" => crate::domain::library::book::file::entity::BookFileType::PDF,
-                "EPUB" => crate::domain::library::book::file::entity::BookFileType::EPUB,
-                _ => return Err(RepositoryError::InvalidBookFileType),
-            },
-            row.get_uuid(&Books::BookshelfId.to_string())?,
-            row.get(&Books::CreatedAt.to_string())?,
-            row.get(&Books::UpdatedAt.to_string())?,
-            row.get(&Books::Version.to_string())?,
-        ))
+        Ok(VersionedRecord {
+            value: Book::reconstitute(
+                row.get_uuid(&Books::Id.to_string())?,
+                BookTitle::parse(row.get_string::<String>(&Books::Title.to_string())?)
+                    .map_err(map_invalid_data)?,
+                row.get_hash(&Books::Hash.to_string())?,
+                match row
+                    .get_string::<String>(&Books::FileType.to_string())?
+                    .as_str()
+                {
+                    "PDF" => crate::domain::library::book::file::entity::BookFileType::PDF,
+                    "EPUB" => crate::domain::library::book::file::entity::BookFileType::EPUB,
+                    _ => return Err(RepositoryError::InvalidBookFileType),
+                },
+                row.get_uuid(&Books::BookshelfId.to_string())?,
+                row.get(&Books::CreatedAt.to_string())?,
+                row.get(&Books::UpdatedAt.to_string())?,
+            ),
+            version: row.get(&Books::Version.to_string())?,
+        })
     }
 }
 
