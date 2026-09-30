@@ -5,7 +5,6 @@ use crate::{
         book::{
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
-            file::entity::BookFileType,
         },
         bookshelf::value_objects::BookshelfId,
     },
@@ -17,20 +16,18 @@ pub struct Book {
     id: BookId,
     title: BookTitle,
     hash: Hash,
-    file_type: BookFileType,
     bookshelf_id: BookshelfId,
     created_at: i64,
     updated_at: i64,
 }
 
 impl Book {
-    pub fn new(id: BookId, title: BookTitle, hash: Hash, file_type: BookFileType, bookshelf_id: BookshelfId) -> Self {
+    pub fn new(id: BookId, title: BookTitle, hash: Hash, bookshelf_id: BookshelfId) -> Self {
         let now = now_ms();
         Self {
             id,
             title,
             hash,
-            file_type,
             bookshelf_id,
             created_at: now,
             updated_at: now,
@@ -41,7 +38,6 @@ impl Book {
         id: BookId,
         title: BookTitle,
         hash: Hash,
-        file_type: BookFileType,
         bookshelf_id: BookshelfId,
         created_at: i64,
         updated_at: i64,
@@ -50,7 +46,6 @@ impl Book {
             id,
             title,
             hash,
-            file_type,
             bookshelf_id,
             created_at,
             updated_at,
@@ -69,7 +64,6 @@ impl Book {
     pub fn bookshelf_id(&self) -> &BookshelfId {
         &self.bookshelf_id
     }
-    pub fn file_type(&self) -> &BookFileType { &self.file_type }
     pub fn created_at(&self) -> i64 {
         self.created_at
     }

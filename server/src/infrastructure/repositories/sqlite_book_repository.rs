@@ -57,7 +57,6 @@ impl BookRepository for SqliteBookRepository {
                 book.id().to_string().into(),
                 book.title().to_string().into(),
                 book.hash().to_hex().to_string().into(),
-                book.file_type().to_string().into(),
                 book.bookshelf_id().to_string().into(),
                 book.created_at().into(),
                 book.updated_at().into(),
@@ -99,7 +98,6 @@ impl BookRepository for SqliteBookRepository {
             .table(Books::Table)
             .values([
                 (Books::Title, book.title().to_string().into()),
-                (Books::FileType, book.file_type().to_string().into()),
                 (Books::BookshelfId, book.bookshelf_id().to_string().into()),
                 (Books::UpdatedAt, book.updated_at().into()),
                 (Books::Version, (book.version + 1).into()),
@@ -143,14 +141,6 @@ impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
                 BookTitle::parse(row.get_string::<String>(&Books::Title.to_string())?)
                     .map_err(map_invalid_data)?,
                 row.get_hash(&Books::Hash.to_string())?,
-                match row
-                    .get_string::<String>(&Books::FileType.to_string())?
-                    .as_str()
-                {
-                    "PDF" => crate::domain::library::book::file::entity::BookFileType::PDF,
-                    "EPUB" => crate::domain::library::book::file::entity::BookFileType::EPUB,
-                    _ => return Err(RepositoryError::InvalidBookFileType),
-                },
                 row.get_uuid(&Books::BookshelfId.to_string())?,
                 row.get(&Books::CreatedAt.to_string())?,
                 row.get(&Books::UpdatedAt.to_string())?,

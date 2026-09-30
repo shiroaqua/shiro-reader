@@ -9,9 +9,16 @@ use crate::{
         book::{
             commands::{
                 CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand,
-            }, dto::{CreateBookOutput, GetBookOutput}, errors::BookApplicationError, file::service::BookFileService, ports::BookRepository, queries::GetBooksQuery,
-        }, errors::LibraryApplicationError,
-    }, domain::library::{
+            },
+            dto::{CreateBookOutput, GetBookOutput},
+            errors::BookApplicationError,
+            file::service::BookFileService,
+            ports::BookRepository,
+            queries::GetBooksQuery,
+        },
+        errors::LibraryApplicationError,
+    },
+    domain::library::{
         book::{
             entity::Book,
             errors::BookDomainError,
@@ -35,10 +42,9 @@ impl BookService {
         let id = BookId::new();
         let title = BookTitle::parse(command.title)?;
         let hash = self.bookfile.parse_existing_hash(&command.hash)?;
-        let file_type = self.bookfile.get_book_type(&hash).ok_or(crate::application::library::book::file::errors::BookFileApplicationError::Unsupported)?;
         let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
 
-        let book = Book::new(id, title, hash, file_type, bookshelf_id);
+        let book = Book::new(id, title, hash, bookshelf_id);
         self.repository.create(&book).await?;
 
         Ok(CreateBookOutput {
@@ -73,7 +79,7 @@ impl BookService {
         query: GetBooksQuery,
     ) -> Result<Vec<GetBookOutput>, LibraryApplicationError> {
         let bookshelf_id = BookshelfId::parse(query.bookshelf_id)?;
-        Ok(self
+        let mut books = self
             .repository
             .list(
                 &bookshelf_id,
@@ -83,7 +89,13 @@ impl BookService {
                     .map(|b| BookId::parse(b))
                     .collect::<Result<_, _>>()?,
             )
-            .await?)
+            .await?;
+
+        for b in &mut books {
+            let hash = self.bookfile.parse_existing_hash(&b.hash)?;
+            b.file_type = self.bookfile.get_book_type(&hash).ok_or(crate::application::library::book::file::errors::BookFileApplicationError::Unsupported)?.to_string();
+        }
+        Ok(books)
     }
 
     pub async fn get_cover(

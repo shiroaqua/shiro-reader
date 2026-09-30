@@ -5,7 +5,6 @@ CREATE TABLE IF NOT EXISTS books (
     id           TEXT    NOT NULL PRIMARY KEY,
     title        TEXT    NOT NULL, 
     hash         TEXT    NOT NULL,
-    file_type    TEXT    NOT NULL CHECK (file_type IN ('PDF', 'EPUB')),
     bookshelf_id TEXT    NOT NULL,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL,
