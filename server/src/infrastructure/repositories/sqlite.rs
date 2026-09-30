@@ -1,4 +1,8 @@
-use std::{borrow::Cow, ops::{Deref, DerefMut}};
+use std::{
+    borrow::Cow,
+    ops::{Deref, DerefMut},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use blake3::Hash;
 use sea_query::Iden;
@@ -10,6 +14,36 @@ use sqlx::{
 use uuid::Uuid;
 
 use crate::infrastructure::repositories::errors::RepositoryError;
+
+pub(crate) fn split_timestamp_ns(timestamp: i128) -> (i64, i64) {
+    let high = (timestamp >> 64) as i64;
+    let low = (timestamp as u64 ^ (1_u64 << 63)) as i64;
+    (high, low)
+}
+
+pub(crate) fn join_timestamp_ns(high: i64, low: i64) -> i128 {
+    ((high as i128) << 64) | ((low as u64 ^ (1_u64 << 63)) as i128)
+}
+
+pub(crate) fn split_system_time(timestamp: SystemTime) -> (i64, i64) {
+    match timestamp.duration_since(UNIX_EPOCH) {
+        Ok(duration) => split_timestamp_ns(duration.as_nanos() as i128),
+        Err(error) => split_timestamp_ns(-(error.duration().as_nanos() as i128)),
+    }
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::{join_timestamp_ns, split_timestamp_ns};
+
+    #[test]
+    fn split_timestamp_round_trips_across_signed_boundaries() {
+        for value in [i128::MIN, -1, 0, i128::MAX] {
+            let (high, low) = split_timestamp_ns(value);
+            assert_eq!(join_timestamp_ns(high, low), value);
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct SqliteExecutor {

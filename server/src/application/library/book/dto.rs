@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub struct CreateBookOutput {
     pub id: String,
-    pub created_at: i64,
+    pub created_at: i128,
 }
 
 #[derive(Debug)]
@@ -11,7 +11,6 @@ pub struct GetBookOutput {
     pub hash: String,
     pub file_type: String,
     pub bookshelf_id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
+    pub created_at: i128,
+    pub updated_at: i128,
 }
-

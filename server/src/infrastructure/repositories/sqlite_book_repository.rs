@@ -14,9 +14,9 @@ use crate::{
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS},
+        idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS, INSERT_BOOKS_COLUMNS},
         sqlite::{
-            SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error, map_invalid_data,
+            join_timestamp_ns, split_system_time, SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error, map_invalid_data,
             message_contains_columns,
         },
     },
@@ -38,6 +38,8 @@ impl SqliteBookRepository {
 #[async_trait]
 impl BookRepository for SqliteBookRepository {
     async fn create(&self, book: &Book) -> Result<(), RepositoryError> {
+        let created_at = split_system_time(book.created_at());
+        let updated_at = split_system_time(book.updated_at());
         let mut tx = self.db.begin(map_sqlx_error).await?;
         let (sql, values) = Query::select()
             .expr(Expr::val(1))
@@ -52,15 +54,17 @@ impl BookRepository for SqliteBookRepository {
 
         let (sql, values) = Query::insert()
             .into_table(Books::Table)
-            .columns(FULL_BOOKS_TABLE_COLUMNS)
+            .columns(INSERT_BOOKS_COLUMNS)
             .values_panic([
-                book.id().to_string().into(),
-                book.title().to_string().into(),
-                book.hash().to_hex().to_string().into(),
-                book.bookshelf_id().to_string().into(),
-                book.created_at().into(),
-                book.updated_at().into(),
-                0.into(),
+                Expr::val(book.id().to_string()),
+                Expr::val(book.title().to_string()),
+                Expr::val(book.hash().to_hex().to_string()),
+                Expr::val(book.bookshelf_id().to_string()),
+                Expr::val(created_at.0),
+                Expr::val(created_at.1),
+                Expr::val(updated_at.0),
+                Expr::val(updated_at.1),
+                Expr::val(0),
             ])
             .build_sqlx(SqliteQueryBuilder);
 
@@ -94,12 +98,14 @@ impl BookRepository for SqliteBookRepository {
     }
 
     async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), RepositoryError> {
+        let updated_at = split_system_time(book.updated_at());
         let (sql, values) = Query::update()
             .table(Books::Table)
             .values([
                 (Books::Title, book.title().to_string().into()),
                 (Books::BookshelfId, book.bookshelf_id().to_string().into()),
-                (Books::UpdatedAt, book.updated_at().into()),
+                (Books::UpdatedAtHigh, updated_at.0.into()),
+                (Books::UpdatedAtLow, updated_at.1.into()),
                 (Books::Version, (book.version + 1).into()),
             ])
             .and_where(Expr::col(Books::Id).eq(book.id().to_string()))
@@ -142,8 +148,8 @@ impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
                     .map_err(map_invalid_data)?,
                 row.get_hash(&Books::Hash.to_string())?,
                 row.get_uuid(&Books::BookshelfId.to_string())?,
-                row.get(&Books::CreatedAt.to_string())?,
-                row.get(&Books::UpdatedAt.to_string())?,
+                join_timestamp_ns(row.get(&Books::CreatedAtHigh.to_string())?, row.get(&Books::CreatedAtLow.to_string())?),
+                join_timestamp_ns(row.get(&Books::UpdatedAtHigh.to_string())?, row.get(&Books::UpdatedAtLow.to_string())?),
             ),
             version: row.get(&Books::Version.to_string())?,
         })
@@ -158,10 +164,10 @@ impl TryFrom<&SqliteRow> for GetBookOutput {
             id: row.get_string(&Books::Id.to_string())?,
             title: row.get_string(&Books::Title.to_string())?,
             hash: row.get_string(&Books::Hash.to_string())?,
-            file_type: row.get_string(&Books::FileType.to_string())?,
+            file_type: String::new(),
             bookshelf_id: row.get_string(&Books::BookshelfId.to_string())?,
-            created_at: row.get(&Books::CreatedAt.to_string())?,
-            updated_at: row.get(&Books::UpdatedAt.to_string())?,
+            created_at: join_timestamp_ns(row.get(&Books::CreatedAtHigh.to_string())?, row.get(&Books::CreatedAtLow.to_string())?),
+            updated_at: join_timestamp_ns(row.get(&Books::UpdatedAtHigh.to_string())?, row.get(&Books::UpdatedAtLow.to_string())?),
         })
     }
 }

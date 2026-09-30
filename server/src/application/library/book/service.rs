@@ -17,15 +17,14 @@ use crate::{
             queries::GetBooksQuery,
         },
         errors::LibraryApplicationError,
-    },
-    domain::library::{
+    }, domain::library::{
         book::{
             entity::Book,
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
         },
         bookshelf::value_objects::BookshelfId,
-    },
+    }, shared::time::now_ns,
 };
 
 #[derive(new)]
@@ -39,17 +38,18 @@ impl BookService {
         &self,
         command: CreateBookCommand,
     ) -> Result<CreateBookOutput, LibraryApplicationError> {
+        let now = now_ns();
+   
         let id = BookId::new();
         let title = BookTitle::parse(command.title)?;
         let hash = self.bookfile.parse_existing_hash(&command.hash)?;
-        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;
-
-        let book = Book::new(id, title, hash, bookshelf_id);
+        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;    
+        let book = Book::new(id, title, hash, bookshelf_id,now);
         self.repository.create(&book).await?;
 
         Ok(CreateBookOutput {
             id: book.id().to_string(),
-            created_at: book.created_at(),
+            created_at: now,
         })
     }
 

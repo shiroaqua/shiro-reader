@@ -1,3 +1,5 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use blake3::Hash;
 
 use crate::{
@@ -8,7 +10,6 @@ use crate::{
         },
         bookshelf::value_objects::BookshelfId,
     },
-    shared::time::now_ms,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,20 +18,19 @@ pub struct Book {
     title: BookTitle,
     hash: Hash,
     bookshelf_id: BookshelfId,
-    created_at: i64,
-    updated_at: i64,
+    created_at: i128,
+    updated_at: i128,
 }
 
 impl Book {
-    pub fn new(id: BookId, title: BookTitle, hash: Hash, bookshelf_id: BookshelfId) -> Self {
-        let now = now_ms();
+    pub fn new(id: BookId, title: BookTitle, hash: Hash, bookshelf_id: BookshelfId, created_at: i128) -> Self {
         Self {
             id,
             title,
             hash,
             bookshelf_id,
-            created_at: now,
-            updated_at: now,
+            created_at: created_at,
+            updated_at: created_at,
         }
     }
 
@@ -39,8 +39,8 @@ impl Book {
         title: BookTitle,
         hash: Hash,
         bookshelf_id: BookshelfId,
-        created_at: i64,
-        updated_at: i64,
+        created_at: i128,
+        updated_at: i128,
     ) -> Self {
         Self {
             id,
@@ -63,14 +63,19 @@ impl Book {
     }
     pub fn bookshelf_id(&self) -> &BookshelfId {
         &self.bookshelf_id
+    }    
+    pub fn created_at(&self) -> SystemTime {
+        UNIX_EPOCH + Duration::new(
+            self.created_at.div_euclid(1_000_000_000) as u64,
+            self.created_at.rem_euclid(1_000_000_000) as u32,
+        )
     }
-    pub fn created_at(&self) -> i64 {
-        self.created_at
+    pub fn updated_at(&self) -> SystemTime {
+        UNIX_EPOCH + Duration::new(
+            self.updated_at.div_euclid(1_000_000_000) as u64,
+            self.updated_at.rem_euclid(1_000_000_000) as u32,
+        )
     }
-    pub fn updated_at(&self) -> i64 {
-        self.updated_at
-    }
-
     pub fn rename(&mut self, new_title: BookTitle) -> Result<(), BookDomainError> {
         if self.title.eq(&new_title) {
             return Err(BookDomainError::TitleUnchanged);

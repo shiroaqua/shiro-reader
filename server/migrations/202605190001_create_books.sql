@@ -6,8 +6,10 @@ CREATE TABLE IF NOT EXISTS books (
     title        TEXT    NOT NULL, 
     hash         TEXT    NOT NULL,
     bookshelf_id TEXT    NOT NULL,
-    created_at   INTEGER NOT NULL,
-    updated_at   INTEGER NOT NULL,
+    created_at_high INTEGER NOT NULL,
+    created_at_low INTEGER NOT NULL,
+    updated_at_high INTEGER NOT NULL,
+    updated_at_low INTEGER NOT NULL,
     version      INTEGER NOT NULL DEFAULT 0,
 
     UNIQUE (bookshelf_id, title)
@@ -50,12 +52,21 @@ CREATE TABLE IF NOT EXISTS books (
         ),
 
     CONSTRAINT chk_books_created_at_positive
-        CHECK (created_at > 0),
+        CHECK (
+            created_at_high > 0
+            OR (created_at_high = 0 AND created_at_low > -9223372036854775807 - 1)
+        ),
 
     CONSTRAINT chk_books_updated_at_valid
         CHECK (
-            updated_at > 0
-            AND updated_at >= created_at
+            (
+                updated_at_high > 0
+                OR (updated_at_high = 0 AND updated_at_low > -9223372036854775807 - 1)
+            )
+            AND (
+                updated_at_high > created_at_high
+                OR (updated_at_high = created_at_high AND updated_at_low >= created_at_low)
+            )
         ),
 
     CONSTRAINT fk_books_bookshelf
@@ -68,7 +79,7 @@ CREATE TABLE IF NOT EXISTS books (
 
 -- 禁止修改书籍条目的身份、物理文件 hash、创建时间。
 CREATE TRIGGER IF NOT EXISTS trg_books_immutable_columns
-BEFORE UPDATE OF id, hash, created_at ON books
+BEFORE UPDATE OF id, hash, created_at_high, created_at_low ON books
 FOR EACH ROW
 BEGIN
     SELECT RAISE(
@@ -80,9 +91,10 @@ END;
 
 -- updated_at 不允许倒退。
 CREATE TRIGGER IF NOT EXISTS trg_books_updated_at_monotonic
-BEFORE UPDATE OF updated_at ON books
+BEFORE UPDATE OF updated_at_high, updated_at_low ON books
 FOR EACH ROW
-WHEN NEW.updated_at < OLD.updated_at
+WHEN NEW.updated_at_high < OLD.updated_at_high
+    OR (NEW.updated_at_high = OLD.updated_at_high AND NEW.updated_at_low < OLD.updated_at_low)
 BEGIN
     SELECT RAISE(
         ABORT,

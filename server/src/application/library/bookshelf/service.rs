@@ -11,7 +11,7 @@ use crate::{
         entity::Bookshelf,
         errors::BookshelfDomainError,
         value_objects::{BookshelfId, BookshelfName},
-    },
+    }, shared::time::now_ns,
 };
 
 #[derive(new)]
@@ -24,14 +24,16 @@ impl BookshelfService {
         &self,
         command: CreateBookshelfCommand,
     ) -> Result<CreateBookshelfOutput, LibraryApplicationError> {
+        let now = now_ns();
+   
         let id = BookshelfId::new();
         let name = BookshelfName::parse(command.name)?;
-        let bookshelf = Bookshelf::new(id, name);
+        let bookshelf = Bookshelf::new(id, name, now);
         self.repositories.create(&bookshelf).await?;
 
         Ok(CreateBookshelfOutput {
             id: bookshelf.id().to_string(),
-            created_at: bookshelf.created_at(),
+            created_at: now,
         })
     }
 

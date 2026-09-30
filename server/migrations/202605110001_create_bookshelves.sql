@@ -3,8 +3,10 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS bookshelves (
     id         TEXT    NOT NULL PRIMARY KEY,
     name       TEXT    NOT NULL UNIQUE,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
+    created_at_high INTEGER NOT NULL,
+    created_at_low INTEGER NOT NULL,
+    updated_at_high INTEGER NOT NULL,
+    updated_at_low INTEGER NOT NULL,
     version    INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT chk_bookshelves_id_uuid
@@ -22,16 +24,28 @@ CREATE TABLE IF NOT EXISTS bookshelves (
         CHECK (length(name) > 0),
 
     CONSTRAINT chk_bookshelves_created_at_positive
-        CHECK (created_at > 0),
+        CHECK (
+            created_at_high > 0
+            OR (created_at_high = 0 AND created_at_low > -9223372036854775807 - 1)
+        ),
 
     CONSTRAINT chk_bookshelves_updated_at_valid
-        CHECK (updated_at > 0 AND updated_at >= created_at)
+        CHECK (
+            (
+                updated_at_high > 0
+                OR (updated_at_high = 0 AND updated_at_low > -9223372036854775807 - 1)
+            )
+            AND (
+                updated_at_high > created_at_high
+                OR (updated_at_high = created_at_high AND updated_at_low >= created_at_low)
+            )
+        )
 );
 
 
 -- 禁止修改书架 id 和 created_at。
 CREATE TRIGGER IF NOT EXISTS trg_bookshelves_immutable_columns
-BEFORE UPDATE OF id, created_at ON bookshelves
+BEFORE UPDATE OF id, created_at_high, created_at_low ON bookshelves
 FOR EACH ROW
 BEGIN
     SELECT RAISE(
@@ -43,9 +57,10 @@ END;
 
 -- 禁止 updated_at 倒退。
 CREATE TRIGGER IF NOT EXISTS trg_bookshelves_updated_at_monotonic
-BEFORE UPDATE OF updated_at ON bookshelves
+BEFORE UPDATE OF updated_at_high, updated_at_low ON bookshelves
 FOR EACH ROW
-WHEN NEW.updated_at < OLD.updated_at
+WHEN NEW.updated_at_high < OLD.updated_at_high
+    OR (NEW.updated_at_high = OLD.updated_at_high AND NEW.updated_at_low < OLD.updated_at_low)
 BEGIN
     SELECT RAISE(
         ABORT,

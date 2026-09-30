@@ -7,10 +7,11 @@ pub(super) enum Books {
     Id,
     Title,
     Hash,
-    FileType,
     BookshelfId,
-    CreatedAt,
-    UpdatedAt,
+    CreatedAtHigh,
+    CreatedAtLow,
+    UpdatedAtHigh,
+    UpdatedAtLow,
     Version,
 }
 #[derive(Iden)]
@@ -19,26 +20,43 @@ pub(super) enum Bookshelves {
     Table,
     Id,
     Name,
-    CreatedAt,
-    UpdatedAt,
+    CreatedAtHigh,
+    CreatedAtLow,
+    UpdatedAtHigh,
+    UpdatedAtLow,
     Version
 }
 
-pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 8] = [
+pub(super) const FULL_BOOKS_TABLE_COLUMNS: [Books; 9] = [
     Books::Id,
     Books::Title,
     Books::Hash,
-    Books::FileType,
     Books::BookshelfId,
-    Books::CreatedAt,
-    Books::UpdatedAt,
+    Books::CreatedAtHigh,
+    Books::CreatedAtLow,
+    Books::UpdatedAtHigh,
+    Books::UpdatedAtLow,
     Books::Version,
 ];
 
-pub(super) const FULL_BOOKSHELVES_TABLE_COLUMNS: [Bookshelves; 5] = [
+pub(super) const INSERT_BOOKS_COLUMNS: [Books; 9] = [
+    Books::Id,
+    Books::Title,
+    Books::Hash,
+    Books::BookshelfId,
+    Books::CreatedAtHigh,
+    Books::CreatedAtLow,
+    Books::UpdatedAtHigh,
+    Books::UpdatedAtLow,
+    Books::Version,
+];
+
+pub(super) const FULL_BOOKSHELVES_TABLE_COLUMNS: [Bookshelves; 7] = [
     Bookshelves::Id,
     Bookshelves::Name,
-    Bookshelves::CreatedAt,
-    Bookshelves::UpdatedAt,
+    Bookshelves::CreatedAtHigh,
+    Bookshelves::CreatedAtLow,
+    Bookshelves::UpdatedAtHigh,
+    Bookshelves::UpdatedAtLow,
     Bookshelves::Version,
 ];

@@ -6,7 +6,7 @@ impl From<CreateBookOutput> for CreateBookResponse {
     fn from(output: CreateBookOutput) -> Self {
         Self {
             id: output.id.to_string(),
-            created_at: time::ms_to_datetime(output.created_at),
+            created_at: time::ns_to_datetime(output.created_at),
         }
     }
 }
@@ -19,8 +19,8 @@ impl From<GetBookOutput> for GetBookResponse {
             hash: output.hash,
             file_type: output.file_type,
             bookshelf_id: output.bookshelf_id,
-            created_at: time::ms_to_datetime(output.created_at),
-            updated_at: time::ms_to_datetime(output.updated_at),
+            created_at: time::ns_to_datetime(output.created_at),
+            updated_at: time::ns_to_datetime(output.updated_at),
         }
     }
 }
