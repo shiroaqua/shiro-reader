@@ -1,5 +1,4 @@
 use std::{str::FromStr, sync::Mutex};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 
@@ -35,11 +34,11 @@ pub struct AppState {
 impl AppState {
     pub async fn build(config: &Config) -> anyhow::Result<Self> {
         // 编写用户系统前暂时先使用硬编码
-        std::fs::create_dir_all(PathBuf::from("users").join("default"))?;
+        std::fs::create_dir_all(config.root_directory.join("users").join("default"))?;
        
         let pdfium = Arc::new(Mutex::new(Pdfium::new(Pdfium::bind_to_system_library()?)));
 
-        let mut book_file_storage = BookFileStorage::new(PathBuf::from("books"), String::from_str("book")?, pdfium);
+        let mut book_file_storage = BookFileStorage::new(config.root_directory.join("books"), String::from_str("book")?, pdfium);
         book_file_storage.scan()?;
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));

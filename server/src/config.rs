@@ -1,10 +1,11 @@
-use std::{env, net::SocketAddr};
+use std::{env, net::SocketAddr, path::{Path, PathBuf}};
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub telemetry: TelemetryConfig,
+    pub root_directory: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,8 @@ impl Config {
     pub fn load() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
 
+        let root_directory = PathBuf::from(env_var("ROOT_DIRECTORY", "."));
+
         let server = ServerConfig {
             host: env_var("HOST", "127.0.0.1"),
             port: env_var("PORT", "80").parse()?,
@@ -43,7 +46,7 @@ impl Config {
         };
 
         let database = DatabaseConfig {
-            url: env_var("DATABASE_URL", "sqlite://users/default/bookshelf.db?mode=rwc"),
+            url: database_url(&root_directory),
             max_connections: env_var("DATABASE_MAX_CONNECTIONS", "5").parse()?,
         };
 
@@ -58,6 +61,7 @@ impl Config {
             server,
             database,
             telemetry,
+            root_directory,
         })
     }
 }
@@ -72,4 +76,15 @@ impl ServerConfig {
 
 fn env_var(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn database_url(root_directory: &Path) -> String {
+    let path = root_directory.join("users").join("default").join("bookshelf.db");
+    // Preserve literal URL delimiters and escape sequences in the file path.
+    let path = path.to_string_lossy()
+        .replace('%', "%25")
+        .replace('?', "%3F")
+        .replace('#', "%23");
+
+    format!("sqlite://{}?mode=rwc", path)
 }
