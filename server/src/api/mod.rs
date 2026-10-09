@@ -2,7 +2,6 @@ use axum::Router;
 
 use crate::state::AppState;
 
-pub mod response;
 pub mod v1;
 
 

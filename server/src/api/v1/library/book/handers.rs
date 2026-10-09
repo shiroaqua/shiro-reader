@@ -7,7 +7,7 @@ use axum::{
 use axum_extra::extract::Query;
 
 use crate::{
-    api::{response::DataResponse, v1::library::book::dto::*},
+    api::v1::library::book::dto::*,
     application::library::book::{
         commands::{CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand},
         queries::GetBooksQuery,
@@ -20,7 +20,7 @@ pub async fn create_book(
     State(state): State<AppState>,
     Path(bookshelf_id): Path<String>,
     Json(request): Json<CreateBookRequest>,
-) -> Result<(StatusCode, Json<DataResponse<CreateBookResponse>>), AppError> {
+) -> Result<(StatusCode, Json<CreateBookResponse>), AppError> {
     let output = state
         .book_service
         .create_book(CreateBookCommand {
@@ -30,7 +30,7 @@ pub async fn create_book(
         })
         .await?;
 
-    Ok((StatusCode::CREATED, Json(DataResponse::new(output.into()))))
+    Ok((StatusCode::CREATED, Json(output.into())))
 }
 
 pub async fn delete_book(
@@ -82,7 +82,7 @@ pub async fn get_books(
     State(state): State<AppState>,
     Path(bookshelf_id): Path<String>,
     Query(query): Query<BooksQuery>,
-) -> Result<(StatusCode, Json<DataResponse<Vec<GetBookResponse>>>), AppError> {
+) -> Result<(StatusCode, Json<Vec<GetBookResponse>>), AppError> {
     let response_data: Vec<GetBookResponse> = state
         .book_service
         .get_books(GetBooksQuery {
@@ -93,5 +93,5 @@ pub async fn get_books(
         .into_iter()
         .map(Into::into)
         .collect();
-    Ok((StatusCode::OK, Json(DataResponse::new(response_data))))
+    Ok((StatusCode::OK, Json(response_data)))
 }

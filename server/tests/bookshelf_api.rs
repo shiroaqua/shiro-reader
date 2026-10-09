@@ -72,7 +72,7 @@ async fn rename_bookshelf() {
 
     let bookshelves = app.get_bookshelves_by_ids(&[&bookshelf.id]).await;
     assert_eq!(bookshelves.status_code, StatusCode::OK);
-    assert_eq!(bookshelves.data_array()[0]["name"], "nya");
+    assert_eq!(bookshelves.as_array()[0]["name"], "nya");
 }
 
 #[tokio::test]
@@ -105,7 +105,7 @@ async fn get_bookshelves_by_ids() {
 
     let bookshelves = app.get_bookshelves_by_ids(&[&first.id, &second.id]).await;
     assert_eq!(bookshelves.status_code, StatusCode::OK);
-    let bookshelves = bookshelves.data_array();
+    let bookshelves = bookshelves.as_array();
     assert_eq!(bookshelves.len(), 2);
     assert_eq!(bookshelves.iter().find(|bookshelf| bookshelf["id"] == first.id).unwrap()["name"], "first");
     assert_eq!(bookshelves.iter().find(|bookshelf| bookshelf["id"] == second.id).unwrap()["name"], "second");

@@ -1,5 +1,5 @@
 use crate::{
-    api::{response::DataResponse, v1::library::bookshelf::dto::*},
+    api::v1::library::bookshelf::dto::*,
     application::library::bookshelf::{
         commands::{CreateBookshelfCommand, DeleteBookshelfCommand, RenameBookshelfCommand},
         queries::GetBookshelvesQuery,
@@ -18,13 +18,13 @@ use axum_extra::extract::Query;
 pub async fn create_bookshelf(
     State(state): State<AppState>,
     Json(request): Json<CreateBookshelfRequest>,
-) -> Result<(StatusCode, Json<DataResponse<CreateBookshelfResponse>>), AppError> {
+) -> Result<(StatusCode, Json<CreateBookshelfResponse>), AppError> {
     let output = state
         .bookshelf_service
         .create_bookshelf(CreateBookshelfCommand { name: request.name })
         .await?;
 
-    Ok((StatusCode::CREATED, Json(DataResponse::new(output.into()))))
+    Ok((StatusCode::CREATED, Json(output.into())))
 }
 
 pub async fn rename_bookshelf(
@@ -66,5 +66,5 @@ pub async fn get_bookshelves(
         .into_iter()
         .map(Into::into)
         .collect();
-    Ok((StatusCode::OK, Json(DataResponse::new(response_data))).into_response())
+    Ok((StatusCode::OK, Json(response_data)).into_response())
 }

@@ -150,7 +150,7 @@ impl TestApp {
         )
         .await;
 
-        let data = response.data();
+        let data = &response.json;
         let created_at = json_string_or_empty(data, "created_at");
 
         Bookshelf {
@@ -177,7 +177,7 @@ impl TestApp {
             JsonHttpResponse::from(self.get(&format!("/api/v1/library/bookshelves")).await).await;
 
         response
-            .data_array()
+            .as_array()
             .iter()
             .map(|node| Bookshelf::from_json(self, node, response.clone()))
             .collect()
@@ -256,7 +256,7 @@ impl TestApp {
             .await,
         )
         .await;
-        let data = response.data();
+        let data = &response.json;
         let created_at = json_string_or_empty(data, "created_at");
 
         Book {
@@ -320,7 +320,7 @@ impl TestApp {
 
 impl<'a> Bookshelf<'a> {
     fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
-        let (id, name, created_at, updated_at) = Self::fields(response.data());
+        let (id, name, created_at, updated_at) = Self::fields(&response.json);
 
         Self {
             id,
@@ -420,13 +420,13 @@ impl<'a> Bookshelf<'a> {
 
 impl<'a> Book<'a> {
     fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
-        let fields = Self::fields(response.data());
+        let fields = Self::fields(&response.json);
         Self::from_fields(app, response, fields)
     }
 
     pub fn from_data_array(app: &'a TestApp, response: JsonHttpResponse) -> Vec<Self> {
         response
-            .data_array()
+            .as_array()
             .iter()
             .map(|json| Self::from(app, json, response.to_owned()))
             .collect()
@@ -508,12 +508,8 @@ impl JsonHttpResponse {
         JsonHttpResponse::new(value.status(), json_body(value).await)
     }
 
-    pub fn data(&self) -> &Value {
-        &self.json["data"]
-    }
-
-    pub fn data_array(&self) -> &[Value] {
-        self.data().as_array().expect("expected response data array")
+    pub fn as_array(&self) -> &[Value] {
+        self.json.as_array().expect("expected response data array")
     }
 
     pub fn assert_bookshelf_missing_name_error(&self) {
