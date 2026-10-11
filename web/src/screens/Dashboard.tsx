@@ -1,6 +1,22 @@
 import type { ComponentProps, ReactNode } from "react"
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Dialog,
   DialogContent,
@@ -37,17 +53,22 @@ import {
   ChartNoAxesCombined,
   Trash,
   Plus,
+  CircleX,
 } from "lucide-react"
 import { useLibraryController } from "@/hooks/useLibraryController"
 import { ApiError } from "@/api/library"
 import { notifyError } from "@/lib/error-notifications"
 import { useTranslation } from "@/lib/i18n"
+import type { Bookshelf } from "@/lib/types"
 
 export function DashboardScreen() {
   const controller = useLibraryController()
   const { t } = useTranslation()
   const [isAddShelfDialogOpen, setIsAddShelfDialogOpen] = useState(false)
   const [isCreatingShelf, setIsCreatingShelf] = useState(false)
+  const [bookshelfToDelete, setBookshelfToDelete] = useState<Bookshelf | null>(null)
+  const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
+  const deleteRequestPendingRef = useRef(false)
   const shelfNameInputId = useId()
 
   const menus: DashboardMenu[] = [
@@ -73,9 +94,32 @@ export function DashboardScreen() {
       content: (
         <SidebarMenuSub>
           {controller.shelves.map((bookshelf) => (
-            <SidebarMenuSubItem key={bookshelf.id}>
-              <SidebarMenuSubButton>{bookshelf.name}</SidebarMenuSubButton>
-            </SidebarMenuSubItem>
+            <ContextMenu key={bookshelf.id}>
+              <ContextMenuTrigger
+                data-slot="sidebar-menu-sub-item"
+                aria-busy={controller.deletingBookshelfId === bookshelf.id}
+                render={<SidebarMenuSubItem />}
+              >
+                <SidebarMenuSubButton
+                  className="w-full"
+                  render={<button type="button" />}
+                >
+                  {bookshelf.name}
+                </SidebarMenuSubButton>
+              </ContextMenuTrigger>
+              <ContextMenuContent aria-label={bookshelf.name}>
+                <ContextMenuItem
+                  variant="destructive"
+                  disabled={controller.isDeletingBookshelf}
+                  onClick={() => {
+                    setBookshelfToDelete(bookshelf)
+                  }}
+                >
+                  <CircleX aria-hidden="true" />
+                  <span>{t("bookshelf.delete")}</span>
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
         </SidebarMenuSub>
       ),
@@ -124,6 +168,65 @@ export function DashboardScreen() {
       <main>
         <SidebarTrigger />
       </main>
+      <AlertDialog
+        open={bookshelfToDelete !== null}
+        onOpenChange={(open, eventDetails) => {
+          if (!open) {
+            if (deleteRequestPendingRef.current) {
+              eventDetails.cancel()
+              return
+            }
+            setBookshelfToDelete(null)
+          }
+        }}
+      >
+        <AlertDialogContent
+          initialFocus={cancelDeleteButtonRef}
+          aria-busy={controller.isDeletingBookshelf}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("bookshelf.delete_title")}</AlertDialogTitle>
+            <AlertDialogDescription className="break-words">
+              {t("bookshelf.delete_description").replace(
+                "{name}",
+                () => bookshelfToDelete?.name ?? ""
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              ref={cancelDeleteButtonRef}
+              disabled={controller.isDeletingBookshelf}
+            >
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={controller.isDeletingBookshelf}
+              onClick={async () => {
+                if (!bookshelfToDelete || deleteRequestPendingRef.current) return
+
+                deleteRequestPendingRef.current = true
+                try {
+                  await controller.deleteBookshelf(bookshelfToDelete.id)
+                  setBookshelfToDelete(null)
+                } catch (error) {
+                  if (!(error instanceof ApiError)) {
+                    notifyError("common.error.unknown")
+                  }
+                } finally {
+                  deleteRequestPendingRef.current = false
+                }
+              }}
+            >
+              {t(
+                controller.isDeletingBookshelf
+                  ? "bookshelf.deleting"
+                  : "bookshelf.delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog
         open={isAddShelfDialogOpen}
         onOpenChange={(open) => {

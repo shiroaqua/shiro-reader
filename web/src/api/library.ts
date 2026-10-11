@@ -12,6 +12,10 @@ export const bookshelf = {
     return bookshelf;
   },
   list: () => request<Bookshelf[]>("bookshelves"),
+  delete: (id: Bookshelf["id"]): Promise<void> =>
+    request<void>(`bookshelves/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
 }
 
 export const library = {
