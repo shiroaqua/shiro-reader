@@ -2,9 +2,10 @@
   "name": "shiro-reader-web",
   "private": true,
   "version": "0.0.1",
+  "packageManager": "pnpm@12.11.2",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
