@@ -3,16 +3,13 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS books (
     id           TEXT    NOT NULL PRIMARY KEY,
-    title        TEXT    NOT NULL, 
+    title        TEXT    NOT NULL UNIQUE,  
     hash         TEXT    NOT NULL,
-    bookshelf_id TEXT    NOT NULL,
     created_at_high INTEGER NOT NULL,
     created_at_low INTEGER NOT NULL,
     updated_at_high INTEGER NOT NULL,
     updated_at_low INTEGER NOT NULL,
     version      INTEGER NOT NULL DEFAULT 0,
-
-    UNIQUE (bookshelf_id, title)
 
     CONSTRAINT chk_books_id_uuid
         CHECK (
@@ -40,16 +37,6 @@ CREATE TABLE IF NOT EXISTS books (
             AND title = trim(title)
         ),
 
-    CONSTRAINT chk_books_bookshelf_id_uuid
-        CHECK (
-            length(bookshelf_id) = 36
-            AND substr(bookshelf_id, 9, 1) = '-'
-            AND substr(bookshelf_id, 14, 1) = '-'
-            AND substr(bookshelf_id, 19, 1) = '-'
-            AND substr(bookshelf_id, 24, 1) = '-'
-            AND lower(bookshelf_id) = bookshelf_id
-            AND replace(bookshelf_id, '-', '') NOT GLOB '*[^0-9a-f]*'
-        ),
 
     CONSTRAINT chk_books_created_at_positive
         CHECK (
@@ -67,13 +54,8 @@ CREATE TABLE IF NOT EXISTS books (
                 updated_at_high > created_at_high
                 OR (updated_at_high = created_at_high AND updated_at_low >= created_at_low)
             )
-        ),
+        )
 
-    CONSTRAINT fk_books_bookshelf
-        FOREIGN KEY (bookshelf_id)
-        REFERENCES bookshelves(id)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE
 );
 
 

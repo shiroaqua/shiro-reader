@@ -4,7 +4,7 @@ use crate::{
     application::library::book::dto::GetBookOutput, domain::library::{book::{
         entity::Book,
         value_objects::BookId,
-    }, bookshelf::value_objects::BookshelfId}, infrastructure::repositories::{errors::RepositoryError, sqlite::VersionedRecord},
+    }}, infrastructure::repositories::{errors::RepositoryError, sqlite::VersionedRecord},
 };
 
 #[async_trait]
@@ -16,5 +16,5 @@ pub trait BookRepository: Send + Sync {
     async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), RepositoryError>;
 
     
-    async fn list(&self, bookshelf_id: &BookshelfId, book_ids: Vec<BookId>) -> Result<Vec<GetBookOutput>, RepositoryError>;    
+    async fn list(&self, book_ids: Vec<BookId>) -> Result<Vec<GetBookOutput>, RepositoryError>;    
 }

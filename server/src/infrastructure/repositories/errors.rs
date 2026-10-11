@@ -1,12 +1,5 @@
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
-
-    #[error("bookshelf name conflict")]
-    BookshelfNameConflict,
-    
-    #[error("bookshelf not found")]
-    BookshelfNotFound,
-
     #[error("book file type is inviled")]
     InvalidBookFileType,
 

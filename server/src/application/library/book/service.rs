@@ -23,7 +23,6 @@ use crate::{
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
         },
-        bookshelf::value_objects::BookshelfId,
     }, shared::time::now_ns,
 };
 
@@ -43,8 +42,7 @@ impl BookService {
         let id = BookId::new();
         let title = BookTitle::parse(command.title)?;
         let hash = self.bookfile.parse_existing_hash(&command.hash)?;
-        let bookshelf_id = BookshelfId::parse(command.bookshelf_id)?;    
-        let book = Book::new(id, title, hash, bookshelf_id,now);
+        let book = Book::new(id, title, hash,now);
         self.repository.create(&book).await?;
 
         Ok(CreateBookOutput {
@@ -78,11 +76,9 @@ impl BookService {
         &self,
         query: GetBooksQuery,
     ) -> Result<Vec<GetBookOutput>, LibraryApplicationError> {
-        let bookshelf_id = BookshelfId::parse(query.bookshelf_id)?;
         let mut books = self
             .repository
             .list(
-                &bookshelf_id,
                 query
                     .book_ids
                     .iter()

@@ -18,13 +18,11 @@ use crate::{
 
 pub async fn create_book(
     State(state): State<AppState>,
-    Path(bookshelf_id): Path<String>,
     Json(request): Json<CreateBookRequest>,
 ) -> Result<(StatusCode, Json<CreateBookResponse>), AppError> {
     let output = state
         .book_service
         .create_book(CreateBookCommand {
-            bookshelf_id: bookshelf_id,
             title: request.title,
             hash: request.hash,
         })
@@ -80,13 +78,11 @@ pub async fn download_cover(
 
 pub async fn get_books(
     State(state): State<AppState>,
-    Path(bookshelf_id): Path<String>,
     Query(query): Query<BooksQuery>,
 ) -> Result<(StatusCode, Json<Vec<GetBookResponse>>), AppError> {
     let response_data: Vec<GetBookResponse> = state
         .book_service
         .get_books(GetBooksQuery {
-            bookshelf_id,
             book_ids: query.id,
         })
         .await?

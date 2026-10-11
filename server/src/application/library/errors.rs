@@ -2,9 +2,7 @@ use thiserror::Error;
 
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
-use crate::application::library::bookshelf::errors::BookshelfApplicationError;
 use crate::domain::library::book::errors::BookDomainError;
-use crate::domain::library::bookshelf::errors::BookshelfDomainError;
 use crate::infrastructure::repositories::errors::RepositoryError;
 
 #[derive(Debug, Error)]
@@ -14,10 +12,6 @@ pub enum LibraryApplicationError {
 
     #[error("Book file error: {0}")]
     BookFile(#[from] BookFileApplicationError),
-
-    #[error("Bookshelf error: {0}")]
-    Bookshelf(#[from] BookshelfApplicationError),
-
 }
 
 impl From<BookDomainError> for LibraryApplicationError {
@@ -26,11 +20,6 @@ impl From<BookDomainError> for LibraryApplicationError {
     }
 }
 
-impl From<BookshelfDomainError> for LibraryApplicationError {
-    fn from(err: BookshelfDomainError) -> Self {
-        LibraryApplicationError::Bookshelf(err.into())
-    }
-}
 
 impl From<RepositoryError> for LibraryApplicationError {
     fn from(value: RepositoryError) -> Self {
@@ -43,12 +32,6 @@ impl From<RepositoryError> for LibraryApplicationError {
             }
             RepositoryError::BookTitleConflict => {
                 LibraryApplicationError::Book(BookApplicationError::TitleConflict)
-            }
-            RepositoryError::BookshelfNotFound => {
-                LibraryApplicationError::Bookshelf(BookshelfApplicationError::NotFound)
-            }
-            RepositoryError::BookshelfNameConflict => {
-                LibraryApplicationError::Bookshelf(BookshelfApplicationError::NameConflict)
             }
             RepositoryError::Storage(error) => {
                 LibraryApplicationError::Book(BookApplicationError::Storage(error))

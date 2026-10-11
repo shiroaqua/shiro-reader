@@ -2,7 +2,6 @@
 pub struct CreateBookCommand {
     pub title: String,
     pub hash: String,
-    pub bookshelf_id: String,
 }
 
 #[derive(Debug)]

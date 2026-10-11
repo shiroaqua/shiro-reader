@@ -10,11 +10,10 @@ use crate::{
             entity::Book,
             value_objects::{BookId, BookTitle},
         },
-        bookshelf::value_objects::BookshelfId,
     },
     infrastructure::repositories::{
         errors::RepositoryError,
-        idens::{Books, Bookshelves, FULL_BOOKS_TABLE_COLUMNS, INSERT_BOOKS_COLUMNS},
+        idens::{Books, FULL_BOOKS_TABLE_COLUMNS, INSERT_BOOKS_COLUMNS},
         sqlite::{
             join_timestamp_ns, split_system_time, SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error, map_invalid_data,
             message_contains_columns,
@@ -40,17 +39,6 @@ impl BookRepository for SqliteBookRepository {
     async fn create(&self, book: &Book) -> Result<(), RepositoryError> {
         let created_at = split_system_time(book.created_at());
         let updated_at = split_system_time(book.updated_at());
-        let mut tx = self.db.begin(map_sqlx_error).await?;
-        let (sql, values) = Query::select()
-            .expr(Expr::val(1))
-            .from(Bookshelves::Table)
-            .and_where(Expr::col(Bookshelves::Id).eq(book.bookshelf_id().to_string()))
-            .limit(1)
-            .build_sqlx(SqliteQueryBuilder);
-
-        if !tx.fetch_exists(&sql, values, map_sqlx_error).await? {
-            return Err(RepositoryError::BookshelfNotFound);
-        }
 
         let (sql, values) = Query::insert()
             .into_table(Books::Table)
@@ -59,7 +47,6 @@ impl BookRepository for SqliteBookRepository {
                 Expr::val(book.id().to_string()),
                 Expr::val(book.title().to_string()),
                 Expr::val(book.hash().to_hex().to_string()),
-                Expr::val(book.bookshelf_id().to_string()),
                 Expr::val(created_at.0),
                 Expr::val(created_at.1),
                 Expr::val(updated_at.0),
@@ -68,8 +55,7 @@ impl BookRepository for SqliteBookRepository {
             ])
             .build_sqlx(SqliteQueryBuilder);
 
-        tx.execute(&sql, values, map_sqlx_error).await?;
-        tx.commit(map_sqlx_error).await?;
+        self.db.execute(&sql, values, map_sqlx_error).await?;
         Ok(())
     }
 
@@ -103,7 +89,6 @@ impl BookRepository for SqliteBookRepository {
             .table(Books::Table)
             .values([
                 (Books::Title, book.title().to_string().into()),
-                (Books::BookshelfId, book.bookshelf_id().to_string().into()),
                 (Books::UpdatedAtHigh, updated_at.0.into()),
                 (Books::UpdatedAtLow, updated_at.1.into()),
                 (Books::Version, (book.version + 1).into()),
@@ -119,14 +104,12 @@ impl BookRepository for SqliteBookRepository {
 
     async fn list(
         &self,
-        bookshelf_id: &BookshelfId,
         book_ids: Vec<BookId>,
     ) -> Result<Vec<GetBookOutput>, RepositoryError> {
         let mut query = Query::select();
         query
             .columns(FULL_BOOKS_TABLE_COLUMNS)
-            .from(Books::Table)
-            .and_where(Expr::col(Books::BookshelfId).eq(bookshelf_id.to_string()));
+            .from(Books::Table);
 
         if !book_ids.is_empty() {
             query.and_where(Expr::col(Books::Id).is_in(book_ids.iter().map(ToString::to_string)));
@@ -147,7 +130,6 @@ impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
                 BookTitle::parse(row.get_string::<String>(&Books::Title.to_string())?)
                     .map_err(map_invalid_data)?,
                 row.get_hash(&Books::Hash.to_string())?,
-                row.get_uuid(&Books::BookshelfId.to_string())?,
                 join_timestamp_ns(row.get(&Books::CreatedAtHigh.to_string())?, row.get(&Books::CreatedAtLow.to_string())?),
                 join_timestamp_ns(row.get(&Books::UpdatedAtHigh.to_string())?, row.get(&Books::UpdatedAtLow.to_string())?),
             ),
@@ -165,7 +147,6 @@ impl TryFrom<&SqliteRow> for GetBookOutput {
             title: row.get_string(&Books::Title.to_string())?,
             hash: row.get_string(&Books::Hash.to_string())?,
             file_type: String::new(),
-            bookshelf_id: row.get_string(&Books::BookshelfId.to_string())?,
             created_at: join_timestamp_ns(row.get(&Books::CreatedAtHigh.to_string())?, row.get(&Books::CreatedAtLow.to_string())?),
             updated_at: join_timestamp_ns(row.get(&Books::UpdatedAtHigh.to_string())?, row.get(&Books::UpdatedAtLow.to_string())?),
         })
@@ -177,7 +158,7 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
         let is_root_book_title_conflict = message_contains_columns(
             database_error.message(),
             Books::Table,
-            [Books::BookshelfId, Books::Title],
+            [Books::Title],
         );
 
         if database_error.is_unique_constraint() && is_root_book_title_conflict {

@@ -17,19 +17,12 @@ use pdfium_render::prelude::Pdfium;
 use serde_json::{Value, json};
 use shiro_reader_server::{
     app::build_router,
-    application::library::{
-        book::{file::service::BookFileService, ports::BookRepository, service::BookService},
-        bookshelf::{
-            ports::BookshelfRepository,
-            service::BookshelfService,
-        },
+    application::library::book::{
+        file::service::BookFileService, ports::BookRepository, service::BookService,
     },
     infrastructure::{
         db,
-        repositories::{
-            sqlite_book_repository::SqliteBookRepository,
-            sqlite_bookshelf_repository::SqliteBookshelfRepository,
-        },
+        repositories::sqlite_book_repository::SqliteBookRepository,
         storage::book_file_storage::BookFileStorage,
     },
     state::AppState,
@@ -47,21 +40,9 @@ pub const INVALID_HASH: &str = "not-a-hash";
 pub const INVALID_BOOK_TITLES: [&str; 6] =
     [" Book", "Book ", "\tBook", "Book\t", "\nBook", "Book\n"];
 
-pub const INVALID_BOOKSHELF_NAMES: [&str; 8] = [
-    "一块 Shelf",
-    " 一块Shelf",
-    "Shelf块 ",
-    "Shelf-块",
-    "Shelf_块",
-    "Shelf.qwq",
-    "Shelf/nya",
-    "书架\n架",
-];
-
 pub const UNKNOWN_UUID: &str = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 pub const UNKNOWN_HASH: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 pub const DEFAULT_BOOK_NAME: &str = "书书";
-pub const DEFAULT_BOOKSHELF_NAME: &str = "书shelf";
 
 static PDFIUM: LazyLock<Arc<Mutex<Pdfium>>> = LazyLock::new(|| {
     Arc::new(Mutex::new(Pdfium::new(
@@ -74,18 +55,8 @@ pub struct TestApp {
     _temp_dir: TempDir,
 }
 
-pub struct Bookshelf<'a> {
-    pub id: String,
-    pub name: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub response: JsonHttpResponse,
-    app: &'a TestApp,
-}
-
 pub struct Book<'a> {
     pub id: String,
-    pub bookshelf_id: String,
     pub title: String,
     pub file_type: String,
     pub hash: String,
@@ -126,14 +97,11 @@ impl TestApp {
         book_file_storage.scan().expect("scan test storage");
 
         let bookfile_service = Arc::new(BookFileService::new(book_file_storage));
-        let bookshelf_repository: Arc<dyn BookshelfRepository> =
-            Arc::new(SqliteBookshelfRepository::new(pool.clone()));
         let book_repository: Arc<dyn BookRepository> =
             Arc::new(SqliteBookRepository::new(pool.clone()));
 
         let state = AppState {
             book_service: Arc::new(BookService::new(book_repository, bookfile_service.clone())),
-            bookshelf_service: Arc::new(BookshelfService::new(bookshelf_repository)),
             bookfile_service: bookfile_service,
         };
 
@@ -143,54 +111,26 @@ impl TestApp {
         }
     }
 
-    pub async fn create_bookshelf<'a>(&'a self, name: &str) -> Bookshelf<'a> {
-        let response = JsonHttpResponse::from(
-            self.post_json("/api/v1/library/bookshelves", json!({ "name": name }))
-                .await,
-        )
-        .await;
-
-        let data = &response.json;
-        let created_at = json_string_or_empty(data, "created_at");
-
-        Bookshelf {
-            id: json_string_or_empty(data, "id"),
-            updated_at: json_string_or(data, "updated_at", &created_at),
-            name: name.to_owned(),
-            created_at: created_at,
-            response: response,
-            app: self,
-        }
-    }
-
-    pub async fn create_default_bookshelf<'a>(&'a self) -> Bookshelf<'a> {
-        self.create_bookshelf(DEFAULT_BOOKSHELF_NAME).await
-    }
-
     pub async fn get_book_file(&self, hash: &str) -> Response<Body> {
         self.get(&format!("/api/v1/library/books/files?hash={hash}"))
             .await
     }
 
-    pub async fn get_bookshelves<'a>(&'a self) -> Vec<Bookshelf<'a>> {
+    pub async fn get_books<'a>(&'a self) -> Vec<Book<'a>> {
         let response =
-            JsonHttpResponse::from(self.get(&format!("/api/v1/library/bookshelves")).await).await;
-
-        response
-            .as_array()
-            .iter()
-            .map(|node| Bookshelf::from_json(self, node, response.clone()))
-            .collect()
+            JsonHttpResponse::from(self.get("/api/v1/library/bookshelves/books").await).await;
+        assert_eq!(response.status_code, StatusCode::OK);
+        Book::from_data_array(self, response)
     }
 
-    pub async fn get_bookshelves_by_ids<'a>(&'a self, ids: &[&str]) -> JsonHttpResponse {
+    pub async fn get_books_by_ids(&self, ids: &[&str]) -> JsonHttpResponse {
         let query = ids
             .iter()
             .map(|id| format!("id={id}"))
             .collect::<Vec<_>>()
             .join("&");
         JsonHttpResponse::from(
-            self.get(&format!("/api/v1/library/bookshelves?{query}"))
+            self.get(&format!("/api/v1/library/bookshelves/books?{query}"))
                 .await,
         )
         .await
@@ -239,15 +179,10 @@ impl TestApp {
             .await
     }
 
-    async fn create_book<'a>(
-        &'a self,
-        bookshelf_id: &str,
-        title: &str,
-        hash: &str,
-    ) -> Book<'a> {
+    pub async fn create_book<'a>(&'a self, title: &str, hash: &str) -> Book<'a> {
         let response = JsonHttpResponse::from(
             self.post_json(
-                &format!("/api/v1/library/bookshelves/{bookshelf_id}/books"),
+                "/api/v1/library/bookshelves/books",
                 json!({
                 "title": title,
                 "hash": hash,
@@ -261,7 +196,6 @@ impl TestApp {
 
         Book {
             id: json_string_or_empty(data, "id"),
-            bookshelf_id: bookshelf_id.to_owned(),
             title: title.to_owned(),
             file_type: EMPTY_STRING.to_owned(),
             hash: hash.to_owned(),
@@ -270,6 +204,11 @@ impl TestApp {
             response: response,
             app: self,
         }
+    }
+
+    pub async fn create_default_book(&self) -> Book<'_> {
+        let hash = self.upload_sample_book_file(SampleFile::PDF).await.1;
+        self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
     }
 
     async fn get(&self, uri: &str) -> Response<Body> {
@@ -318,106 +257,6 @@ impl TestApp {
     }
 }
 
-impl<'a> Bookshelf<'a> {
-    fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
-        let (id, name, created_at, updated_at) = Self::fields(&response.json);
-
-        Self {
-            id,
-            name,
-            created_at,
-            updated_at,
-            response,
-            app,
-        }
-    }
-
-    fn from_json(app: &'a TestApp, json: &Value, response: JsonHttpResponse) -> Self {
-        let (id, name, created_at, updated_at) = Self::fields(json);
-
-        Self {
-            id,
-            name,
-            created_at,
-            updated_at,
-            response,
-            app,
-        }
-    }
-
-    fn fields(json: &Value) -> (String, String, String, String) {
-        (
-            json_string_or_empty(json, "id"),
-            json_string_or_empty(json, "name"),
-            json_string_or_empty(json, "created_at"),
-            json_string_or_empty(json, "updated_at"),
-        )
-    }
-
-    pub async fn create_book(&self, title: &str, hash: &str) -> Book<'a> {
-        self.app.create_book(&self.id, title, hash).await
-    }
-
-    pub async fn create_default_book(&self) -> Book<'a> {
-        let hash = self.app.upload_sample_book_file(SampleFile::PDF).await.1;
-        self.create_book(DEFAULT_BOOK_NAME, &hash.to_hex()).await
-    }
-
-
-    pub async fn delete(self) -> JsonHttpResponse {
-        JsonHttpResponse::from(
-            self.app
-                .delete(&format!("/api/v1/library/bookshelves/{}", &self.id))
-                .await,
-        )
-        .await
-    }
-
-    pub async fn rename(&mut self, new_name: &str) {
-        let response = JsonHttpResponse::from(
-            self.app
-                .patch_json(
-                    &format!("/api/v1/library/bookshelves/{}", &self.id),
-                    json!({ "name": new_name }),
-                )
-                .await,
-        )
-        .await;
-        self.name = new_name.to_owned();
-        self.response = response;
-    }
-
-    pub async fn get_books(&self) -> Vec<Book<'a>> {
-        let response = JsonHttpResponse::from(
-            self.app
-                .get(&format!("/api/v1/library/bookshelves/{}/books", self.id))
-                .await,
-        )
-        .await;
-        Book::from_data_array(self.app, response)
-    }
-
-    pub async fn get_books_by_ids(&self, ids: &[&str]) -> JsonHttpResponse {
-        let query = ids
-            .iter()
-            .map(|id| format!("id={id}"))
-            .collect::<Vec<_>>()
-            .join("&");
-        JsonHttpResponse::from(
-            self.app
-                .get(&format!("/api/v1/library/bookshelves/{}/books?{query}", self.id))
-                .await,
-        )
-        .await
-    }
-
-    pub fn assert_data(&self) {
-        Uuid::parse_str(&self.id).expect("expected valid uuid");
-        DateTime::parse_from_rfc3339(&self.created_at).expect("expected valid RFC3339 datetime");
-        DateTime::parse_from_rfc3339(&self.updated_at).expect("expected valid RFC3339 datetime");
-    }
-}
-
 impl<'a> Book<'a> {
     fn from_response(app: &'a TestApp, response: JsonHttpResponse) -> Self {
         let fields = Self::fields(&response.json);
@@ -440,13 +279,12 @@ impl<'a> Book<'a> {
     fn from_fields(
         app: &'a TestApp,
         response: JsonHttpResponse,
-        fields: (String, String, String, String, String, String, String),
+        fields: (String, String, String, String, String, String),
     ) -> Self {
-        let (id, bookshelf_id, title, file_type, hash, created_at, updated_at) = fields;
+        let (id, title, file_type, hash, created_at, updated_at) = fields;
 
         Self {
             id,
-            bookshelf_id,
             title,
             file_type,
             hash,
@@ -459,10 +297,9 @@ impl<'a> Book<'a> {
 
     fn fields(
         json: &Value,
-    ) -> (String, String, String, String, String, String, String) {
+    ) -> (String, String, String, String, String, String) {
         (
             json_string_or_empty(json, "id"),
-            json_string_or_empty(json, "bookshelf_id"),
             json_string_or_empty(json, "title"),
             json_string_or_empty(json, "type"),
             json_string_or_empty(json, "hash"),
@@ -510,43 +347,6 @@ impl JsonHttpResponse {
 
     pub fn as_array(&self) -> &[Value] {
         self.json.as_array().expect("expected response data array")
-    }
-
-    pub fn assert_bookshelf_missing_name_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.missing_name"
-        );
-    }
-
-    pub fn assert_bookshelf_invalid_name_format_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.invalid_name_format"
-        );
-    }
-
-    pub fn assert_bookshelf_invalid_id_error(&self) {
-        assert_eq!(self.status_code, StatusCode::BAD_REQUEST);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.invalid_id"
-        );
-    }
-
-    pub fn assert_bookshelf_not_found_error(&self) {
-        assert_eq!(self.status_code, StatusCode::NOT_FOUND);
-        assert_eq!(self.json["error"]["message"], "library.bookshelf.not_found");
-    }
-
-    pub fn assert_bookshelf_name_conflict_error(&self) {
-        assert_eq!(self.status_code, StatusCode::CONFLICT);
-        assert_eq!(
-            self.json["error"]["message"],
-            "library.bookshelf.name_conflict"
-        );
     }
 
     pub fn assert_book_file_upload_missing_hash_error(&self) {
@@ -654,14 +454,6 @@ fn assert_rfc3339_datetime_string(value: &Value) {
 
 fn json_string_or_empty(value: &Value, key: &str) -> String {
     value[key].as_str().unwrap_or("").to_owned()
-}
-
-fn json_string_or(value: &Value, key: &str, default: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or(default)
-        .to_owned()
 }
 
 fn json_optional_string(value: &Value, key: &str) -> Option<String> {

@@ -7,8 +7,7 @@ use crate::{
         book::{
             errors::BookDomainError,
             value_objects::{BookId, BookTitle},
-        },
-        bookshelf::value_objects::BookshelfId,
+        }
     },
 };
 
@@ -17,18 +16,16 @@ pub struct Book {
     id: BookId,
     title: BookTitle,
     hash: Hash,
-    bookshelf_id: BookshelfId,
     created_at: i128,
     updated_at: i128,
 }
 
 impl Book {
-    pub fn new(id: BookId, title: BookTitle, hash: Hash, bookshelf_id: BookshelfId, created_at: i128) -> Self {
+    pub fn new(id: BookId, title: BookTitle, hash: Hash, created_at: i128) -> Self {
         Self {
             id,
             title,
             hash,
-            bookshelf_id,
             created_at: created_at,
             updated_at: created_at,
         }
@@ -38,7 +35,6 @@ impl Book {
         id: BookId,
         title: BookTitle,
         hash: Hash,
-        bookshelf_id: BookshelfId,
         created_at: i128,
         updated_at: i128,
     ) -> Self {
@@ -46,7 +42,6 @@ impl Book {
             id,
             title,
             hash,
-            bookshelf_id,
             created_at,
             updated_at,
         }
@@ -61,9 +56,6 @@ impl Book {
     pub fn hash(&self) -> &Hash {
         &self.hash
     }
-    pub fn bookshelf_id(&self) -> &BookshelfId {
-        &self.bookshelf_id
-    }    
     pub fn created_at(&self) -> SystemTime {
         UNIX_EPOCH + Duration::new(
             self.created_at.div_euclid(1_000_000_000) as u64,

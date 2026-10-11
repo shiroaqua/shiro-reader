@@ -10,7 +10,6 @@ pub struct GetBookOutput {
     pub title: String,
     pub hash: String,
     pub file_type: String,
-    pub bookshelf_id: String,
     pub created_at: i128,
     pub updated_at: i128,
 }

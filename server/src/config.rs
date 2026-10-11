@@ -79,7 +79,7 @@ fn env_var(key: &str, default: &str) -> String {
 }
 
 fn database_url(root_directory: &Path) -> String {
-    let path = root_directory.join("users").join("default").join("bookshelf.db");
+    let path = root_directory.join("users").join("default").join("data.db");
     // Preserve literal URL delimiters and escape sequences in the file path.
     let path = path.to_string_lossy()
         .replace('%', "%25")

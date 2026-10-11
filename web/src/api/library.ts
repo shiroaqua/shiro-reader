@@ -1,53 +1,30 @@
-import type { Book, Bookshelf, CreateBookResponse } from "@/lib/types"
+import type { Book, CreateBookResponse } from "@/lib/types"
 import { notifyError } from "@/lib/error-notifications"
 import { hashFile } from "@/lib/hash"
 
-export const bookshelf = {
-  create: async (name: string) =>  {
-    const bookshelf = await request<Bookshelf>("bookshelves", {
-      method: "POST",
-      body: { name: name },
-    });
-    bookshelf.name = name;
-    bookshelf.updated_at = bookshelf.created_at;
-    return bookshelf;
-  },
-  list: () => request<Bookshelf[]>("bookshelves"),
-  rename: (id: Bookshelf["id"], name: string): Promise<void> =>
-    request<void>(`bookshelves/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: { name },
-    }),
-  delete: (id: Bookshelf["id"]): Promise<void> =>
-    request<void>(`bookshelves/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
-}
-
 export const book = {
-  list: (bookshelfId: Bookshelf["id"]) =>
-    request<Book[]>(`bookshelves/${encodeURIComponent(bookshelfId)}/books`),
+  list: () => request<Book[]>("bookshelf/books"),
   coverUrl: (id: Book["id"]) =>
     `${API_BASE_URL}/books/${encodeURIComponent(id)}/cover`,
-  create: (bookshelfId: Bookshelf["id"], title: string, hash: string) =>
+  create: (title: string, hash: string) =>
     request<CreateBookResponse>(
-      `bookshelves/${encodeURIComponent(bookshelfId)}/books`,
+      "bookshelf/books",
       { method: "POST", body: { title, hash } }
     ),
-  // Hash the file, upload it only if the server lacks it, then add it to the shelf.
-  upload: async (bookshelfId: Bookshelf["id"], file: File) => {
+  // Hash the file, upload it only if the server lacks it, then add the book.
+  upload: async (file: File) => {
     const hash = await hashFile(file)
     if (!(await bookFile.exists(hash))) {
       await bookFile.upload(hash, file)
     }
-    return book.create(bookshelfId, bookTitleFromFileName(file.name), hash)
+    return book.create(bookTitleFromFileName(file.name), hash)
   },
 }
 
 export const bookFile = {
   exists: async (hash: string): Promise<boolean> => {
     try {
-      await performRequest<void>(`books/files?hash=${encodeURIComponent(hash)}`)
+      await performRequest<void>(`files/book?hash=${encodeURIComponent(hash)}`)
       return true
     } catch (error) {
       if (error instanceof ApiError && error.httpStatus === 404) return false
@@ -61,7 +38,7 @@ export const bookFile = {
     form.append("hash", hash)
     form.append("file", file, file.name)
     try {
-      await performRequest<void>("books/files", {
+      await performRequest<void>("files/book", {
         method: "POST",
         body: form,
         timeoutMs: null,
@@ -82,7 +59,6 @@ export function bookTitleFromFileName(fileName: string) {
 }
 
 export const library = {
-  bookshelf,
   book,
   bookFile,
 }

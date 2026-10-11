@@ -6,24 +6,21 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { notifyError } from "@/lib/error-notifications"
 import { formatBookDate } from "@/lib/format"
-import { bookshelfBooksQueryKey } from "@/lib/query-keys"
+import { booksQueryKey } from "@/lib/query-keys"
 import { useTranslation } from "@/lib/i18n"
-import type { Book, Bookshelf } from "@/lib/types"
+import type { Book } from "@/lib/types"
 
-export function BookshelfBooks({ bookshelf }: { bookshelf: Bookshelf }) {
+export function BookshelfBooks() {
   const { t } = useTranslation()
   const { data: books, isPending, isError } = useQuery<Book[]>({
-    queryKey: bookshelfBooksQueryKey(bookshelf.id),
-    queryFn: () => library.book.list(bookshelf.id),
+    queryKey: booksQueryKey,
+    queryFn: () => library.book.list(),
   })
 
   return (
     <section aria-labelledby="bookshelf-books-title" className="flex flex-1 flex-col gap-4 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 id="bookshelf-books-title" className="truncate text-lg font-semibold">
-          {bookshelf.name}
-        </h1>
-        <UploadBookButton bookshelf={bookshelf} />
+      <div className="flex items-center justify-end gap-2">
+        <UploadBookButton />
       </div>
       {isPending ? (
         <div aria-busy="true" aria-label={t("book.loading")} className={GRID_CLASS_NAME}>
@@ -62,7 +59,7 @@ export function BookshelfBooks({ bookshelf }: { bookshelf: Bookshelf }) {
 const BOOK_FILE_ACCEPT = ".pdf,.epub,application/pdf,application/epub+zip"
 const BOOK_FILE_PATTERN = /\.(pdf|epub)$/i
 
-function UploadBookButton({ bookshelf }: { bookshelf: Bookshelf }) {
+function UploadBookButton() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -71,14 +68,14 @@ function UploadBookButton({ bookshelf }: { bookshelf: Bookshelf }) {
       // Upload one at a time so a failure only affects that file.
       for (const file of files) {
         try {
-          await library.book.upload(bookshelf.id, file)
+          await library.book.upload(file)
         } catch (error) {
           if (!(error instanceof ApiError)) notifyError("common.error.unknown")
         }
       }
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: bookshelfBooksQueryKey(bookshelf.id) }),
+      queryClient.invalidateQueries({ queryKey: booksQueryKey }),
   })
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {

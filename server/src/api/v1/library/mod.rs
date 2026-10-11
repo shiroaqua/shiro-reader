@@ -5,11 +5,10 @@ use axum::{
 };
 
 pub mod book;
-pub mod bookshelf;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route(
+        .route( 
             "/books/{book_id}",
             delete(book::handers::delete_book).patch(book::handers::rename_book),
         )
@@ -18,24 +17,15 @@ pub fn router() -> Router<AppState> {
             get(book::handers::download_cover),
         )
         .route(
-            "/books/files",
+            "/files/book",
             get(book::file::handlers::get_book).post(book::file::handlers::upload_book),
         )
         .route(
-            "/books/files/{book_hash}",
+            "/files/book/{book_hash}",
             get(book::file::handlers::download_book),
         )
         .route(
-            "/bookshelves",
-            get(bookshelf::handlers::get_bookshelves).post(bookshelf::handlers::create_bookshelf),
-        )
-        .route(
-            "/bookshelves/{bookshelf_id}",
-            delete(bookshelf::handlers::delete_bookshelf)
-                .patch(bookshelf::handlers::rename_bookshelf),
-        )
-        .route(
-            "/bookshelves/{bookshelf_id}/books",
+            "/bookshelf/books",
             get(book::handers::get_books).post(book::handers::create_book),
         )
 }

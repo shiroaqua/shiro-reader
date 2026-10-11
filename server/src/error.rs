@@ -11,7 +11,6 @@ use crate::{
     api::v1::library::book::file::errors::BookFileAPIError,
     application::library::{
         book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
-        bookshelf::{errors::BookshelfApplicationError},
         errors::LibraryApplicationError,
     },
 };
@@ -74,28 +73,6 @@ impl IntoResponse for AppError {
 impl From<LibraryApplicationError> for AppError {
     fn from(value: LibraryApplicationError) -> Self {
         match value {
-            LibraryApplicationError::Bookshelf(b) => match b {
-                BookshelfApplicationError::InvalidId => AppError::BadRequest {
-                    message: "library.bookshelf.invalid_id",
-                },
-                BookshelfApplicationError::MissingName => AppError::BadRequest {
-                    message: "library.bookshelf.missing_name",
-                },
-                BookshelfApplicationError::InvalidNameFormat => AppError::BadRequest {
-                    message: "library.bookshelf.invalid_name_format",
-                },
-                BookshelfApplicationError::NotFound => AppError::NotFound {
-                    message: "library.bookshelf.not_found",
-                },
-                BookshelfApplicationError::NameConflict => AppError::Conflict {
-                    message: "library.bookshelf.name_conflict",
-                },
-                BookshelfApplicationError::UnchangedName => AppError::Conflict {
-                    message: "library.bookshelf.name_unchanged",
-                },
-                BookshelfApplicationError::Storage(error) => AppError::Internal(error),
-                
-            },
             LibraryApplicationError::Book(b) => match b {
                 BookApplicationError::InvalidId => AppError::BadRequest {
                     message: "library.book.invalid_id",
