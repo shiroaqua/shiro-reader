@@ -47,5 +47,8 @@ export const en: Record<keyof typeof zh, string> = {
   "bookshelf.name": "Bookshelf name",
   "bookshelf.name_placeholder": "Enter a bookshelf name",
   "bookshelf.submitting": "Adding…",
+  "bookshelf.rename": "Rename",
+  "bookshelf.rename_title": "Rename bookshelf",
+  "bookshelf.renaming": "Saving…",
   "common.submit": "Submit",
 }

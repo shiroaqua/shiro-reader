@@ -44,5 +44,8 @@ export const zh = {
   "bookshelf.name": "书架名称",
   "bookshelf.name_placeholder": "请输入书架名称",
   "bookshelf.submitting": "添加中…",
+  "bookshelf.rename": "重命名",
+  "bookshelf.rename_title": "重命名书架",
+  "bookshelf.renaming": "保存中…",
   "common.submit": "提交",
 } as const

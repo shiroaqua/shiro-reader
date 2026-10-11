@@ -54,6 +54,7 @@ import {
   Trash,
   Plus,
   CircleX,
+  Pencil,
 } from "lucide-react"
 import { useLibraryController } from "@/hooks/useLibraryController"
 import { ApiError } from "@/api/library"
@@ -70,6 +71,14 @@ export function DashboardScreen() {
   const cancelDeleteButtonRef = useRef<HTMLButtonElement>(null)
   const deleteRequestPendingRef = useRef(false)
   const shelfNameInputId = useId()
+  const [bookshelfToRename, setBookshelfToRename] = useState<Bookshelf | null>(null)
+  const [renameShelfName, setRenameShelfName] = useState("")
+  const renameShelfInputId = useId()
+  const trimmedRenameShelfName = renameShelfName.trim()
+  const canSubmitRename =
+    !controller.isRenamingBookshelf &&
+    trimmedRenameShelfName !== "" &&
+    trimmedRenameShelfName !== bookshelfToRename?.name
 
   const menus: DashboardMenu[] = [
     {
@@ -108,6 +117,16 @@ export function DashboardScreen() {
                 </SidebarMenuSubButton>
               </ContextMenuTrigger>
               <ContextMenuContent aria-label={bookshelf.name}>
+                <ContextMenuItem
+                  disabled={controller.isRenamingBookshelf}
+                  onClick={() => {
+                    setRenameShelfName(bookshelf.name)
+                    setBookshelfToRename(bookshelf)
+                  }}
+                >
+                  <Pencil aria-hidden="true" />
+                  <span>{t("bookshelf.rename")}</span>
+                </ContextMenuItem>
                 <ContextMenuItem
                   variant="destructive"
                   disabled={controller.isDeletingBookshelf}
@@ -273,6 +292,58 @@ export function DashboardScreen() {
                 disabled={isCreatingShelf || !controller.newBookshelfName.trim()}
               >
                 {t(isCreatingShelf ? "bookshelf.submitting" : "common.submit")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={bookshelfToRename !== null}
+        onOpenChange={(open) => {
+          if (!open && !controller.isRenamingBookshelf) setBookshelfToRename(null)
+        }}
+      >
+        <DialogContent showCloseButton={!controller.isRenamingBookshelf}>
+          <form
+            className="grid gap-4"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              if (!bookshelfToRename || !canSubmitRename) return
+
+              try {
+                await controller.renameBookshelf({
+                  id: bookshelfToRename.id,
+                  name: trimmedRenameShelfName,
+                })
+                setBookshelfToRename(null)
+              } catch (error) {
+                if (!(error instanceof ApiError)) notifyError("common.error.unknown")
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("bookshelf.rename_title")}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-2">
+              <Input
+                id={renameShelfInputId}
+                name="shelfName"
+                aria-label={t("bookshelf.name")}
+                placeholder={t("bookshelf.name_placeholder")}
+                value={renameShelfName}
+                onChange={(event) => {
+                  setRenameShelfName(event.target.value)
+                }}
+                disabled={controller.isRenamingBookshelf}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={!canSubmitRename}>
+                {t(
+                  controller.isRenamingBookshelf
+                    ? "bookshelf.renaming"
+                    : "common.submit"
+                )}
               </Button>
             </DialogFooter>
           </form>
