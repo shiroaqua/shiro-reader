@@ -39,31 +39,33 @@ import {
   Plus,
 } from "lucide-react"
 import { useLibraryController } from "@/hooks/useLibraryController"
+import { ApiError } from "@/api/library"
+import { notifyError } from "@/lib/error-notifications"
+import { useTranslation } from "@/lib/i18n"
 
 export function DashboardScreen() {
   const controller = useLibraryController()
+  const { t } = useTranslation()
   const [isAddShelfDialogOpen, setIsAddShelfDialogOpen] = useState(false)
   const [isCreatingShelf, setIsCreatingShelf] = useState(false)
-  const [createShelfError, setCreateShelfError] = useState<string | null>(null)
   const shelfNameInputId = useId()
 
   const menus: DashboardMenu[] = [
     {
       id: "search",
       icon: <Search />,
-      name: "搜索",
+      name: t("dashboard.search"),
     },
     {
       id: "shelves",
       icon: <LibraryBig />,
-      name: "书架",
+      name: t("dashboard.shelves"),
       action: {
-        label: "添加书架",
+        label: t("bookshelf.add"),
         icon: <Plus className="size-4" />,
         buttonProps: {
           onClick: () => {
             controller.setNewBookshelfName("")
-            setCreateShelfError(null)
             setIsAddShelfDialogOpen(true)
           },
         },
@@ -81,28 +83,28 @@ export function DashboardScreen() {
     {
       id: "recent",
       icon: <Clock />,
-      name: "最近",
+      name: t("dashboard.recent"),
     },
     {
       id: "tags",
       icon: <Tag />,
-      name: "标签",
+      name: t("dashboard.tags"),
     },
     {
       id: "notes",
       icon: <NotebookPen />,
-      name: "笔记",
+      name: t("dashboard.notes"),
     },
     {
       id: "statistics",
       icon: <ChartNoAxesCombined />,
-      name: "统计",
+      name: t("dashboard.statistics"),
     },
 
     {
       id: "trash",
       icon: <Trash />,
-      name: "回收站",
+      name: t("dashboard.trash"),
     },
   ]
 
@@ -136,45 +138,38 @@ export function DashboardScreen() {
               if (isCreatingShelf || !controller.newBookshelfName.trim()) return
 
               setIsCreatingShelf(true)
-              setCreateShelfError(null)
               try {
                 await controller.createBookshelf()
                 setIsAddShelfDialogOpen(false)
-              } catch {
-                setCreateShelfError("添加书架失败，请重试。")
+              } catch (error) {
+                if (!(error instanceof ApiError)) notifyError("common.error.unknown")
               } finally {
                 setIsCreatingShelf(false)
               }
             }}
           >
             <DialogHeader>
-              <DialogTitle>添加书架</DialogTitle>
+              <DialogTitle>{t("bookshelf.add")}</DialogTitle>
             </DialogHeader>
             <div className="grid gap-2">
               <Input
                 id={shelfNameInputId}
                 name="shelfName"
-                aria-label="书架名称"
-                placeholder="请输入书架名称"
+                aria-label={t("bookshelf.name")}
+                placeholder={t("bookshelf.name_placeholder")}
                 value={controller.newBookshelfName}
                 onChange={(event) => {
                   controller.setNewBookshelfName(event.target.value)
-                  setCreateShelfError(null)
                 }}
                 disabled={isCreatingShelf}
               />
             </div>
-            {createShelfError && (
-              <p role="alert" className="text-sm text-destructive">
-                {createShelfError}
-              </p>
-            )}
             <DialogFooter>
               <Button
                 type="submit"
                 disabled={isCreatingShelf || !controller.newBookshelfName.trim()}
               >
-                {isCreatingShelf ? "添加中…" : "提交"}
+                {t(isCreatingShelf ? "bookshelf.submitting" : "common.submit")}
               </Button>
             </DialogFooter>
           </form>

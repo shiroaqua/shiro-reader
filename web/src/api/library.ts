@@ -1,4 +1,5 @@
 import type { Bookshelf } from "@/lib/types"
+import { notifyError } from "@/lib/error-notifications"
 
 export const bookshelf = {
   create: async (name: string) =>  {
@@ -39,6 +40,18 @@ async function request<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
+  try {
+    return await performRequest<T>(path, options)
+  } catch (error) {
+    if (error instanceof ApiError) notifyError(error.message)
+    throw error
+  }
+}
+
+async function performRequest<T>(
+  path: string,
+  options: RequestOptions = {}
+): Promise<T> {
   const { method = "GET", body } = options
 
   const init: RequestInit = { method }
@@ -72,9 +85,11 @@ async function parseError(response: Response) {
     const payload = (await response.json()) as { error?: { message?: string } }
     return new ApiError(
       response.status,
-      payload.error?.message ?? "unknown"
+      typeof payload?.error?.message === "string"
+        ? payload.error.message
+        : "common.error.unknown"
     )
   } catch {
-    return new ApiError(response.status, "unknown")
+    return new ApiError(response.status, "common.error.unknown")
   }
 }
