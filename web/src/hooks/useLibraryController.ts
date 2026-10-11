@@ -1,6 +1,7 @@
 import { library } from "@/api/library"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { Bookshelf } from "@/lib/types"
+import { bookshelfBooksQueryKey } from "@/lib/query-keys"
+import type { Book, Bookshelf } from "@/lib/types"
 import { useState } from "react";
 
 
@@ -52,6 +53,16 @@ export function useLibraryController() {
       },
     })
 
+    // Always refetches so a stale cache never lets a non-empty shelf skip confirmation.
+    const isBookshelfEmpty = async (id: Bookshelf["id"]) => {
+      const books = await queryClient.fetchQuery<Book[]>({
+        queryKey: bookshelfBooksQueryKey(id),
+        queryFn: () => library.book.list(id),
+        staleTime: 0,
+      })
+      return books.length === 0
+    }
+
     const [newBookshelfName, setNewBookshelfName] = useState('');
     const createBookshelf = async () => {
       const name = newBookshelfName.trim();
@@ -68,6 +79,7 @@ export function useLibraryController() {
       createBookshelf,
       setNewBookshelfName,
       deleteBookshelf: deleteBookshelfMutation.mutateAsync,
+      isBookshelfEmpty,
       isDeletingBookshelf: deleteBookshelfMutation.isPending,
       deletingBookshelfId: deleteBookshelfMutation.isPending
         ? deleteBookshelfMutation.variables ?? null

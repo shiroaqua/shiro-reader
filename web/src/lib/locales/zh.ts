@@ -47,5 +47,11 @@ export const zh = {
   "bookshelf.rename": "重命名",
   "bookshelf.rename_title": "重命名书架",
   "bookshelf.renaming": "保存中…",
+  "book.list": "书籍列表",
+  "book.loading": "正在加载书籍…",
+  "book.empty": "这个书架还没有书籍。",
+  "book.load_failed": "书籍加载失败。",
+  "book.upload": "上传书籍",
+  "book.uploading": "上传中…",
   "common.submit": "提交",
 } as const

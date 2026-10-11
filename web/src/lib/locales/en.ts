@@ -50,5 +50,11 @@ export const en: Record<keyof typeof zh, string> = {
   "bookshelf.rename": "Rename",
   "bookshelf.rename_title": "Rename bookshelf",
   "bookshelf.renaming": "Saving…",
+  "book.list": "Books",
+  "book.loading": "Loading books…",
+  "book.empty": "This bookshelf has no books yet.",
+  "book.load_failed": "Failed to load books.",
+  "book.upload": "Upload book",
+  "book.uploading": "Uploading…",
   "common.submit": "Submit",
 }

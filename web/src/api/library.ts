@@ -1,5 +1,6 @@
-import type { Bookshelf } from "@/lib/types"
+import type { Book, Bookshelf, CreateBookResponse } from "@/lib/types"
 import { notifyError } from "@/lib/error-notifications"
+import { hashFile } from "@/lib/hash"
 
 export const bookshelf = {
   create: async (name: string) =>  {
@@ -23,8 +24,67 @@ export const bookshelf = {
     }),
 }
 
+export const book = {
+  list: (bookshelfId: Bookshelf["id"]) =>
+    request<Book[]>(`bookshelves/${encodeURIComponent(bookshelfId)}/books`),
+  coverUrl: (id: Book["id"]) =>
+    `${API_BASE_URL}/books/${encodeURIComponent(id)}/cover`,
+  create: (bookshelfId: Bookshelf["id"], title: string, hash: string) =>
+    request<CreateBookResponse>(
+      `bookshelves/${encodeURIComponent(bookshelfId)}/books`,
+      { method: "POST", body: { title, hash } }
+    ),
+  // Hash the file, upload it only if the server lacks it, then add it to the shelf.
+  upload: async (bookshelfId: Bookshelf["id"], file: File) => {
+    const hash = await hashFile(file)
+    if (!(await bookFile.exists(hash))) {
+      await bookFile.upload(hash, file)
+    }
+    return book.create(bookshelfId, bookTitleFromFileName(file.name), hash)
+  },
+}
+
+export const bookFile = {
+  exists: async (hash: string): Promise<boolean> => {
+    try {
+      await performRequest<void>(`books/files?hash=${encodeURIComponent(hash)}`)
+      return true
+    } catch (error) {
+      if (error instanceof ApiError && error.httpStatus === 404) return false
+      if (error instanceof ApiError) notifyError(error.message)
+      throw error
+    }
+  },
+  upload: async (hash: string, file: File): Promise<void> => {
+    // The server reads the hash field before the file, so order matters.
+    const form = new FormData()
+    form.append("hash", hash)
+    form.append("file", file, file.name)
+    try {
+      await performRequest<void>("books/files", {
+        method: "POST",
+        body: form,
+        timeoutMs: null,
+        expectBody: false,
+      })
+    } catch (error) {
+      // Another upload of the same file finished first; the file is there now.
+      if (error instanceof ApiError && error.message === "library.book.file.already_exists") return
+      if (error instanceof ApiError) notifyError(error.message)
+      throw error
+    }
+  },
+}
+
+export function bookTitleFromFileName(fileName: string) {
+  const title = fileName.replace(/\.(pdf|epub)$/i, "").trim()
+  return title || fileName.trim()
+}
+
 export const library = {
   bookshelf,
+  book,
+  bookFile,
 }
 
 export class ApiError extends Error {
@@ -40,9 +100,17 @@ export class ApiError extends Error {
 }
 
 
+const API_BASE_URL = "http://localhost/api/v1/library"
+// Abort requests the backend never answers so the UI can report a network error.
+const REQUEST_TIMEOUT_MS = 10_000
+
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
   body?: unknown
+  // null disables the timeout, e.g. for large uploads.
+  timeoutMs?: number | null
+  // false for endpoints that answer with an empty body (e.g. 201 on upload).
+  expectBody?: boolean
 }
 
 async function request<T>(
@@ -61,31 +129,50 @@ async function performRequest<T>(
   path: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { method = "GET", body } = options
+  const {
+    method = "GET",
+    body,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    expectBody = true,
+  } = options
 
-  const init: RequestInit = { method }
+  const controller = new AbortController()
+  const timeout =
+    timeoutMs === null ? undefined : setTimeout(() => controller.abort(), timeoutMs)
+  const init: RequestInit = { method, signal: controller.signal }
 
-  if (body !== undefined) {
+  if (body instanceof FormData) {
+    // Let the browser set the multipart boundary.
+    init.body = body
+  } else if (body !== undefined) {
     init.headers = { "Content-Type": "application/json" }
     init.body = JSON.stringify(body)
   }
 
-  let response: Response
   try {
-    response = await fetch(`http://localhost/api/v1/library/${path}`, init)
-  } catch {
-    throw new ApiError(0, "network.error")
-  }
+    let response: Response
+    try {
+      response = await fetch(`${API_BASE_URL}/${path}`, init)
+    } catch {
+      throw new ApiError(0, "network.error")
+    }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
+    if (response.status === 204) {
+      return undefined as T
+    }
 
-  if (!response.ok) {
-    throw await parseError(response)
-  }
+    if (!response.ok) {
+      throw await parseError(response)
+    }
 
-  return (await response.json()) as T
+    if (!expectBody) {
+      return undefined as T
+    }
+
+    return (await response.json()) as T
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 

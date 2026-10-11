@@ -56,6 +56,7 @@ import {
   CircleX,
   Pencil,
 } from "lucide-react"
+import { BookshelfBooks } from "@/components/bookshelf-books"
 import { useLibraryController } from "@/hooks/useLibraryController"
 import { ApiError } from "@/api/library"
 import { notifyError } from "@/lib/error-notifications"
@@ -74,11 +75,32 @@ export function DashboardScreen() {
   const [bookshelfToRename, setBookshelfToRename] = useState<Bookshelf | null>(null)
   const [renameShelfName, setRenameShelfName] = useState("")
   const renameShelfInputId = useId()
+  const [selectedBookshelfId, setSelectedBookshelfId] = useState<Bookshelf["id"] | null>(null)
+  // Derived from the list so renames show up and deleted shelves close the view.
+  const selectedBookshelf =
+    controller.shelves.find((shelf) => shelf.id === selectedBookshelfId) ?? null
   const trimmedRenameShelfName = renameShelfName.trim()
   const canSubmitRename =
     !controller.isRenamingBookshelf &&
     trimmedRenameShelfName !== "" &&
     trimmedRenameShelfName !== bookshelfToRename?.name
+
+  // Empty shelves are deleted right away; anything else, including a failed
+  // book lookup, falls back to the confirmation dialog.
+  const requestDeleteBookshelf = async (bookshelf: Bookshelf) => {
+    if (deleteRequestPendingRef.current) return
+    deleteRequestPendingRef.current = true
+    let isEmpty = false
+    try {
+      isEmpty = await controller.isBookshelfEmpty(bookshelf.id)
+      if (isEmpty) await controller.deleteBookshelf(bookshelf.id)
+    } catch (error) {
+      if (!(error instanceof ApiError)) notifyError("common.error.unknown")
+    } finally {
+      deleteRequestPendingRef.current = false
+    }
+    if (!isEmpty) setBookshelfToDelete(bookshelf)
+  }
 
   const menus: DashboardMenu[] = [
     {
@@ -111,6 +133,9 @@ export function DashboardScreen() {
               >
                 <SidebarMenuSubButton
                   className="w-full"
+                  isActive={selectedBookshelf?.id === bookshelf.id}
+                  aria-current={selectedBookshelf?.id === bookshelf.id ? "page" : undefined}
+                  onClick={() => setSelectedBookshelfId(bookshelf.id)}
                   render={<button type="button" />}
                 >
                   {bookshelf.name}
@@ -130,9 +155,7 @@ export function DashboardScreen() {
                 <ContextMenuItem
                   variant="destructive"
                   disabled={controller.isDeletingBookshelf}
-                  onClick={() => {
-                    setBookshelfToDelete(bookshelf)
-                  }}
+                  onClick={() => requestDeleteBookshelf(bookshelf)}
                 >
                   <CircleX aria-hidden="true" />
                   <span>{t("bookshelf.delete")}</span>
@@ -184,8 +207,11 @@ export function DashboardScreen() {
           </SidebarContent>
         </SidebarGroup>
       </Sidebar>
-      <main>
+      <main className="flex min-w-0 flex-1 flex-col">
         <SidebarTrigger />
+        {selectedBookshelf && (
+          <BookshelfBooks key={selectedBookshelf.id} bookshelf={selectedBookshelf} />
+        )}
       </main>
       <AlertDialog
         open={bookshelfToDelete !== null}
