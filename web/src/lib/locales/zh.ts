@@ -2,6 +2,7 @@ export const zh = {
   "common.error.unknown": "发生未知错误，请尝试。",
   "common.error": "发生错误",
   "common.close": "关闭",
+  "common.cancel": "取消",
   "common.payload_too_large": "上传内容过大。",
   "common.internal_server_error": "服务器内部错误，请稍后重试。",
   "network.error": "网络连接失败，请检查网络后重试。",
@@ -35,4 +36,9 @@ export const zh = {
   "book.load_failed": "书籍加载失败。",
   "book.upload": "上传书籍",
   "book.uploading": "上传中…",
+  "book.title": "书名",
+  "book.rename": "重命名",
+  "book.delete": "删除",
+  "book.delete_confirm_title": "删除书籍？",
+  "book.delete_confirm_description": "确定要删除《{title}》吗？此操作无法撤销。",
 } as const

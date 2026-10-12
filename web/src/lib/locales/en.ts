@@ -4,6 +4,7 @@ export const en: Record<keyof typeof zh, string> = {
   "common.error.unknown": "An unknown error occurred. Please try again.",
   "common.error": "An error occurred",
   "common.close": "Close",
+  "common.cancel": "Cancel",
   "common.payload_too_large": "The upload is too large.",
   "common.internal_server_error": "Internal server error. Please try again later.",
   "network.error": "Unable to connect. Check your network and try again.",
@@ -37,4 +38,9 @@ export const en: Record<keyof typeof zh, string> = {
   "book.load_failed": "Failed to load books.",
   "book.upload": "Upload book",
   "book.uploading": "Uploading…",
+  "book.title": "Book title",
+  "book.rename": "Rename",
+  "book.delete": "Delete",
+  "book.delete_confirm_title": "Delete book?",
+  "book.delete_confirm_description": "Are you sure you want to delete “{title}”? This cannot be undone.",
 }

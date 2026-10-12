@@ -1,8 +1,24 @@
 import { useRef, useState, type ChangeEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, LibraryBig, LoaderCircle, Upload } from "lucide-react"
+import { BookOpen, LibraryBig, LoaderCircle, Pencil, Trash2, Upload } from "lucide-react"
 import { ApiError, library } from "@/api/library"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { notifyError } from "@/lib/error-notifications"
 import { formatBookDate } from "@/lib/format"
@@ -128,10 +144,49 @@ const GRID_CLASS_NAME =
   "grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-4 gap-y-6"
 
 function BookCard({ book }: { book: Book }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [coverFailed, setCoverFailed] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const updateBooks = (update: (books: Book[]) => Book[]) =>
+    queryClient.setQueryData<Book[]>(booksQueryKey, (books) => books && update(books))
+
+  const renameMutation = useMutation({
+    mutationFn: (title: string) => library.bookshelf.renameBook(book.id, title),
+    onSuccess: (_, title) => {
+      updateBooks((books) => books.map((item) => (item.id === book.id ? { ...item, title } : item)))
+      setRenaming(false)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => library.bookshelf.deleteBook(book.id),
+    onSuccess: () => {
+      setDeleteOpen(false)
+      updateBooks((books) => books.filter((item) => item.id !== book.id))
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
+  })
+
+  const submitRename = (value: string) => {
+    const title = value.trim()
+    // Nothing to send for an empty or unchanged title; just leave edit mode.
+    if (title === "" || title === book.title) {
+      setRenaming(false)
+      return
+    }
+    renameMutation.mutate(title)
+  }
 
   return (
-    <li className="flex min-w-0 flex-col gap-1">
+    <ContextMenu disabled={renaming}>
+      <ContextMenuTrigger
+        render={<li />}
+        className="flex min-w-0 flex-col gap-1"
+      >
       <div className="aspect-[3/4] w-full overflow-hidden rounded-md border bg-muted">
         {coverFailed ? (
           <div className="flex size-full items-center justify-center text-muted-foreground">
@@ -147,12 +202,81 @@ function BookCard({ book }: { book: Book }) {
           />
         )}
       </div>
-      <h2 title={book.title} className="mt-1 line-clamp-2 text-center text-sm font-medium break-all">
-        {book.title}
-      </h2>
+      {renaming ? (
+        <Input
+          autoFocus
+          defaultValue={book.title}
+          aria-label={t("book.title")}
+          disabled={renameMutation.isPending}
+          className="mt-1 h-7 text-center"
+          onFocus={(event) => event.currentTarget.select()}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === "Enter") {
+              event.preventDefault()
+              submitRename(event.currentTarget.value)
+            } else if (event.key === "Escape") {
+              event.preventDefault()
+              setRenaming(false)
+            }
+          }}
+          onBlur={() => {
+            if (!renameMutation.isPending) setRenaming(false)
+          }}
+        />
+      ) : (
+        <h2 title={book.title} className="mt-1 line-clamp-2 text-center text-sm font-medium break-all">
+          {book.title}
+        </h2>
+      )}
       <time dateTime={book.updated_at} className="text-center text-xs text-muted-foreground">
         {formatBookDate(book.updated_at)}
       </time>
-    </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent finalFocus={false}>
+        <ContextMenuItem onClick={() => setRenaming(true)}>
+          <Pencil aria-hidden="true" />
+          {t("book.rename")}
+        </ContextMenuItem>
+        <ContextMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
+          <Trash2 aria-hidden="true" />
+          {t("book.delete")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) setDeleteOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("book.delete_confirm_title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("book.delete_confirm_description").replace("{title}", book.title)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              disabled={deleteMutation.isPending}
+              render={<Button variant="outline" />}
+            >
+              {t("common.cancel")}
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              aria-busy={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+            >
+              {deleteMutation.isPending && (
+                <LoaderCircle aria-hidden="true" className="animate-spin" />
+              )}
+              {t("book.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </ContextMenu>
   )
 }

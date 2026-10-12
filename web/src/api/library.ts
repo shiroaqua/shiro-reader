@@ -47,6 +47,17 @@ export const bookshelf = {
     return book
   },
   getBooks: () => request<Book[]>("bookshelf/books"),
+  renameBook: (id: Book["id"], title: string) =>
+    request<void>(`bookshelf/books/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { title },
+      expectBody: false,
+    }),
+  deleteBook: (id: Book["id"]) =>
+    request<void>(`bookshelf/books/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      expectBody: false,
+    }),
   coverUrl: (id: Book["id"]) =>
     `${API_BASE_URL}/bookshelf/books/${encodeURIComponent(id)}/cover`,
 }
