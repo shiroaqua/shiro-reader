@@ -9,8 +9,3 @@ export interface Book {
     created_at: string;
     updated_at: string;
   }
-
-export interface CreateBookResponse {
-    id: UUID;
-    created_at: string;
-  }

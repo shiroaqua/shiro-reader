@@ -24,6 +24,8 @@ pub struct BooksQuery {
 #[derive(Debug, Serialize)]
 pub struct CreateBookResponse {
     pub id: String,
+    #[serde(rename = "type")]
+    pub file_type: String,
     pub created_at: DateTime<Utc>,
 }
 

@@ -1,27 +1,7 @@
-import type { Book, CreateBookResponse } from "@/lib/types"
+import type { Book } from "@/lib/types"
 import { notifyError } from "@/lib/error-notifications"
-import { hashFile } from "@/lib/hash"
 
 export const book = {
-  list: () => request<Book[]>("bookshelf/books"),
-  coverUrl: (id: Book["id"]) =>
-    `${API_BASE_URL}/books/${encodeURIComponent(id)}/cover`,
-  create: (title: string, hash: string) =>
-    request<CreateBookResponse>(
-      "bookshelf/books",
-      { method: "POST", body: { title, hash } }
-    ),
-  // Hash the file, upload it only if the server lacks it, then add the book.
-  upload: async (file: File) => {
-    const hash = await hashFile(file)
-    if (!(await bookFile.exists(hash))) {
-      await bookFile.upload(hash, file)
-    }
-    return book.create(bookTitleFromFileName(file.name), hash)
-  },
-}
-
-export const bookFile = {
   exists: async (hash: string): Promise<boolean> => {
     try {
       await performRequest<void>(`files/book?hash=${encodeURIComponent(hash)}`)
@@ -33,7 +13,6 @@ export const bookFile = {
     }
   },
   upload: async (hash: string, file: File): Promise<void> => {
-    // The server reads the hash field before the file, so order matters.
     const form = new FormData()
     form.append("hash", hash)
     form.append("file", file, file.name)
@@ -45,22 +24,40 @@ export const bookFile = {
         expectBody: false,
       })
     } catch (error) {
-      // Another upload of the same file finished first; the file is there now.
-      if (error instanceof ApiError && error.message === "library.book.file.already_exists") return
+      if (
+        error instanceof ApiError &&
+        error.message === "library.book.file.already_exists"
+      )
+        return
       if (error instanceof ApiError) notifyError(error.message)
       throw error
     }
   },
 }
 
-export function bookTitleFromFileName(fileName: string) {
-  const title = fileName.replace(/\.(pdf|epub)$/i, "").trim()
-  return title || fileName.trim()
+export const bookshelf = {
+  createBook: async (title: string, hash: string) => {
+    const book = await request<Book>("bookshelf/books", {
+      method: "POST",
+      body: { title, hash },
+    })
+    book.title = title
+    book.hash = hash
+    book.updated_at = book.created_at
+    return book
+  },
+  getBooks: () => request<Book[]>("bookshelf/books"),
+  coverUrl: (id: Book["id"]) =>
+    `${API_BASE_URL}/bookshelf/books/${encodeURIComponent(id)}/cover`,
+}
+
+export const files = {
+  book,
 }
 
 export const library = {
-  book,
-  bookFile,
+  bookshelf,
+  files,
 }
 
 export class ApiError extends Error {
@@ -74,7 +71,6 @@ export class ApiError extends Error {
     this.message = code
   }
 }
-
 
 const API_BASE_URL = "http://localhost/api/v1/library"
 // Abort requests the backend never answers so the UI can report a network error.
@@ -114,7 +110,9 @@ async function performRequest<T>(
 
   const controller = new AbortController()
   const timeout =
-    timeoutMs === null ? undefined : setTimeout(() => controller.abort(), timeoutMs)
+    timeoutMs === null
+      ? undefined
+      : setTimeout(() => controller.abort(), timeoutMs)
   const init: RequestInit = { method, signal: controller.signal }
 
   if (body instanceof FormData) {
@@ -150,7 +148,6 @@ async function performRequest<T>(
     clearTimeout(timeout)
   }
 }
-
 
 async function parseError(response: Response) {
   try {

@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub struct CreateBookOutput {
     pub id: String,
+    pub file_type: String,
     pub created_at: i128,
 }
 

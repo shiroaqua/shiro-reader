@@ -47,6 +47,7 @@ impl BookService {
 
         Ok(CreateBookOutput {
             id: book.id().to_string(),
+            file_type: self.bookfile.get_book_type(&hash).ok_or(crate::application::library::book::file::errors::BookFileApplicationError::Unsupported)?.to_string(),
             created_at: now,
         })
     }

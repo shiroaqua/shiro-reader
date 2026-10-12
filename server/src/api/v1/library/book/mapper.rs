@@ -6,6 +6,7 @@ impl From<CreateBookOutput> for CreateBookResponse {
     fn from(output: CreateBookOutput) -> Self {
         Self {
             id: output.id.to_string(),
+            file_type: output.file_type,
             created_at: time::ns_to_datetime(output.created_at),
         }
     }

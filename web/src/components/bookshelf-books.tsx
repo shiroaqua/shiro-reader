@@ -9,12 +9,13 @@ import { formatBookDate } from "@/lib/format"
 import { booksQueryKey } from "@/lib/query-keys"
 import { useTranslation } from "@/lib/i18n"
 import type { Book } from "@/lib/types"
+import { hashFile } from "@/lib/hash"
 
 export function BookshelfBooks() {
   const { t } = useTranslation()
   const { data: books, isPending, isError } = useQuery<Book[]>({
     queryKey: booksQueryKey,
-    queryFn: () => library.book.list(),
+    queryFn: () => library.bookshelf.getBooks(),
   })
 
   return (
@@ -68,8 +69,15 @@ function UploadBookButton() {
       // Upload one at a time so a failure only affects that file.
       for (const file of files) {
         try {
-          await library.book.upload(file)
-        } catch (error) {
+          const hash = await hashFile(file);
+          if (!(await library.files.book.exists(hash)))
+            await library.files.book.upload(hash, file);
+
+          await library.bookshelf.createBook(
+            file.name.replace(BOOK_FILE_PATTERN, "").trim(),
+            hash
+          )
+         } catch (error) {
           if (!(error instanceof ApiError)) notifyError("common.error.unknown")
         }
       }
@@ -131,7 +139,7 @@ function BookCard({ book }: { book: Book }) {
           </div>
         ) : (
           <img
-            src={library.book.coverUrl(book.id)}
+            src={library.bookshelf.coverUrl(book.id)}
             alt=""
             loading="lazy"
             className="size-full object-cover"
