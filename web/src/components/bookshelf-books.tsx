@@ -1,6 +1,15 @@
-import { useRef, useState, type ChangeEvent } from "react"
+import { useMemo, useRef, useState, type ChangeEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, LibraryBig, LoaderCircle, Pencil, Trash2, Upload } from "lucide-react"
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  BookOpen,
+  LibraryBig,
+  LoaderCircle,
+  Pencil,
+  Trash2,
+  Upload,
+} from "lucide-react"
 import { ApiError, library } from "@/api/library"
 import {
   AlertDialog,
@@ -18,25 +27,54 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { notifyError } from "@/lib/error-notifications"
 import { formatBookDate } from "@/lib/format"
 import { booksQueryKey } from "@/lib/query-keys"
+import {
+  loadBookSort,
+  saveBookSort,
+  sortBooks,
+  type BookSort,
+  type BookSortField,
+  type BookSortOrder,
+} from "@/lib/book-sort"
 import { useTranslation } from "@/lib/i18n"
 import type { Book } from "@/lib/types"
 import { hashFile } from "@/lib/hash"
 
 export function BookshelfBooks() {
-  const { t } = useTranslation()
+  const { t, locale } = useTranslation()
   const { data: books, isPending, isError } = useQuery<Book[]>({
     queryKey: booksQueryKey,
     queryFn: () => library.bookshelf.getBooks(),
   })
+  const [sort, setSort] = useState<BookSort>(loadBookSort)
+  const sortedBooks = useMemo(
+    () => (books ? sortBooks(books, sort, locale) : []),
+    [books, sort, locale]
+  )
+
+  const changeSort = (next: BookSort) => {
+    setSort(next)
+    saveBookSort(next)
+  }
 
   return (
     <section aria-labelledby="bookshelf-books-title" className="flex flex-1 flex-col gap-4 p-4">
       <div className="flex items-center justify-end gap-2">
+        <SortBooksMenu sort={sort} onChange={changeSort} />
         <UploadBookButton />
       </div>
       {isPending ? (
@@ -63,12 +101,55 @@ export function BookshelfBooks() {
         </div>
       ) : (
         <ul aria-label={t("book.list")} className={GRID_CLASS_NAME}>
-          {books.map((book) => (
+          {sortedBooks.map((book) => (
             <BookCard key={book.id} book={book} />
           ))}
         </ul>
       )}
     </section>
+  )
+}
+
+function SortBooksMenu({
+  sort,
+  onChange,
+}: {
+  sort: BookSort
+  onChange: (sort: BookSort) => void
+}) {
+  const { t } = useTranslation()
+  const Icon = sort.order === "asc" ? ArrowUpNarrowWide : ArrowDownWideNarrow
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button type="button" variant="outline" size="sm" />}>
+        <Icon aria-hidden="true" />
+        {t(sort.field === "title" ? "book.sort.title" : "book.sort.date")}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent aria-label={t("book.sort")}>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{t("book.sort.by")}</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={sort.field}
+            onValueChange={(field: BookSortField) => onChange({ ...sort, field })}
+          >
+            <DropdownMenuRadioItem value="title">{t("book.sort.title")}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="date">{t("book.sort.date")}</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>{t("book.sort.order")}</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={sort.order}
+            onValueChange={(order: BookSortOrder) => onChange({ ...sort, order })}
+          >
+            <DropdownMenuRadioItem value="asc">{t("book.sort.asc")}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="desc">{t("book.sort.desc")}</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

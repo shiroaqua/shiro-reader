@@ -41,4 +41,11 @@ export const zh = {
   "book.delete": "删除",
   "book.delete_confirm_title": "删除书籍？",
   "book.delete_confirm_description": "确定要删除《{title}》吗？此操作无法撤销。",
+  "book.sort": "排序",
+  "book.sort.by": "排序方式",
+  "book.sort.title": "名称",
+  "book.sort.date": "日期",
+  "book.sort.order": "顺序",
+  "book.sort.asc": "正序",
+  "book.sort.desc": "倒序",
 } as const

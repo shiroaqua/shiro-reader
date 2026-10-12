@@ -43,4 +43,11 @@ export const en: Record<keyof typeof zh, string> = {
   "book.delete": "Delete",
   "book.delete_confirm_title": "Delete book?",
   "book.delete_confirm_description": "Are you sure you want to delete “{title}”? This cannot be undone.",
+  "book.sort": "Sort",
+  "book.sort.by": "Sort by",
+  "book.sort.title": "Name",
+  "book.sort.date": "Date",
+  "book.sort.order": "Order",
+  "book.sort.asc": "Ascending",
+  "book.sort.desc": "Descending",
 }
