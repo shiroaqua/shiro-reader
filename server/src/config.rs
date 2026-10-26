@@ -1,10 +1,11 @@
-use std::{env, net::SocketAddr, path::{Path, PathBuf}};
+use std::{env, net::SocketAddr, path::PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub server: ServerConfig,
-    pub database: DatabaseConfig,
     pub telemetry: TelemetryConfig,
+    pub crypto: CryptoConfig,
+    pub database: DatabaseConfig,
     pub root_directory: PathBuf,
 }
 
@@ -28,8 +29,25 @@ pub enum LogFormat {
 
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
-    pub url: String,
     pub max_connections: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CryptoConfig {
+    /// Argon2 内存成本，单位为 KiB。
+    pub argon2_memory_cost: u32,
+    pub argon2_time_cost: u32,
+    pub argon2_parallelism: u32,
+    pub argon2_output_length: usize,
+    pub jwt_secret: String,
+    pub jwt_issuer: String,
+    pub jwt_audience: String,
+    /// 访问令牌有效期，单位为秒。
+    pub jwt_access_ttl_secs: u64,
+    /// 刷新令牌有效期，单位为秒。
+    pub jwt_refresh_ttl_secs: u64,
+    /// JWT 时间声明校验的宽限，单位为秒。
+    pub jwt_validation_leeway_secs: u64,
 }
 
 
@@ -46,7 +64,6 @@ impl Config {
         };
 
         let database = DatabaseConfig {
-            url: database_url(&root_directory),
             max_connections: env_var("DATABASE_MAX_CONNECTIONS", "5").parse()?,
         };
 
@@ -57,10 +74,24 @@ impl Config {
             },
         };
 
+        let crypto = CryptoConfig {
+            argon2_memory_cost: env_var("ARGON2_MEMORY_COST_KIB", "19456").parse()?,
+            argon2_time_cost: env_var("ARGON2_TIME_COST", "2").parse()?,
+            argon2_parallelism: env_var("ARGON2_PARALLELISM", "1").parse()?,
+            argon2_output_length: env_var("ARGON2_OUTPUT_LENGTH", "32").parse()?,
+            jwt_secret: env_var("JWT_SECRET", "shiro-reader-development-secret-change-me"),
+            jwt_issuer: env_var("JWT_ISSUER", "shiro-reader"),
+            jwt_audience: env_var("JWT_AUDIENCE", "shiro-reader"),
+            jwt_access_ttl_secs: env_var("JWT_ACCESS_TTL_SECS", "900").parse()?,
+            jwt_refresh_ttl_secs: env_var("JWT_REFRESH_TTL_SECS", "2592000").parse()?,
+            jwt_validation_leeway_secs: env_var("JWT_VALIDATION_LEEWAY_SECS", "60").parse()?,
+        };
+
         Ok(Self {
             server,
             database,
             telemetry,
+            crypto,
             root_directory,
         })
     }
@@ -78,13 +109,3 @@ fn env_var(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
 
-fn database_url(root_directory: &Path) -> String {
-    let path = root_directory.join("users").join("default").join("data.db");
-    // Preserve literal URL delimiters and escape sequences in the file path.
-    let path = path.to_string_lossy()
-        .replace('%', "%25")
-        .replace('?', "%3F")
-        .replace('#', "%23");
-
-    format!("sqlite://{}?mode=rwc", path)
-}

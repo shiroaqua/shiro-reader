@@ -1,7 +1,7 @@
 use axum::Router;
 
 use crate::state::AppState;
-
+pub mod extractors;
 pub mod v1;
 
 

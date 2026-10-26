@@ -9,9 +9,17 @@ use tracing::error;
 
 use crate::{
     api::v1::library::book::file::errors::BookFileAPIError,
-    application::library::{
-        book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
-        errors::LibraryApplicationError,
+    application::{
+        identity::{
+            authentication::errors::AuthenticationApplicationError,
+            crypto::errors::CryptoApplicationError,
+            errors::IdentityApplicationError,
+            user::errors::UserApplicationError,
+        },
+        library::{
+            book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
+            errors::LibraryApplicationError,
+        },
     },
 };
 
@@ -28,6 +36,7 @@ pub struct ErrorDetail {
 #[derive(Debug)]
 pub enum AppError {
     BadRequest { message: &'static str },
+    Unauthorized { message: &'static str },
     NotFound { message: &'static str },
     Conflict { message: &'static str },
     Internal(anyhow::Error),
@@ -37,6 +46,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             AppError::BadRequest { message } => (StatusCode::BAD_REQUEST, message),
+            AppError::Unauthorized { message } => (StatusCode::UNAUTHORIZED, message),
             AppError::NotFound { message } => (StatusCode::NOT_FOUND, message),
             AppError::Conflict { message } => (StatusCode::CONFLICT, message),
             AppError::Internal(error) => {
@@ -67,6 +77,107 @@ impl IntoResponse for AppError {
         };
 
         (status, Json(body)).into_response()
+    }
+}
+
+impl From<AuthenticationApplicationError> for AppError {
+    fn from(value: AuthenticationApplicationError) -> Self {
+        match value {
+            AuthenticationApplicationError::InvalidCredentials => AppError::Unauthorized {
+                message: "identity.authentication.invalid_credentials",
+            },
+            AuthenticationApplicationError::MissingBearerToken => AppError::Unauthorized {
+                message: "identity.authentication.missing_bearer_token",
+            },
+            AuthenticationApplicationError::NotFound => AppError::NotFound {
+                message: "identity.authentication.user_not_found",
+            },
+        }
+    }
+}
+
+impl From<IdentityApplicationError> for AppError {
+    fn from(value: IdentityApplicationError) -> Self {
+        match value {
+            IdentityApplicationError::Authentication(error) => error.into(),
+            IdentityApplicationError::User(error) => match error {
+                UserApplicationError::InvalidId => AppError::BadRequest {
+                    message: "identity.user.invalid_id",
+                },
+                UserApplicationError::MissingUserName => AppError::BadRequest {
+                    message: "identity.user.missing_user_name",
+                },
+                UserApplicationError::InvalidUserNameFormat => AppError::BadRequest {
+                    message: "identity.user.invalid_user_name_format",
+                },
+                UserApplicationError::MissingEmail => AppError::BadRequest {
+                    message: "identity.user.missing_email",
+                },
+                UserApplicationError::InvalidEmailFormat => AppError::BadRequest {
+                    message: "identity.user.invalid_email_format",
+                },
+                UserApplicationError::MissingPhone => AppError::BadRequest {
+                    message: "identity.user.missing_phone",
+                },
+                UserApplicationError::InvalidPhoneFormat => AppError::BadRequest {
+                    message: "identity.user.invalid_phone_format",
+                },
+                UserApplicationError::InvalidPhoneExtension => AppError::BadRequest {
+                    message: "identity.user.invalid_phone_extension",
+                },
+                UserApplicationError::InvalidPasswordHash => AppError::BadRequest {
+                    message: "identity.user.invalid_password_hash",
+                },
+                UserApplicationError::NotFound => AppError::NotFound {
+                    message: "identity.user.not_found",
+                },
+                UserApplicationError::NameConflict => AppError::Conflict {
+                    message: "identity.user.name_conflict",
+                },
+                UserApplicationError::VersionConflict => AppError::Conflict {
+                    message: "identity.user.version_conflict",
+                },
+                UserApplicationError::NameUnchanged => AppError::BadRequest {
+                    message: "identity.user.name_unchanged",
+                },
+                UserApplicationError::PasswordHashUnchanged => AppError::BadRequest {
+                    message: "identity.user.password_hash_unchanged",
+                },
+                UserApplicationError::Storage(error) => AppError::Internal(error),
+            },
+            IdentityApplicationError::Crypto(error) => match error {
+                CryptoApplicationError::InvalidTokenType => AppError::Unauthorized {
+                    message: "identity.authentication.invalid_token_type",
+                },
+                CryptoApplicationError::JsonWebToken(error) => {
+                    use jsonwebtoken::errors::ErrorKind;
+
+                    // JWT errors are shared by token verification and issuance.
+                    // Only invalid client tokens should be reported as unauthorized.
+                    
+                    match error.kind() {
+                        ErrorKind::InvalidToken
+                        | ErrorKind::InvalidSignature
+                        | ErrorKind::InvalidAlgorithmName
+                        | ErrorKind::MissingRequiredClaim(_)
+                        | ErrorKind::InvalidClaimFormat(_)
+                        | ErrorKind::ExpiredSignature
+                        | ErrorKind::InvalidIssuer
+                        | ErrorKind::InvalidAudience
+                        | ErrorKind::InvalidSubject
+                        | ErrorKind::ImmatureSignature
+                        | ErrorKind::InvalidAlgorithm
+                        | ErrorKind::Base64(_)
+                        | ErrorKind::Json(_)
+                        | ErrorKind::Utf8(_) => AppError::Unauthorized {
+                            message: "identity.authentication.invalid_token",
+                        },
+                        _ => AppError::Internal(error.into()),
+                    }
+                }
+                error => AppError::Internal(error.into()),
+            },
+        }
     }
 }
 

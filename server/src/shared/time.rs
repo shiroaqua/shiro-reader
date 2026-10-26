@@ -1,6 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 
+
+pub fn now_sec() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is before UNIX_EPOCH")
+        .as_secs()
+}
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -12,7 +12,7 @@ use crate::{
         },
     },
     infrastructure::repositories::{
-        errors::RepositoryError,
+        errors::LibraryRepositoryError,
         idens::{Books, FULL_BOOKS_TABLE_COLUMNS, INSERT_BOOKS_COLUMNS},
         sqlite::{
             join_timestamp_ns, split_system_time, SqliteExecutor, SqliteRowExt, VersionedRecord, map_database_error, map_invalid_data,
@@ -36,7 +36,7 @@ impl SqliteBookRepository {
 
 #[async_trait]
 impl BookRepository for SqliteBookRepository {
-    async fn create(&self, book: &Book) -> Result<(), RepositoryError> {
+    async fn create(&self, book: &Book) -> Result<(), LibraryRepositoryError> {
         let created_at = split_system_time(book.created_at());
         let updated_at = split_system_time(book.updated_at());
 
@@ -59,19 +59,19 @@ impl BookRepository for SqliteBookRepository {
         Ok(())
     }
 
-    async fn delete(&self, id: &BookId) -> Result<(), RepositoryError> {
+    async fn delete(&self, id: &BookId) -> Result<(), LibraryRepositoryError> {
         let (sql, values) = Query::delete()
             .from_table(Books::Table)
             .and_where(Expr::col(Books::Id).eq(id.to_string()))
             .build_sqlx(SqliteQueryBuilder);
 
         self.db
-            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .execute_affected(&sql, values, LibraryRepositoryError::BookNotFound, map_sqlx_error)
             .await?;
         Ok(())
     }
 
-    async fn find_by_id(&self, id: &BookId) -> Result<VersionedRecord<Book>, RepositoryError> {
+    async fn find_by_id(&self, id: &BookId) -> Result<VersionedRecord<Book>, LibraryRepositoryError> {
         let (sql, values) = Query::select()
             .columns(FULL_BOOKS_TABLE_COLUMNS)
             .from(Books::Table)
@@ -79,11 +79,11 @@ impl BookRepository for SqliteBookRepository {
             .build_sqlx(SqliteQueryBuilder);
 
         self.db
-            .fetch_optional(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .fetch_optional(&sql, values, LibraryRepositoryError::BookNotFound, map_sqlx_error)
             .await
     }
 
-    async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), RepositoryError> {
+    async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), LibraryRepositoryError> {
         let updated_at = split_system_time(book.updated_at());
         let (sql, values) = Query::update()
             .table(Books::Table)
@@ -98,14 +98,14 @@ impl BookRepository for SqliteBookRepository {
             .build_sqlx(SqliteQueryBuilder);
 
         self.db
-            .execute_affected(&sql, values, RepositoryError::BookNotFound, map_sqlx_error)
+            .execute_affected(&sql, values, LibraryRepositoryError::BookNotFound, map_sqlx_error)
             .await
     }
 
     async fn list(
         &self,
         book_ids: Vec<BookId>,
-    ) -> Result<Vec<GetBookOutput>, RepositoryError> {
+    ) -> Result<Vec<GetBookOutput>, LibraryRepositoryError> {
         let mut query = Query::select();
         query
             .columns(FULL_BOOKS_TABLE_COLUMNS)
@@ -121,7 +121,7 @@ impl BookRepository for SqliteBookRepository {
 }
 
 impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
-    type Error = RepositoryError;
+    type Error = LibraryRepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         Ok(VersionedRecord {
@@ -139,7 +139,7 @@ impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
 }
 
 impl TryFrom<&SqliteRow> for GetBookOutput {
-    type Error = RepositoryError;
+    type Error = LibraryRepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
         Ok(GetBookOutput {
@@ -153,7 +153,7 @@ impl TryFrom<&SqliteRow> for GetBookOutput {
     }
 }
 
-fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
+fn map_sqlx_error(error: sqlx::Error) -> LibraryRepositoryError {
     map_database_error(error, |database_error| {
         let is_root_book_title_conflict = message_contains_columns(
             database_error.message(),
@@ -162,7 +162,7 @@ fn map_sqlx_error(error: sqlx::Error) -> RepositoryError {
         );
 
         if database_error.is_unique_constraint() && is_root_book_title_conflict {
-            Some(RepositoryError::BookTitleConflict)
+            Some(LibraryRepositoryError::BookTitleConflict)
         } else {
             None
         }

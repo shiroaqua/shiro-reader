@@ -11,7 +11,6 @@ use crate::{
                 CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand,
             },
             dto::{CreateBookOutput, GetBookOutput},
-            errors::BookApplicationError,
             file::service::BookFileService,
             ports::BookRepository,
             queries::GetBooksQuery,
@@ -20,19 +19,18 @@ use crate::{
     }, domain::library::{
         book::{
             entity::Book,
-            errors::BookDomainError,
             value_objects::{BookId, BookTitle},
         },
     }, shared::time::now_ns,
 };
 
 #[derive(new)]
-pub struct BookService {
-    repository: Arc<dyn BookRepository>,
+pub struct BookService<T: BookRepository> {
+    repository: T,
     bookfile: Arc<BookFileService>,
 }
 
-impl BookService {
+impl<T: BookRepository> BookService<T> {
     pub async fn create_book(
         &self,
         command: CreateBookCommand,
@@ -103,17 +101,5 @@ impl BookService {
         let book = self.repository.find_by_id(&id).await?;
         // 此处获得的是共享书库中的默认封面，此后添加用户系统后需改为获取对应书籍的封面（换句话说就是每个book_id对应的封面）
         self.bookfile.download_book_cover_file(*book.hash()).await
-    }
-}
-
-impl From<BookDomainError> for BookApplicationError {
-    fn from(value: BookDomainError) -> Self {
-        match value {
-            BookDomainError::InvalidId => Self::InvalidId,
-            BookDomainError::MissingTitle => Self::MissingTitle,
-            BookDomainError::InvalidTitleFormat => Self::InvalidTitleFormat,
-            BookDomainError::InvalidHash => Self::InvalidHashFormat,
-            BookDomainError::TitleUnchanged => Self::TitleUnchanged,
-        }
     }
 }

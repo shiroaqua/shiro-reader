@@ -1,7 +1,5 @@
 use crate::{
-    api::v1::library::book::file::{dto::BookQuery, errors::BookFileAPIError},
-    error::AppError,
-    state::AppState,
+    api::{extractors::auth::RoutedState, v1::library::book::file::{dto::BookQuery, errors::BookFileAPIError}}, error::AppError, state::AppState,
 };
 use axum::{
     body::Body,
@@ -16,6 +14,7 @@ use tokio_util::io::{ReaderStream, StreamReader};
 
 pub async fn upload_book(
     State(state): State<AppState>,
+    _: RoutedState,
     mut multipart: Multipart,
 ) -> Result<StatusCode, AppError> {
     let mut hash: Option<String> = None;
@@ -67,7 +66,7 @@ pub async fn upload_book(
 
 pub async fn download_book(
     State(state): State<AppState>,
-    Path(book_hash): Path<String>,
+    Path(book_hash): Path<String>, _ : RoutedState
 ) -> Result<Response<Body>, AppError> {
     let file = state
         .bookfile_service
@@ -94,7 +93,7 @@ pub async fn download_book(
 
 pub async fn get_book(
     State(state): State<AppState>,
-    Query(query): Query<BookQuery>,
+    Query(query): Query<BookQuery>, _ : RoutedState
 ) -> Result<StatusCode, AppError> {
     let _ = state.bookfile_service.parse_existing_hash(&query.hash)?;
     Ok(StatusCode::NO_CONTENT)

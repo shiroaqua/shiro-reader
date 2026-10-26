@@ -1,12 +1,16 @@
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use std::path::Path;
 
-use crate::config::DatabaseConfig;
+use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
-pub async fn connect(config: &DatabaseConfig) -> anyhow::Result<SqlitePool> {
-    connect_sqlite_url(&config.url, config.max_connections).await
-}
+pub async fn connect(path: &Path, max_connections: u32) -> anyhow::Result<SqlitePool> {
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        path.to_string_lossy()
+            .replace('%', "%25")
+            .replace('?', "%3F")
+            .replace('#', "%23")
+    );
 
-pub async fn connect_sqlite_url(url: &str, max_connections: u32) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePoolOptions::new()
         .max_connections(max_connections)
         .after_connect(|connection, _meta| {
@@ -18,7 +22,7 @@ pub async fn connect_sqlite_url(url: &str, max_connections: u32) -> anyhow::Resu
                 Ok(())
             })
         })
-        .connect(url)
+        .connect(&url)
         .await?;
 
     Ok(pool)

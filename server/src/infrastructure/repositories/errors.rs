@@ -1,5 +1,5 @@
 #[derive(Debug, thiserror::Error)]
-pub enum RepositoryError {
+pub enum LibraryRepositoryError {
     #[error("book file type is inviled")]
     InvalidBookFileType,
 
@@ -8,6 +8,21 @@ pub enum RepositoryError {
 
     #[error("book title conflict")]
     BookTitleConflict,
+
+    #[error(transparent)]
+    Storage(#[from] anyhow::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UserRepositoryError {
+    #[error("user not found")]
+    UserNotFound,
+
+    #[error("user name conflict")]
+    UserNameConflict,
+
+    #[error("user version conflict")]
+    UserVersionConflict,
     
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

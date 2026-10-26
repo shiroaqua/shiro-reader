@@ -1,23 +1,20 @@
 use axum::{
     Json,
     body::Body,
-    extract::{Path, State},
+    extract::Path,
     http::{HeaderValue, Response, StatusCode, header::CONTENT_TYPE},
 };
 use axum_extra::extract::Query;
 
 use crate::{
-    api::v1::library::book::dto::*,
-    application::library::book::{
+    api::{extractors::auth::RoutedState, v1::library::book::dto::*}, application::library::book::{
         commands::{CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand},
         queries::GetBooksQuery,
-    },
-    error::AppError,
-    state::AppState,
+    }, error::AppError,
 };
 
 pub async fn create_book(
-    State(state): State<AppState>,
+    state: RoutedState,
     Json(request): Json<CreateBookRequest>,
 ) -> Result<(StatusCode, Json<CreateBookResponse>), AppError> {
     let output = state
@@ -32,7 +29,7 @@ pub async fn create_book(
 }
 
 pub async fn delete_book(
-    State(state): State<AppState>,
+    state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     state
@@ -44,7 +41,7 @@ pub async fn delete_book(
 }
 
 pub async fn rename_book(
-    State(state): State<AppState>,
+    state: RoutedState,
     Path(book_id): Path<String>,
     Json(request): Json<RenameBookRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -60,7 +57,7 @@ pub async fn rename_book(
 }
 
 pub async fn download_cover(
-    State(state): State<AppState>,
+    state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<Response<Body>, AppError> {
     let stream = state
@@ -77,7 +74,7 @@ pub async fn download_cover(
 }
 
 pub async fn get_books(
-    State(state): State<AppState>,
+    state: RoutedState,
     Query(query): Query<BooksQuery>,
 ) -> Result<(StatusCode, Json<Vec<GetBookResponse>>), AppError> {
     let response_data: Vec<GetBookResponse> = state

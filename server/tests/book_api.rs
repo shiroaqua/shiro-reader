@@ -1,168 +1,93 @@
-use axum::http::StatusCode;
-
-use crate::support::{Book, EMPTY_STRING, INVALID_BOOK_TITLES, INVALID_HASH, INVALID_UUID, SampleFile, TestApp, UNKNOWN_HASH, UNKNOWN_UUID, body_bytes};
-
 mod support;
+use support::*;
+use HttpError::*;
+use SampleFile::*;
 
 #[tokio::test]
-async fn create_book() {
+async fn create_and_filter_books() {
     let app = TestApp::new().await;
-
-    let book = app.create_default_book().await;
-    book.assert_data();
-    assert_eq!(book.response.status_code, StatusCode::CREATED);
+    let reader = app.session("读者A").await;
+    assert!(app.books(&reader).await.is_empty());
+    app.upload(&reader, Pdf).await;
+    app.upload(&reader, Epub).await;
+    let pdf = app.add_book(&reader, "PDF", Pdf).await;
+    let epub = app.add_book(&reader, "EPUB", Epub).await;
+    assert_eq!(app.books(&reader).await.len(), 2);
+    assert_eq!(app.books_by_ids(&reader, &[&pdf.data.id]).await, [pdf.data.clone()]);
+    assert_eq!(app.books_by_ids(&reader, &[&pdf.data.id, &epub.data.id]).await.len(), 2);
+    assert!(app.books_by_ids(&reader, &[UNKNOWN_ID]).await.is_empty());
+    app.find_books(&reader, &[INVALID_ID]).await.assert_error(InvalidBookId);
 }
 
 #[tokio::test]
-async fn create_book_missing_titile_error() {
+async fn create_rejects_invalid_title_and_file() {
     let app = TestApp::new().await;
-    let book = app.create_book(EMPTY_STRING, UNKNOWN_HASH).await;
-    book.response.assert_book_missing_title_error();
-}
-
-
-#[tokio::test]
-async fn create_book_invalid_title_format_error() {
-    let app = TestApp::new().await;
-    for title in INVALID_BOOK_TITLES {
-     app.create_book(title, UNKNOWN_HASH).await.response.assert_book_invalid_title_format_error();
+    let reader = app.session("Reader").await;
+    app.create_book(&reader, "", UNKNOWN_HASH).await.assert_error(MissingTitle);
+    for title in INVALID_TITLES {
+        app.create_book(&reader, title, UNKNOWN_HASH).await.assert_error(InvalidTitle);
     }
-}
-
-
-#[tokio::test]
-async fn create_book_invalid_hash_error() {
-    let app = TestApp::new().await;
-    let book = app.create_book("title", INVALID_HASH).await;
-    book.response.assert_book_file_invalid_hash_format_error();
-}
-
-
-#[tokio::test]
-async fn create_book_not_found_error() {
-    let app = TestApp::new().await;
-    let book = app.create_book("title", UNKNOWN_HASH).await;
-    book.response.assert_book_file_not_found_error();
+    app.create_book(&reader, "Book", INVALID_HASH).await.assert_error(InvalidHash);
+    app.create_book(&reader, "Book", UNKNOWN_HASH).await.assert_error(FileNotFound);
+    assert!(app.books(&reader).await.is_empty());
 }
 
 #[tokio::test]
-async fn delete_book() {
+async fn duplicate_titles_and_invalid_renames_leave_books_unchanged() {
     let app = TestApp::new().await;
-
-    assert_eq!(app.create_default_book().await.delete().await.status_code, StatusCode::NO_CONTENT);
-    assert_eq!(app.get_books().await.len(), 0);
-  
-}
-
-
-#[tokio::test]
-async fn delete_book_invalid_id_error() {
-    let app = TestApp::new().await;
-    let mut book = app.create_default_book().await;
-    book.id = INVALID_UUID.to_owned();
-    book.delete().await.assert_book_invalid_id_error();
-}
-
-#[tokio::test]
-async fn delete_book_not_found_error() {
-    let app = TestApp::new().await;
-    let mut book = app.create_default_book().await;
-    book.id = UNKNOWN_UUID.to_owned();
-    book.delete().await.assert_book_not_found_error();
-}
-
-
-#[tokio::test]
-async fn rename_book() {
-    let app = TestApp::new().await;
-
-    let mut book = app.create_default_book().await;
-    book.rename("QAQ").await;
-    assert_eq!(book.response.status_code, StatusCode::NO_CONTENT);
-    let books = app.get_books().await;
-    assert_eq!(books.iter().find(|item| item.id == book.id).unwrap().title, "QAQ");
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let first = app.add_book(&reader, "First", Epub).await;
+    let second = app.add_book(&reader, "Second", Epub).await;
+    app.create_book(&reader, "First", &Epub.hash()).await.assert_error(TitleConflict);
+    for (title, error) in [("", MissingTitle), ("First", UnchangedTitle), ("Second", TitleConflict)] {
+        first.rename(title).await.assert_error(error);
+    }
+    for title in INVALID_TITLES { first.rename(title).await.assert_error(InvalidTitle); }
+    first.assert_unchanged().await;
+    second.assert_unchanged().await;
 }
 
 #[tokio::test]
-async fn rename_book_missing_title_error() {
+async fn rename_and_delete_preserve_shared_file() {
     let app = TestApp::new().await;
-    let mut book = app.create_default_book().await;
-    book.rename(EMPTY_STRING).await;
-    book.response.assert_book_missing_title_error();
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "Original", Epub).await;
+    book.rename("Renamed").await.assert_empty(204);
+    book.assert_renamed("Renamed").await;
+    book.delete().await.assert_empty(204);
+    assert!(app.books(&reader).await.is_empty());
+    book.delete().await.assert_error(BookNotFound);
+    app.find_file(&reader, &Epub.hash()).await.assert_empty(204);
+    app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
 }
 
 #[tokio::test]
-async fn rename_book_invalid_title_format_error() {
+async fn unknown_and_invalid_book_ids_are_rejected() {
     let app = TestApp::new().await;
-    let mut book = app.create_default_book().await;
-    for title in INVALID_BOOK_TITLES {
-        book.rename(title).await;
-        book.response.assert_book_invalid_title_format_error();
+    let reader = app.session("Reader").await;
+    for (id, error) in [(INVALID_ID, InvalidBookId), (UNKNOWN_ID, BookNotFound)] {
+        app.rename_book(&reader, id, "NewTitle").await.assert_error(error);
+        app.delete_book(&reader, id).await.assert_error(error);
+        app.cover(&reader, id).await.assert_error(error);
     }
 }
 
 #[tokio::test]
-async fn get_books() {
+async fn pdf_cover_is_png() {
     let app = TestApp::new().await;
-    assert!(app.get_books().await.is_empty());
-
-    let first = app.create_book("PDF", &app.upload_sample_book_file(SampleFile::PDF).await.1.to_hex()).await;
-    let second = app.create_book("EPUB", &app.upload_sample_book_file(SampleFile::EPUB).await.1.to_hex()).await;
-    let books = app.get_books().await;
-    assert_eq!(books.len(), 2);
-    assert_book(books.iter().find(|f| f.id == first.id).unwrap(), &first);
-    assert_book(books.iter().find(|f| f.id == second.id).unwrap(), &second);
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Pdf).await;
+    let book = app.add_book(&reader, "PDF", Pdf).await;
+    book.cover().await.assert_png();
 }
 
 #[tokio::test]
-async fn get_books_by_ids() {
+async fn epub_cover_matches_declared_png_type() {
     let app = TestApp::new().await;
-
-    let first = app.create_book("PDF", &app.upload_sample_book_file(SampleFile::PDF).await.1.to_hex()).await;
-    let second = app.create_book("EPUB", &app.upload_sample_book_file(SampleFile::EPUB).await.1.to_hex()).await;
-
-    let books = app.get_books_by_ids(&[&first.id, &second.id]).await;
-    assert_eq!(books.status_code, StatusCode::OK);
-    let books = Book::from_data_array(&app, books);
-    assert_eq!(books.len(), 2);
-    assert_book(books.iter().find(|book| book.id == first.id).unwrap(), &first);
-    assert_book(books.iter().find(|book| book.id == second.id).unwrap(), &second);
-}
-
-#[tokio::test]
-async fn get_book_cover() {
-    let app = TestApp::new().await;
-
-    // 屏蔽原因：PDF的封面是渲染的不具有跨平台跨版本稳定性。
-    // let hash = app.upload_sample_book_file(SampleFile::PDF).await.1;
-    // assert_cover_hash(
-    //     app.create_book("awa", &hash.to_hex()).await,
-    //     "d3ceb887c2894a092ee23b815676f06368fbdc50af9a4b62bed62c376a8c0aab",
-    // )
-    // .await;
-
-    let hash = app.upload_sample_book_file(SampleFile::EPUB).await.1;
-    assert_cover_hash(
-        app.create_book("qwq", &hash.to_hex()).await,
-        "75e470ff9e488fc6fbd3d122c15f4e4296bcf0ea688ef8c071c5b71c64a03f38",
-    )
-    .await;
-}
-
-async fn assert_cover_hash(book: Book<'_>, expected_hash: &str) {
-    let response = book.get_cover().await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = body_bytes(response).await;
-    let hash = blake3::hash(&body.to_vec())
-        .to_hex()
-        .to_string();
-    assert_eq!(hash, expected_hash);
-}
-
-fn assert_book(a: &Book, b: &Book) {
-    assert_eq!(a.id, b.id);
-    assert_eq!(a.title, b.title);
-    assert_eq!(a.hash, b.hash);
-    assert_eq!(a.created_at, b.created_at);
-    assert_eq!(a.updated_at, b.updated_at);
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "EPUB", Epub).await;
+    book.cover().await.assert_png();
 }

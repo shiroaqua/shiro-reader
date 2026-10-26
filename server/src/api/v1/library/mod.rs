@@ -7,8 +7,7 @@ use axum::{
 pub mod book;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        
+    Router::new() 
         .route(
             "/files/book",
             get(book::file::handlers::get_book).post(book::file::handlers::upload_book),

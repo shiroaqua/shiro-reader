@@ -13,8 +13,6 @@ use sqlx::{
 };
 use uuid::Uuid;
 
-use crate::infrastructure::repositories::errors::RepositoryError;
-
 pub(crate) fn split_timestamp_ns(timestamp: i128) -> (i64, i64) {
     let high = (timestamp >> 64) as i64;
     let low = (timestamp as u64 ^ (1_u64 << 63)) as i64;
@@ -79,33 +77,33 @@ impl SqliteExecutor {
         Self { pool }
     }
 
-    pub async fn begin(
+    pub async fn begin<E>(
         &self,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<SqliteTransaction<'_>, RepositoryError> {
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<SqliteTransaction<'_>, E> {
         let tx = self.pool.begin().await.map_err(map_error)?;
         Ok(SqliteTransaction { tx })
     }
 
-    pub async fn execute(
+    pub async fn execute<E>(
         &self,
         sql: &str,
         values: SqlxValues,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<SqliteQueryResult, RepositoryError> {
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<SqliteQueryResult, E> {
         sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .execute(&self.pool)
             .await
             .map_err(map_error)
     }
 
-    pub async fn execute_affected(
+    pub async fn execute_affected<E>(
         &self,
         sql: &str,
         values: SqlxValues,
-        not_found: RepositoryError,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<(), RepositoryError> {
+        not_found: E,
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<(), E> {
         let result = self.execute(sql, values, map_error).await?;
 
         if result.rows_affected() == 0 {
@@ -115,15 +113,15 @@ impl SqliteExecutor {
         Ok(())
     }
 
-    pub async fn fetch_optional<T>(
+    pub async fn fetch_optional<T, E>(
         &self,
         sql: &str,
         values: SqlxValues,
-        not_found: RepositoryError,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<T, RepositoryError>
+        not_found: E,
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<T, E>
     where
-        T: for<'row> TryFrom<&'row SqliteRow, Error = RepositoryError>,
+        T: for<'row> TryFrom<&'row SqliteRow, Error = E>,
     {
         let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_optional(&self.pool)
@@ -134,14 +132,14 @@ impl SqliteExecutor {
         T::try_from(&row)
     }
 
-    pub async fn fetch_all<T>(
+    pub async fn fetch_all<T, E>(
         &self,
         sql: &str,
         values: SqlxValues,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<Vec<T>, RepositoryError>
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<Vec<T>, E>
     where
-        T: for<'row> TryFrom<&'row SqliteRow, Error = RepositoryError>,
+        T: for<'row> TryFrom<&'row SqliteRow, Error = E>,
     {
         let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_all(&self.pool)
@@ -153,25 +151,25 @@ impl SqliteExecutor {
 }
 
 impl SqliteTransaction<'_> {
-    pub async fn execute(
+    pub async fn execute<E>(
         &mut self,
         sql: &str,
         values: SqlxValues,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<SqliteQueryResult, RepositoryError> {
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<SqliteQueryResult, E> {
         sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .execute(self.tx.as_mut())
             .await
             .map_err(map_error)
     }
 
-   pub async fn execute_affected(
+   pub async fn execute_affected<E>(
         &mut self,
         sql: &str,
         values: SqlxValues,
-        not_found: RepositoryError,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<(), RepositoryError> {
+        not_found: E,
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<(), E> {
         let result = self.execute(sql, values, map_error).await?;
 
         if result.rows_affected() == 0 {
@@ -181,12 +179,12 @@ impl SqliteTransaction<'_> {
         Ok(())
     }
 
-    pub async fn fetch_exists(
+    pub async fn fetch_exists<E>(
         &mut self,
         sql: &str,
         values: SqlxValues,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<bool, RepositoryError> {
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<bool, E> {
         let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
             .fetch_optional(self.tx.as_mut())
             .await
@@ -195,22 +193,25 @@ impl SqliteTransaction<'_> {
         Ok(row.is_some())
     }
 
-    pub async fn commit(
+    pub async fn commit<E>(
         self,
-        map_error: impl Fn(sqlx::Error) -> RepositoryError,
-    ) -> Result<(), RepositoryError> {
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<(), E> {
         self.tx.commit().await.map_err(map_error)
     }
 }
 
-pub fn map_invalid_data(error: impl Into<anyhow::Error>) -> RepositoryError {
-    RepositoryError::Storage(error.into())
+pub fn map_invalid_data(error: impl Into<anyhow::Error>) -> anyhow::Error {
+    error.into()
 }
 
-pub fn map_database_error(
+pub fn map_database_error<E>(
     error: sqlx::Error,
-    classify: impl FnOnce(SqliteDatabaseError<'_>) -> Option<RepositoryError>,
-) -> RepositoryError {
+    classify: impl FnOnce(SqliteDatabaseError<'_>) -> Option<E>,
+) -> E
+where
+    E: From<anyhow::Error>,
+{
     if let sqlx::Error::Database(database_error) = &error {
         let database_error = SqliteDatabaseError {
             code: database_error.code(),
@@ -222,7 +223,7 @@ pub fn map_database_error(
         }
     }
 
-    map_storage_error(error)
+    map_storage_error(error).into()
 }
 
 pub struct SqliteDatabaseError<'a> {
@@ -271,41 +272,41 @@ where
     message.contains(&columns)
 }
 
-pub fn map_storage_error(error: sqlx::Error) -> RepositoryError {
-    RepositoryError::Storage(anyhow::Error::new(error))
+pub fn map_storage_error(error: sqlx::Error) -> anyhow::Error {
+    anyhow::Error::new(error)
 }
 
 pub trait SqliteRowExt {
-    fn get<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         for<'decode> T: Decode<'decode, Sqlite> + Type<Sqlite>;
 
-    fn get_string<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_string<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<String>;
 
-    fn get_uuid<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_uuid<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<Uuid>;
 
-    fn get_optional_uuid<T>(&self, column: &str) -> Result<Option<T>, RepositoryError>
+    fn get_optional_uuid<T>(&self, column: &str) -> Result<Option<T>, anyhow::Error>
     where
         T: From<Uuid>;
 
-    fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_hash<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<Hash>;
 }
 
 impl SqliteRowExt for SqliteRow {
-    fn get<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         for<'decode> T: Decode<'decode, Sqlite> + Type<Sqlite>,
     {
         self.try_get(column).map_err(map_storage_error)
     }
 
-    fn get_string<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_string<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<String>,
     {
@@ -313,7 +314,7 @@ impl SqliteRowExt for SqliteRow {
         Ok(T::from(value))
     }
 
-    fn get_uuid<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_uuid<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<Uuid>,
     {
@@ -321,7 +322,7 @@ impl SqliteRowExt for SqliteRow {
         parse_uuid(value)
     }
 
-    fn get_optional_uuid<T>(&self, column: &str) -> Result<Option<T>, RepositoryError>
+    fn get_optional_uuid<T>(&self, column: &str) -> Result<Option<T>, anyhow::Error>
     where
         T: From<Uuid>,
     {
@@ -329,7 +330,7 @@ impl SqliteRowExt for SqliteRow {
         value.map(parse_uuid).transpose()
     }
 
-    fn get_hash<T>(&self, column: &str) -> Result<T, RepositoryError>
+    fn get_hash<T>(&self, column: &str) -> Result<T, anyhow::Error>
     where
         T: From<Hash>,
     {
@@ -340,7 +341,7 @@ impl SqliteRowExt for SqliteRow {
     }
 }
 
-fn parse_uuid<T>(value: String) -> Result<T, RepositoryError>
+fn parse_uuid<T>(value: String) -> Result<T, anyhow::Error>
 where
     T: From<Uuid>,
 {

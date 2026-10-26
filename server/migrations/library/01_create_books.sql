@@ -83,3 +83,13 @@ BEGIN
         'books.updated_at cannot move backwards'
     );
 END;
+
+
+-- version 不允许倒退。
+CREATE TRIGGER IF NOT EXISTS trg_books_version_monotonic
+BEFORE UPDATE OF version ON books
+FOR EACH ROW
+WHEN NEW.version < OLD.version
+BEGIN
+    SELECT RAISE(ABORT, 'books.version cannot move backwards');
+END;

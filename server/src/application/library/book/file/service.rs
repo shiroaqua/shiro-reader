@@ -117,13 +117,3 @@ impl Drop for UploadGuard {
         self.set.remove(&self.hash);
     }
 }
-
-impl From<io::Error> for LibraryApplicationError {
-    fn from(value: io::Error) -> Self {
-        match value.kind() {
-            ErrorKind::NotFound => BookFileApplicationError::NotFound,
-            _ => BookFileApplicationError::Storage(value.into()),
-        }
-        .into()
-    }
-}
