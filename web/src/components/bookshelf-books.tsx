@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowDownWideNarrow,
@@ -228,6 +228,22 @@ function BookCard({ book }: { book: Book }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [coverFailed, setCoverFailed] = useState(false)
+  const [coverUrl, setCoverUrl] = useState<string>()
+  useEffect(() => {
+    let active = true
+    let objectUrl: string | undefined
+    void library.bookshelf.getCover(book.id).then((blob) => {
+      if (!active) return
+      objectUrl = URL.createObjectURL(blob)
+      setCoverUrl(objectUrl)
+    }).catch(() => {
+      if (active) setCoverFailed(true)
+    })
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [book.id])
   const [renaming, setRenaming] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
 
@@ -275,7 +291,7 @@ function BookCard({ book }: { book: Book }) {
           </div>
         ) : (
           <img
-            src={library.bookshelf.coverUrl(book.id)}
+            src={coverUrl}
             alt=""
             loading="lazy"
             className="size-full object-cover"

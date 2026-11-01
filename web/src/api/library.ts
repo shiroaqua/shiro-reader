@@ -1,3 +1,5 @@
+import { sendAuthenticatedRequest } from "./auth"
+import { API_BASE_URL, ApiError, type RequestOptions } from "./http"
 import type { Book } from "@/lib/types"
 import { notifyError } from "@/lib/error-notifications"
 
@@ -58,8 +60,10 @@ export const bookshelf = {
       method: "DELETE",
       expectBody: false,
     }),
+  getCover: async (id: Book["id"]): Promise<Blob> =>
+    (await sendAuthenticatedRequest(`library/bookshelf/books/${encodeURIComponent(id)}/cover`)).blob(),
   coverUrl: (id: Book["id"]) =>
-    `${API_BASE_URL}/bookshelf/books/${encodeURIComponent(id)}/cover`,
+    `${API_BASE_URL}/library/bookshelf/books/${encodeURIComponent(id)}/cover`,
 }
 
 export const files = {
@@ -71,35 +75,9 @@ export const library = {
   files,
 }
 
-export class ApiError extends Error {
-  httpStatus: number
-  message: string
+export { ApiError } from "./http"
 
-  constructor(status: number, code: string) {
-    super(code)
-    this.name = "ApiError"
-    this.httpStatus = status
-    this.message = code
-  }
-}
-
-const API_BASE_URL = "http://localhost/api/v1/library"
-// Abort requests the backend never answers so the UI can report a network error.
-const REQUEST_TIMEOUT_MS = 10_000
-
-type RequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
-  body?: unknown
-  // null disables the timeout, e.g. for large uploads.
-  timeoutMs?: number | null
-  // false for endpoints that answer with an empty body (e.g. 201 on upload).
-  expectBody?: boolean
-}
-
-async function request<T>(
-  path: string,
-  options: RequestOptions = {}
-): Promise<T> {
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   try {
     return await performRequest<T>(path, options)
   } catch (error) {
@@ -108,68 +86,8 @@ async function request<T>(
   }
 }
 
-async function performRequest<T>(
-  path: string,
-  options: RequestOptions = {}
-): Promise<T> {
-  const {
-    method = "GET",
-    body,
-    timeoutMs = REQUEST_TIMEOUT_MS,
-    expectBody = true,
-  } = options
-
-  const controller = new AbortController()
-  const timeout =
-    timeoutMs === null
-      ? undefined
-      : setTimeout(() => controller.abort(), timeoutMs)
-  const init: RequestInit = { method, signal: controller.signal }
-
-  if (body instanceof FormData) {
-    // Let the browser set the multipart boundary.
-    init.body = body
-  } else if (body !== undefined) {
-    init.headers = { "Content-Type": "application/json" }
-    init.body = JSON.stringify(body)
-  }
-
-  try {
-    let response: Response
-    try {
-      response = await fetch(`${API_BASE_URL}/${path}`, init)
-    } catch {
-      throw new ApiError(0, "network.error")
-    }
-
-    if (response.status === 204) {
-      return undefined as T
-    }
-
-    if (!response.ok) {
-      throw await parseError(response)
-    }
-
-    if (!expectBody) {
-      return undefined as T
-    }
-
-    return (await response.json()) as T
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function parseError(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: { message?: string } }
-    return new ApiError(
-      response.status,
-      typeof payload?.error?.message === "string"
-        ? payload.error.message
-        : "common.error.unknown"
-    )
-  } catch {
-    return new ApiError(response.status, "common.error.unknown")
-  }
+async function performRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await sendAuthenticatedRequest(`library/${path}`, options)
+  if (response.status === 204 || options.expectBody === false) return undefined as T
+  return await response.json() as T
 }

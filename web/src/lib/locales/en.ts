@@ -1,6 +1,13 @@
 import type { zh } from "./zh"
 
 export const en: Record<keyof typeof zh, string> = {
+  "identity.authentication.invalid_credentials": "Incorrect username or password.",
+  "identity.authentication.invalid_token": "Your session has expired. Please sign in again.",
+  "identity.authentication.invalid_token_type": "Your session has expired. Please sign in again.",
+  "identity.authentication.missing_bearer_token": "Please sign in first.",
+  "identity.authentication.user_not_found": "User not found. Please sign in again.",
+  "identity.user.missing_user_name": "Please enter a username.",
+  "identity.user.invalid_user_name_format": "Invalid username format.",
   "common.error.unknown": "An unknown error occurred. Please try again.",
   "common.error": "An error occurred",
   "common.close": "Close",
@@ -50,4 +57,15 @@ export const en: Record<keyof typeof zh, string> = {
   "book.sort.order": "Order",
   "book.sort.asc": "Ascending",
   "book.sort.desc": "Descending",
+  "common.user": "User",
+  "login.subtitle": "Your personal book cloud management platform",
+  "login.username": "Username",
+  "login.username_placeholder": "Enter username",
+  "login.password": "Password",
+  "login.password_placeholder": "Enter password",
+  "login.submit": "Sign In",
+  "login.loading": "Signing in…",
+  "login.no_account": "Don't have an account?",
+  "login.register": "Register",
+  "dashboard.profile.logout": "Sign Out",
 }

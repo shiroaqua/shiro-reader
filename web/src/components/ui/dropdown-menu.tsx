@@ -13,15 +13,17 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
 function DropdownMenuContent({
   className,
   align = "end",
+  side = "bottom",
   sideOffset = 4,
   ...props
 }: MenuPrimitive.Popup.Props &
-  Pick<MenuPrimitive.Positioner.Props, "align" | "sideOffset">) {
+  Pick<MenuPrimitive.Positioner.Props, "align" | "side" | "sideOffset">) {
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
         className="z-50 outline-none"
         align={align}
+        side={side}
         sideOffset={sideOffset}
       >
         <MenuPrimitive.Popup
@@ -89,6 +91,25 @@ function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.
   )
 }
 
+function DropdownMenuItem({
+  className,
+  children,
+  ...props
+}: MenuPrimitive.Item.Props) {
+  return (
+    <MenuPrimitive.Item
+      data-slot="dropdown-menu-item"
+      className={cn(
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </MenuPrimitive.Item>
+  )
+}
+
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -98,4 +119,5 @@ export {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuItem,
 }

@@ -16,7 +16,7 @@ pub async fn login(
     let output = state
         .auth_service
         .login(LoginCommand {
-            username: request.id,
+            username: request.username,
             password: request.password,
         })
         .await?;

@@ -9,6 +9,7 @@ import {
   SidebarMenuItem,
   SidebarTrigger,
   SidebarProvider,
+  SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
@@ -19,12 +20,25 @@ import {
   NotebookPen,
   ChartNoAxesCombined,
   Trash,
+  LogOut,
+  User,
+  ChevronsUpDown,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookshelfBooks } from "@/components/bookshelf-books"
 import { useTranslation } from "@/lib/i18n"
+import { useAuth } from "@/context/auth-context"
 
 export function DashboardScreen() {
   const { t } = useTranslation()
+  const { username, logout } = useAuth()
   const [isRootBookshelfSelected, setIsRootBookshelfSelected] = useState(false)
 
   const menus: DashboardMenu[] = [
@@ -70,18 +84,26 @@ export function DashboardScreen() {
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
-        <SidebarGroup>
-          <SidebarContent>
+        <SidebarContent>
+          <SidebarGroup>
             <SidebarMenu>
               {menus.map((item) => (
                 <DashboardMenuItem key={item.id} item={item} />
               ))}
             </SidebarMenu>
-          </SidebarContent>
-        </SidebarGroup>
+          </SidebarGroup>
+        </SidebarContent>
+
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <UserProfileMenu username={username} onLogout={logout} />
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
       </Sidebar>
       <main className="flex min-w-0 flex-1 flex-col">
-        <SidebarTrigger />
+          <SidebarTrigger />
         {isRootBookshelfSelected && <BookshelfBooks />}
       </main>
     </SidebarProvider>
@@ -105,14 +127,77 @@ function DashboardMenuItem({ item }: { item: DashboardMenu }) {
         tooltip={item.name}
         isActive={item.isActive}
         aria-current={item.isActive ? "page" : undefined}
-        onClick={item.onSelect ? () => {
-          item.onSelect?.()
-          setOpenMobile(false)
-        } : undefined}
+        onClick={
+          item.onSelect
+            ? () => {
+                item.onSelect?.()
+                setOpenMobile(false)
+              }
+            : undefined
+        }
       >
         {item.icon}
         <span>{item.name}</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
+  )
+}
+
+function UserProfileMenu({
+  username,
+  onLogout,
+}: {
+  username: string | null
+  onLogout: () => void
+}) {
+  const { t } = useTranslation()
+
+  const handleLogout = () => {
+    onLogout()
+  }
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <SidebarMenuButton
+                size="lg"
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              />
+            }
+          >
+            <Avatar className="h-8 w-8 rounded-lg">
+              <AvatarFallback className="rounded-lg bg-gradient-to-br from-blue-400 to-blue-600">
+                <User className="size-4 text-white" />
+              </AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 text-left text-sm leading-tight">
+              <span className="truncate font-medium">
+                {username || t("common.user")}
+              </span>
+            </div>
+            <ChevronsUpDown className="ml-auto size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="w-(--radix-dropdown-menu-trigger-width) rounded-lg"
+            side="right"
+            align="end"
+            sideOffset={4}
+          >
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+              >
+                <LogOut />
+                <span>{t("dashboard.profile.logout")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
   )
 }
