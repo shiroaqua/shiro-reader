@@ -2,8 +2,7 @@ use super::*;
 use shiro_reader_server::application::identity::{
     authentication::commands::VerifyAccessToeknCommand,
     errors::IdentityApplicationError,
-    user::{commands::{UserRegisterCommand, UserReanmeCommand, UserChangePasswordCommand, UserUnregisterCommand},
-        dto::{UserProfile, UserStorageStatus}},
+    user::{commands::{UserRegisterCommand, UserReanmeCommand, UserChangePasswordCommand, UserUnregisterCommand},},
 };
 pub use shiro_reader_server::application::identity::user::errors::UserApplicationError as UserError;
 
@@ -37,7 +36,7 @@ impl TestApp {
         self.login(name, PASSWORD).await
     }
     pub async fn attempt_login(&self, name: &str, password: &str) -> HttpResponse {
-        self.send(Method::POST, LOGIN, Some(json!({"id": name, "password": password})), None).await
+        self.send(Method::POST, LOGIN, Some(json!({"username": name, "password": password})), None).await
     }
     pub async fn login(&self, name: &str, password: &str) -> Session {
         let response = self.attempt_login(name, password).await;
@@ -82,12 +81,6 @@ impl TestApp {
     pub async fn unregister(&self, id: &str) -> UserResult {
         UserResult(self.state.user_service.unregister(UserUnregisterCommand { id: id.into() }).await)
     }
-    pub async fn profile(&self, id: &str) -> UserProfile {
-        self.state.user_service.profile(id.into()).await.expect("query user profile")
-    }
-    pub async fn storage_status(&self) -> UserStorageStatus {
-        self.state.user_service.storage_status().await.expect("query user storage status")
-    }
     pub async fn access_books(&self, session: &Session) -> HttpResponse {
         self.send(Method::GET, BOOKS, None, Some(session)).await
     }
@@ -125,7 +118,7 @@ impl TestApp {
             for (body, content_type, status) in [
                 ("{}", "application/json", 422), ("{", "application/json", 400),
                 ("{}", "text/plain", 415),
-                (r#"{"id":42,"password":[],"token":42}"#, "application/json", 422),
+                (r#"{"username":42,"password":[],"token":42}"#, "application/json", 422),
             ] {
                 responses.push((self.request(Method::POST, uri, Body::from(body), Some(content_type), None).await, status));
             }

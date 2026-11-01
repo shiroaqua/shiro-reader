@@ -24,20 +24,6 @@ pub struct UserService {
 }
 
 impl UserService {
-    /// Query public user metadata through the application boundary.
-    pub async fn profile(
-        &self,
-        _id: String,
-    ) -> Result<super::dto::UserProfile, IdentityApplicationError> {
-        todo!("implement application-level user profile query")
-    }
-
-    /// Report incomplete registration cleanup without exposing storage internals.
-    pub async fn storage_status(
-        &self,
-    ) -> Result<super::dto::UserStorageStatus, IdentityApplicationError> {
-        todo!("implement application-level user storage status query")
-    }
 
     pub async fn register(
         &self,
