@@ -42,7 +42,7 @@ impl TestApp {
         app
     }
 
-    async fn at(root: &std::path::Path) -> Self {
+    pub async fn at(root: &std::path::Path) -> Self {
         let state = AppState::build(&runtime::config(root)).await.expect("build application");
         Self { router: build_router(state.clone()), state, _directory: None }
     }
@@ -94,11 +94,26 @@ impl HttpResponse {
     }
 
     pub fn assert_png(&self) {
+        self.assert_image(image::ImageFormat::Png);
+    }
+
+    pub fn assert_image(&self, format: image::ImageFormat) {
         self.assert_status(200);
-        assert_eq!(self.headers["content-type"], "image/png");
-        assert!(self.bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "cover bytes must match image/png");
-        let image = image::load_from_memory_with_format(&self.bytes, image::ImageFormat::Png).unwrap();
+        assert_eq!(self.headers["content-type"], format.to_mime_type());
+        assert_eq!(image::guess_format(&self.bytes).unwrap(), format);
+        let image = image::load_from_memory_with_format(&self.bytes, format).unwrap();
         assert!(image.width() > 0 && image.height() > 0);
+    }
+
+    pub fn assert_cover_bytes(&self, expected: &[u8]) {
+        assert_eq!(self.bytes.as_ref(), expected);
+    }
+
+    pub fn assert_blank_cover(&self) {
+        self.assert_png();
+        let image = image::load_from_memory(&self.bytes).unwrap().to_rgba8();
+        assert_eq!(image.dimensions(), (1000, 1600));
+        assert!(image.pixels().all(|pixel| pixel.0 == [255, 255, 255, 255]));
     }
 
     pub fn assert_file(&self, file: &SampleFile) {

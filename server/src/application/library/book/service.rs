@@ -96,7 +96,7 @@ impl<T: BookRepository> BookService<T> {
     pub async fn get_cover(
         &self,
         command: GetBookCoverCommand,
-    ) -> Result<impl Stream<Item = std::io::Result<Bytes>> + 'static, LibraryApplicationError> {
+    ) -> Result<(impl Stream<Item = std::io::Result<Bytes>> + 'static, String), LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
         let book = self.repository.find_by_id(&id).await?;
         // 此处获得的是共享书库中的默认封面，此后添加用户系统后需改为获取对应书籍的封面（换句话说就是每个book_id对应的封面）

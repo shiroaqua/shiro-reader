@@ -2,7 +2,7 @@ use axum::{
     Json,
     body::Body,
     extract::Path,
-    http::{HeaderValue, Response, StatusCode, header::CONTENT_TYPE},
+    http::{Response, StatusCode, header::CONTENT_TYPE},
 };
 use axum_extra::extract::Query;
 
@@ -60,7 +60,7 @@ pub async fn download_cover(
     state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<Response<Body>, AppError> {
-    let stream = state
+    let (stream, content_type) = state
         .book_service
         .get_cover(GetBookCoverCommand { id: book_id })
         .await?;
@@ -68,7 +68,7 @@ pub async fn download_cover(
 
     Response::builder()
         .status(StatusCode::OK)
-        .header(CONTENT_TYPE, HeaderValue::from_static("image/png"))
+        .header(CONTENT_TYPE, content_type)
         .body(body)
         .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }

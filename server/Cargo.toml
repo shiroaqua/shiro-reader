@@ -40,3 +40,6 @@ tower-http = { version = "0.7.0", features = ["trace", "cors", "request-id", "ti
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = { version = "1.23.1", features = ["serde", "v4"] }
+
+[dev-dependencies]
+zip = { version = "3.0.0", default-features = false }

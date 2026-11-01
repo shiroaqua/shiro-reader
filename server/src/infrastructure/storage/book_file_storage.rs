@@ -22,6 +22,7 @@ pub struct BookFileStorage {
     dir: PathBuf,
     ext: String,
     files: DashMap<blake3::Hash, BookFileType>,
+    covers: DashMap<Hash, (PathBuf, ImageFormat)>,
     pdfium: Arc<Mutex<Pdfium>>,
 }
 
@@ -35,6 +36,7 @@ impl BookFileStorage {
             dir: dir,
             ext: ext,
             files: DashMap::new(),
+            covers: DashMap::new(),
             pdfium: pdfium,
         }
     }
@@ -102,6 +104,31 @@ impl BookFileStorage {
             });
         tracing::info!("Loaded {} books", files.len());
         self.files = Arc::into_inner(files).unwrap();
+
+        let covers = DashMap::new();
+        for entry in std::fs::read_dir(self.dir.join("covers"))? {
+            let path = entry?.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(hash) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(|stem| Hash::from_hex(stem).ok())
+            else {
+                continue;
+            };
+            let format = std::fs::File::open(&path)
+                .and_then(|file| {
+                    image::ImageReader::new(std::io::BufReader::new(file)).with_guessed_format()
+                })
+                .ok()
+                .and_then(|reader| reader.format());
+            if let Some(format) = format {
+                covers.insert(hash, (path, format));
+            }
+        }
+        self.covers = covers;
         Ok(())
     }
 
@@ -154,24 +181,26 @@ impl BookFileStorage {
         let cover = match file_type {
             BookFileType::PDF => extract_pdf_cover(temp_file.as_file_mut(), &self.pdfium),
             BookFileType::EPUB => extract_epub_cover(temp_file.as_file_mut()),
-        };
+        }
+        .and_then(|cover| Ok((image::guess_format(&cover)?, cover)));
+        let (cover_format, cover) = cover.unwrap_or_else(|_| (ImageFormat::Png, blank_cover()));
 
         temp_file.seek(std::io::SeekFrom::Start(0))?;
         std::io::copy(&mut temp_file, &mut final_temp_file)?;
         let _ = temp_file.close(); // 提早清除文件（报错无所谓）
 
         let hash = file_hash.to_hex().to_string();
-        if let Ok(cover) = cover {
-            let mut temp_cover_file = tempfile::NamedTempFile::new_in(&path)?;
-            temp_cover_file.write_all(&cover)?;
-            drop(cover);
+        let cover_path = self.dir.join("covers").join(&hash)
+            .with_extension(cover_format.extensions_str()[0]);
+        let mut temp_cover_file = tempfile::NamedTempFile::new_in(&path)?;
+        temp_cover_file.write_all(&cover)?;
+        drop(cover);
 
-            temp_cover_file
-                .persist_noclobber(&self.dir.join("covers").join(&hash).with_extension("png"))?;
-        }
+        temp_cover_file.persist_noclobber(&cover_path)?;
 
         match final_temp_file.persist_noclobber(&self.dir.join(&hash).with_extension(&self.ext)) {
             Ok(_) => {
+                self.covers.insert(file_hash, (cover_path, cover_format));
                 self.files.insert(file_hash, file_type);
                 Ok(())
             }
@@ -182,22 +211,21 @@ impl BookFileStorage {
     pub async fn open_cover(
         &self,
         key: Hash,
-    ) -> io::Result<impl Stream<Item = io::Result<Bytes>> + 'static> {
-        let path = self
-            .dir
-            .join("covers")
-            .join(key.to_hex().to_string())
-            .with_extension("png");
-
-        if path.exists() {
-            let file = File::open(path).await?;
-            let stream = ReaderStream::new(file);
-            Ok(stream.boxed())
-        } else {
-            let data = blank_cover();
-            let stream = stream::once(async move { Ok(Bytes::from(data)) });
-            Ok(stream.boxed())
+    ) -> io::Result<(impl Stream<Item = io::Result<Bytes>> + 'static, String)> {
+        let cover = self.covers.get(&key).map(|cover| cover.value().clone());
+        if let Some((path, format)) = cover {
+            match File::open(path).await {
+                Ok(file) => {
+                    return Ok((ReaderStream::new(file).boxed(), format.to_mime_type().to_owned()));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => { /*跳入下面*/ }
+                Err(error) => return Err(error),
+            }
         }
+
+        let data = blank_cover();
+        let stream = stream::once(async move { Ok(Bytes::from(data)) });
+        Ok((stream.boxed(), ImageFormat::Png.to_mime_type().to_owned()))
     }
 
     pub async fn open(&self, hash: &Hash) -> io::Result<File> {

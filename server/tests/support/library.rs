@@ -13,6 +13,28 @@ impl SampleFile {
     fn file_type(&self) -> &str { match self { Self::Pdf => "PDF", Self::Epub => "EPUB" } }
 }
 
+pub fn epub_with_cover(cover: Option<&[u8]>) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+
+    let mut source = zip::ZipArchive::new(Cursor::new(SampleFile::Epub.bytes())).unwrap();
+    let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored);
+    for index in 0..source.len() {
+        let mut entry = source.by_index(index).unwrap();
+        if entry.name() == "EPUB/cover.svg" {
+            if let Some(cover) = cover {
+                output.start_file(entry.name(), options).unwrap();
+                output.write_all(cover).unwrap();
+            }
+        } else {
+            output.start_file(entry.name(), options).unwrap();
+            std::io::copy(&mut entry, &mut output).unwrap();
+        }
+    }
+    output.finish().unwrap().into_inner()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BookData {
     pub id: String,
