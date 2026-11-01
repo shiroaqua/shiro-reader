@@ -7,7 +7,8 @@ use crate::{
             commands::{
                 UserChangePasswordCommand,
                 UserReanmeCommand, UserRegisterCommand, UserUnregisterCommand,
-            }, errors::UserApplicationError, ports::UserRepository,
+            }, dto::GetUserOutput, errors::UserApplicationError, ports::UserRepository,
+            queries::GetUsersQuery,
         },
     }, domain::identity::user::{
         entity::User,
@@ -112,5 +113,23 @@ impl UserService {
 
         self.repository.commit(user).await?;
         Ok(())
+    }
+
+    pub async fn get_users(
+        &self,
+        query: GetUsersQuery,
+    ) -> Result<Vec<GetUserOutput>, IdentityApplicationError> {
+        let users = self
+            .repository
+            .list(
+                query
+                    .user_ids
+                    .iter()
+                    .map(|id| UserId::parse(id))
+                    .collect::<Result<_, _>>()?,
+            )
+            .await?;
+
+        Ok(users)
     }
 }

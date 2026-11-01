@@ -7,6 +7,8 @@ pub struct UserProfile {
     pub updated_at: i128,
 }
 
+pub type GetUserOutput = UserProfile;
+
 /// Storage health observable without exposing database paths or connections.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserStorageStatus {

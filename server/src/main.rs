@@ -1,5 +1,11 @@
 use axum::extract::DefaultBodyLimit;
-use shiro_reader_server::{app, config::Config, state::AppState, telemetry};
+use shiro_reader_server::{
+    app,
+    application::identity::user::{commands::UserRegisterCommand, queries::GetUsersQuery},
+    config::Config,
+    state::AppState,
+    telemetry,
+};
 use tokio::net::TcpListener;
 
 use tracing::info;
@@ -10,8 +16,40 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init(&config.telemetry)?;
 
     let state = AppState::build(&config).await?;
-    let router = app::build_router(state).layer(DefaultBodyLimit::max(config.server.max_upload_size));
+
+    if cfg!(debug_assertions) {
+        state
+        .user_service
+        .register(UserRegisterCommand {
+            name: "admin".to_owned(),
+            password: "admin".to_owned(),
+        })
+        .await?;
+    } else {
+        if state.user_service.get_users(GetUsersQuery { user_ids: vec![] }).await?.len() == 0 {
+            let option = securepass::PasswordOptions {
+                length: 10,
+                include_special_chars: false,
+                include_uppercase: true,
+                include_numbers: true,
+                with_balancing: true,
+                phrase: None,
+            };
     
+            let password = option.generate_password().unwrap();
+            state
+                .user_service
+                .register(UserRegisterCommand {
+                    name: "admin".to_owned(),
+                    password: password.to_owned(),
+                })
+                .await?;
+            info!("admin: {password}")
+        }    
+    }
+    
+    let router =
+        app::build_router(state).layer(DefaultBodyLimit::max(config.server.max_upload_size));
 
     let listener = TcpListener::bind(config.server.socket_addr()).await?;
     info!(addr = %config.server.socket_addr(), "server listening");

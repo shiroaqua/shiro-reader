@@ -4,7 +4,7 @@ use sea_query_sqlx::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
-    application::identity::user::ports::UserRepository,
+    application::identity::user::{dto::GetUserOutput, ports::UserRepository},
     domain::identity::user::{
         entity::User,
         value_objects::{UserId, UserName, UserPasswordHash},
@@ -91,6 +91,30 @@ impl UserRepository for SqliteUserRepository {
         Ok(ids.into_iter().map(|id| id.to_string()).collect())
     }
 
+    async fn list(
+        &self,
+        user_ids: Vec<UserId>,
+    ) -> Result<Vec<GetUserOutput>, UserRepositoryError> {
+        let mut query = Query::select();
+        query
+            .columns([
+                Users::Id,
+                Users::Name,
+                Users::CreatedAtHigh,
+                Users::CreatedAtLow,
+                Users::UpdatedAtHigh,
+                Users::UpdatedAtLow,
+            ])
+            .from(Users::Table);
+
+        if !user_ids.is_empty() {
+            query.and_where(Expr::col(Users::Id).is_in(user_ids.iter().map(ToString::to_string)));
+        }
+
+        let (sql, values) = query.build_sqlx(SqliteQueryBuilder);
+        self.db.fetch_all(&sql, values, map_sqlx_error).await
+    }
+
     async fn find_by_name(&self, name: &UserName) -> Result<User, UserRepositoryError> {
         let (sql, values) = Query::select()
             .columns(FULL_USERS_TABLE_COLUMNS)
@@ -174,6 +198,25 @@ impl TryFrom<&SqliteRow> for VersionedRecord<User> {
                 ),
             ),
             version: row.get(&Users::Version.to_string())?,
+        })
+    }
+}
+
+impl TryFrom<&SqliteRow> for GetUserOutput {
+    type Error = UserRepositoryError;
+
+    fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
+        Ok(GetUserOutput {
+            id: row.get_string(&Users::Id.to_string())?,
+            name: row.get_string(&Users::Name.to_string())?,
+            created_at: join_timestamp_ns(
+                row.get(&Users::CreatedAtHigh.to_string())?,
+                row.get(&Users::CreatedAtLow.to_string())?,
+            ),
+            updated_at: join_timestamp_ns(
+                row.get(&Users::UpdatedAtHigh.to_string())?,
+                row.get(&Users::UpdatedAtLow.to_string())?,
+            ),
         })
     }
 }

@@ -2661,6 +2661,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "securepass"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3f9c14b31f70a5e28c554b87c6f7a12cba3638dcc2b61ad3e852f936f69749"
+dependencies = [
+ "rand 0.8.8",
+]
+
+[[package]]
 name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2812,6 +2821,7 @@ dependencies = [
  "sea-query 1.0.1",
  "sea-query-binder",
  "sea-query-sqlx",
+ "securepass",
  "serde",
  "serde_json",
  "sqlx 0.9.0",
