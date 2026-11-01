@@ -17,16 +17,16 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState::build(&config).await?;
 
-    if cfg!(debug_assertions) {
-        state
-        .user_service
-        .register(UserRegisterCommand {
-            name: "admin".to_owned(),
-            password: "admin".to_owned(),
-        })
-        .await?;
-    } else {
-        if state.user_service.get_users(GetUsersQuery { user_ids: vec![] }).await?.len() == 0 {
+    if state.user_service.get_users(GetUsersQuery { user_ids: vec![] }).await?.len() == 0 {
+        if cfg!(debug_assertions) {
+            state
+                .user_service
+                .register(UserRegisterCommand {
+                    name: "admin".to_owned(),
+                    password: "admin".to_owned(),
+                })
+                .await?;
+        } else {
             let option = securepass::PasswordOptions {
                 length: 10,
                 include_special_chars: false,
@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
                 with_balancing: true,
                 phrase: None,
             };
-    
+
             let password = option.generate_password().unwrap();
             state
                 .user_service
@@ -45,9 +45,9 @@ async fn main() -> anyhow::Result<()> {
                 })
                 .await?;
             info!("admin: {password}")
-        }    
+        }
     }
-    
+
     let router =
         app::build_router(state).layer(DefaultBodyLimit::max(config.server.max_upload_size));
 
