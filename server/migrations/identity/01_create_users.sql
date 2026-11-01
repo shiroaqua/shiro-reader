@@ -3,9 +3,6 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
     id              TEXT    NOT NULL PRIMARY KEY,
     name            TEXT    NOT NULL UNIQUE,
-    email           TEXT,
-    phone           TEXT,
-    phone_extension TEXT,
     password_hash   TEXT    NOT NULL,
     created_at_high INTEGER NOT NULL,
     created_at_low  INTEGER NOT NULL,
@@ -27,31 +24,6 @@ CREATE TABLE IF NOT EXISTS users (
 
     CONSTRAINT chk_users_name_non_empty
         CHECK (length(name) > 0 AND name = trim(name)),
-
-    CONSTRAINT chk_users_email_non_empty
-        CHECK (email IS NULL OR (length(email) > 0 AND email = trim(email))),
-
-    -- 主号码保存 E.164 格式，分机单独保存以保留前导零。
-    CONSTRAINT chk_users_phone_e164
-        CHECK (
-            phone IS NULL
-            OR (
-                length(phone) BETWEEN 2 AND 16
-                AND substr(phone, 1, 1) = '+'
-                AND substr(phone, 2, 1) BETWEEN '1' AND '9'
-                AND substr(phone, 2) NOT GLOB '*[^0-9]*'
-            )
-        ),
-
-    CONSTRAINT chk_users_phone_extension
-        CHECK (
-            phone_extension IS NULL
-            OR (
-                phone IS NOT NULL
-                AND length(phone_extension) > 0
-                AND phone_extension NOT GLOB '*[^0-9]*'
-            )
-        ),
 
     CONSTRAINT chk_users_password_hash_non_empty
         CHECK (length(password_hash) > 0),

@@ -1,11 +1,9 @@
-use crate::{domain::identity::user::{errors::UserDomainError, value_objects::{Email, Phone, UserId, UserName, UserPasswordHash}}, shared::time::now_ns};
+use crate::{domain::identity::user::{errors::UserDomainError, value_objects::{UserId, UserName, UserPasswordHash}}, shared::time::now_ns};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct User {
     id: UserId,
     name: UserName,
-    email: Option<Email>,
-    phone: Option<Phone>,
     password_hash: UserPasswordHash,
     created_at: i128,
     updated_at: i128,
@@ -21,8 +19,6 @@ impl User {
         Self {
             id,
             name,
-            email: None,
-            phone: None,
             password_hash,
             created_at,
             updated_at: created_at,
@@ -32,8 +28,6 @@ impl User {
     pub(crate) fn reconstitute(
         id: UserId,
         name: UserName,
-        email: Option<Email>,
-        phone: Option<Phone>,
         password_hash: UserPasswordHash,
         created_at: i128,
         updated_at: i128,
@@ -41,8 +35,6 @@ impl User {
         Self {
             id,
             name,
-            email,
-            phone,
             password_hash,
             created_at,
             updated_at,
@@ -55,14 +47,6 @@ impl User {
 
     pub fn name(&self) -> &UserName {
         &self.name
-    }
-
-    pub fn email(&self) -> &Option<Email> {
-        &self.email
-    }
-
-    pub fn phone(&self) -> &Option<Phone> {
-        &self.phone
     }
 
     pub fn password_hash(&self) -> &UserPasswordHash {

@@ -7,8 +7,7 @@ use crate::{
     application::identity::user::ports::UserRepository,
     domain::identity::user::{
         entity::User,
-        errors::UserDomainError,
-        value_objects::{Email, Phone, UserId, UserName, UserPasswordHash},
+        value_objects::{UserId, UserName, UserPasswordHash},
     },
     infrastructure::repositories::{
         errors::UserRepositoryError,
@@ -45,9 +44,6 @@ impl UserRepository for SqliteUserRepository {
             .values_panic([
                 Expr::val(user.id().to_string()),
                 Expr::val(user.name().as_str()),
-                Expr::val(user.email().as_ref().map(Email::as_str)),
-                Expr::val(user.phone().as_ref().map(Phone::as_e164)),
-                Expr::val(user.phone().as_ref().and_then(Phone::extension)),
                 Expr::val(user.password_hash().as_str()),
                 Expr::val(created_at.0),
                 Expr::val(created_at.1),
@@ -128,9 +124,6 @@ impl UserRepository for SqliteUserRepository {
             .table(Users::Table)
             .values([
                 (Users::Name, user.name().as_str().into()),
-                (Users::Email, user.email().as_ref().map(Email::as_str).into()),
-                (Users::Phone, user.phone().as_ref().map(Phone::as_e164).into()),
-                (Users::PhoneExtension, user.phone().as_ref().and_then(Phone::extension).into()),
                 (Users::PasswordHash, user.password_hash().as_str().into()),
                 (Users::UpdatedAtHigh, updated_at.0.into()),
                 (Users::UpdatedAtLow, updated_at.1.into()),
@@ -165,29 +158,11 @@ impl TryFrom<&SqliteRow> for VersionedRecord<User> {
     type Error = UserRepositoryError;
 
     fn try_from(row: &SqliteRow) -> Result<Self, Self::Error> {
-        let email = row.get::<Option<String>>(&Users::Email.to_string())?
-            .map(Email::parse)
-            .transpose()
-            .map_err(map_invalid_data)?;
-        let phone = match (
-            row.get::<Option<String>>(&Users::Phone.to_string())?,
-            row.get::<Option<String>>(&Users::PhoneExtension.to_string())?,
-        ) {
-            (Some(number), extension) => Some(
-                Phone::parse_with_region(number, None, extension.as_deref())
-                    .map_err(map_invalid_data)?,
-            ),
-            (None, None) => None,
-            (None, Some(_)) => return Err(map_invalid_data(UserDomainError::InvalidPhoneFormat).into()),
-        };
-
         Ok(VersionedRecord {
             value: User::reconstitute(
                 row.get_uuid(&Users::Id.to_string())?,
                 UserName::parse(row.get_string::<String>(&Users::Name.to_string())?)
                     .map_err(map_invalid_data)?,
-                email,
-                phone,
                 UserPasswordHash::try_from(row)?,
                 join_timestamp_ns(
                     row.get(&Users::CreatedAtHigh.to_string())?,

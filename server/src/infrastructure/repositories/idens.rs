@@ -42,9 +42,6 @@ pub(super) enum Users {
     Table,
     Id,
     Name,
-    Email,
-    Phone,
-    PhoneExtension,
     PasswordHash,
     CreatedAtHigh,
     CreatedAtLow,
@@ -53,12 +50,9 @@ pub(super) enum Users {
     Version,
 }
 
-pub(super) const FULL_USERS_TABLE_COLUMNS: [Users; 11] = [
+pub(super) const FULL_USERS_TABLE_COLUMNS: [Users; 8] = [
     Users::Id,
     Users::Name,
-    Users::Email,
-    Users::Phone,
-    Users::PhoneExtension,
     Users::PasswordHash,
     Users::CreatedAtHigh,
     Users::CreatedAtLow,
@@ -67,12 +61,9 @@ pub(super) const FULL_USERS_TABLE_COLUMNS: [Users; 11] = [
     Users::Version,
 ];
 
-pub(super) const INSERT_USERS_COLUMNS: [Users; 11] = [
+pub(super) const INSERT_USERS_COLUMNS: [Users; 8] = [
     Users::Id,
     Users::Name,
-    Users::Email,
-    Users::Phone,
-    Users::PhoneExtension,
     Users::PasswordHash,
     Users::CreatedAtHigh,
     Users::CreatedAtLow,

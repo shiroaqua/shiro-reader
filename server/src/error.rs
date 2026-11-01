@@ -110,21 +110,6 @@ impl From<IdentityApplicationError> for AppError {
                 UserApplicationError::InvalidUserNameFormat => AppError::BadRequest {
                     message: "identity.user.invalid_user_name_format",
                 },
-                UserApplicationError::MissingEmail => AppError::BadRequest {
-                    message: "identity.user.missing_email",
-                },
-                UserApplicationError::InvalidEmailFormat => AppError::BadRequest {
-                    message: "identity.user.invalid_email_format",
-                },
-                UserApplicationError::MissingPhone => AppError::BadRequest {
-                    message: "identity.user.missing_phone",
-                },
-                UserApplicationError::InvalidPhoneFormat => AppError::BadRequest {
-                    message: "identity.user.invalid_phone_format",
-                },
-                UserApplicationError::InvalidPhoneExtension => AppError::BadRequest {
-                    message: "identity.user.invalid_phone_extension",
-                },
                 UserApplicationError::InvalidPasswordHash => AppError::BadRequest {
                     message: "identity.user.invalid_password_hash",
                 },

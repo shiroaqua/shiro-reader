@@ -9,21 +9,6 @@ pub enum UserDomainError {
     #[error("Username can only contain letters and numbers")]
     InvalidUserNameFormat,
 
-    #[error("Email cannot be empty")]
-    MissingEmail,
-
-    #[error("Invalid email format")]
-    InvalidEmailFormat,
-
-    #[error("Phone number cannot be empty")]
-    MissingPhone,
-
-    #[error("Invalid phone number format")]
-    InvalidPhoneFormat,
-
-    #[error("Extension must be a non-empty ASCII digit string")]
-    InvalidPhoneExtension,
-
     #[error("Password hash must be a valid Argon2 PHC string")]
     InvalidPasswordHash,
 
