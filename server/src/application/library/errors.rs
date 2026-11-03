@@ -49,6 +49,7 @@ impl From<LibraryRepositoryError> for LibraryApplicationError {
     fn from(value: LibraryRepositoryError) -> Self {
         match value { // InvalidBookFileType好像是泛型转换出了问题，因此不该报告给用户具体错误
             LibraryRepositoryError::BookNotFound => Self::Book(BookApplicationError::NotFound),
+            LibraryRepositoryError::BookVersionConflict => Self::Book(BookApplicationError::VersionConflict),
             LibraryRepositoryError::BookTitleConflict => Self::Book(BookApplicationError::TitleConflict),
             LibraryRepositoryError::InvalidBookFileType => Self::Book(BookApplicationError::Storage(anyhow::Error::new(value))), 
             LibraryRepositoryError::Storage(error) => Self::Book(BookApplicationError::Storage(error)),

@@ -1,4 +1,7 @@
 export const zh = {
+  "identity.user.not_found": "用户不存在。",
+  "identity.user.version_conflict": "用户数据已被修改，请刷新后重试。",
+  "library.book.version_conflict": "书籍数据已被修改，请查看最新数据后重试。",
   "auth.logout_failed": "登出失败，无法确认令牌已注销，请重试。",
   "identity.authentication.invalid_credentials": "用户名或密码错误。",
   "identity.authentication.invalid_token": "登录已失效，请重新登录。",

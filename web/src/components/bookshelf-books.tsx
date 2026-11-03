@@ -250,12 +250,25 @@ function BookCard({ book }: { book: Book }) {
   const updateBooks = (update: (books: Book[]) => Book[]) =>
     queryClient.setQueryData<Book[]>(booksQueryKey, (books) => books && update(books))
 
+  const handleMutationError = (error: Error) => {
+    if (!(error instanceof ApiError)) return
+    if (error.message === "library.book.not_found") {
+      setRenaming(false)
+      setDeleteOpen(false)
+      updateBooks((books) => books.filter((item) => item.id !== book.id))
+    } else if (error.message === "library.book.version_conflict") {
+      // Leave edit mode so the refetched title is visible before the user retries.
+      setRenaming(false)
+    }
+  }
+
   const renameMutation = useMutation({
     mutationFn: (title: string) => library.bookshelf.renameBook(book.id, title),
     onSuccess: (_, title) => {
       updateBooks((books) => books.map((item) => (item.id === book.id ? { ...item, title } : item)))
       setRenaming(false)
     },
+    onError: handleMutationError,
     onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
   })
 
@@ -265,6 +278,7 @@ function BookCard({ book }: { book: Book }) {
       setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
     },
+    onError: handleMutationError,
     onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
   })
 

@@ -20,6 +20,9 @@ pub enum BookApplicationError {
 
     #[error("book title conflict")]
     TitleConflict,
+
+    #[error("book version conflict")]
+    VersionConflict,
     
     #[error("unchanged book title")]
     TitleUnchanged,

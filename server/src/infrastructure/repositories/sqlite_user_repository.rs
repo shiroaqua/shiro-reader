@@ -144,6 +144,8 @@ impl UserRepository for SqliteUserRepository {
         let updated_at = split_system_time(user.updated_at());
         let next_version = user.version.checked_add(1)
             .ok_or_else(|| map_invalid_data(anyhow::anyhow!("user version overflow")))?;
+
+        let mut tx = self.db.begin(map_sqlx_error).await?;
         let (sql, values) = Query::update()
             .table(Users::Table)
             .values([
@@ -157,7 +159,6 @@ impl UserRepository for SqliteUserRepository {
             .and_where(Expr::col(Users::Version).eq(user.version))
             .build_sqlx(SqliteQueryBuilder);
 
-        let mut tx = self.db.begin(map_sqlx_error).await?;
         let result = tx.execute(&sql, values, map_sqlx_error).await?;
 
         if result.rows_affected() == 0 {

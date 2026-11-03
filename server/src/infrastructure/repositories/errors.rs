@@ -9,6 +9,9 @@ pub enum LibraryRepositoryError {
     #[error("book title conflict")]
     BookTitleConflict,
 
+    #[error("book version conflict")]
+    BookVersionConflict,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

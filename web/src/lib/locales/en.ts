@@ -1,6 +1,9 @@
 import type { zh } from "./zh"
 
 export const en: Record<keyof typeof zh, string> = {
+  "identity.user.not_found": "User does not exist.",
+  "identity.user.version_conflict": "User data has changed. Please refresh and try again.",
+  "library.book.version_conflict": "Book data has changed. Please review the latest data and try again.",
   "auth.logout_failed": "Sign out failed. Could not confirm that your tokens were revoked. Please try again.",
   "identity.authentication.invalid_credentials": "Incorrect username or password.",
   "identity.authentication.invalid_token": "Your session has expired. Please sign in again.",

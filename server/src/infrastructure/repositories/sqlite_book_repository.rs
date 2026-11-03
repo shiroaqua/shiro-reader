@@ -85,21 +85,39 @@ impl BookRepository for SqliteBookRepository {
 
     async fn commit(&self, book: VersionedRecord<Book>) -> Result<(), LibraryRepositoryError> {
         let updated_at = split_system_time(book.updated_at());
+        let next_version = book.version.checked_add(1)
+            .ok_or_else(|| map_invalid_data(anyhow::anyhow!("book version overflow")))?;
+
+        let mut tx = self.db.begin(map_sqlx_error).await?;
         let (sql, values) = Query::update()
             .table(Books::Table)
             .values([
                 (Books::Title, book.title().to_string().into()),
                 (Books::UpdatedAtHigh, updated_at.0.into()),
                 (Books::UpdatedAtLow, updated_at.1.into()),
-                (Books::Version, (book.version + 1).into()),
+                (Books::Version, next_version.into()),
             ])
             .and_where(Expr::col(Books::Id).eq(book.id().to_string()))
             .and_where(Expr::col(Books::Version).eq(book.version))
             .build_sqlx(SqliteQueryBuilder);
 
-        self.db
-            .execute_affected(&sql, values, LibraryRepositoryError::BookNotFound, map_sqlx_error)
-            .await
+        let result = tx.execute(&sql, values, map_sqlx_error).await?;
+
+        if result.rows_affected() == 0 {
+            let (sql, values) = Query::select()
+                .column(Books::Id)
+                .from(Books::Table)
+                .and_where(Expr::col(Books::Id).eq(book.id().to_string()))
+                .build_sqlx(SqliteQueryBuilder);
+
+            return Err(if tx.fetch_exists(&sql, values, map_sqlx_error).await? {
+                LibraryRepositoryError::BookVersionConflict
+            } else {
+                LibraryRepositoryError::BookNotFound
+            });
+        }
+
+        tx.commit(map_sqlx_error).await
     }
 
     async fn list(

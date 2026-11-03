@@ -192,6 +192,9 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::NotFound => AppError::NotFound {
                     message: "library.book.not_found",
                 },
+                BookApplicationError::VersionConflict => AppError::Conflict {
+                    message: "library.book.version_conflict",
+                },
                 BookApplicationError::TitleConflict => AppError::Conflict {
                     message: "library.book.title_conflict",
                 },
