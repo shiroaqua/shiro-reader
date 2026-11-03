@@ -22,13 +22,14 @@ pub fn epub_with_cover(cover: Option<&[u8]>) -> Vec<u8> {
         .compression_method(zip::CompressionMethod::Stored);
     for index in 0..source.len() {
         let mut entry = source.by_index(index).unwrap();
-        if entry.name() == "EPUB/cover.svg" {
+        let name = entry.name().expect("valid EPUB entry name").into_owned();
+        if name == "EPUB/cover.svg" {
             if let Some(cover) = cover {
-                output.start_file(entry.name(), options).unwrap();
+                output.start_file(&name, options).unwrap();
                 output.write_all(cover).unwrap();
             }
         } else {
-            output.start_file(entry.name(), options).unwrap();
+            output.start_file(&name, options).unwrap();
             std::io::copy(&mut entry, &mut output).unwrap();
         }
     }
