@@ -10,3 +10,8 @@ pub struct RefreshAccessTokenCommand {
 pub struct VerifyAccessToeknCommand {
     pub token: String
 }
+
+/// The refresh token identifies the login session to revoke.
+pub struct LogoutCommand {
+    pub token: String,
+}

@@ -63,6 +63,22 @@ impl TestApp {
         assert_eq!(identity.user_id, session.user_id);
         Session { access_token, ..session.clone() }
     }
+    pub async fn assert_refresh_result_revoked(&self, response: HttpResponse) {
+        if response.status == StatusCode::OK {
+            self.access_with_token(&text(&response.json(), "access_token")).await.assert_error(HttpError::InvalidToken);
+        } else {
+            response.assert_error(HttpError::InvalidToken);
+        }
+    }
+    pub async fn logout(&self, session: &Session) -> HttpResponse {
+        self.logout_token(&session.refresh_token).await
+    }
+    pub async fn logout_token(&self, token: &str) -> HttpResponse {
+        self.send(Method::POST, "/api/v1/auth/logout", Some(json!({"token": token})), None).await
+    }
+    pub async fn logout_with_access(&self, session: &Session) -> HttpResponse {
+        self.logout_token(&session.access_token).await
+    }
     pub async fn refresh_token(&self, token: &str) -> HttpResponse {
         self.send(Method::POST, REFRESH, Some(json!({"token": token})), None).await
     }
@@ -114,7 +130,7 @@ impl TestApp {
     }
     pub async fn malformed_auth_requests(&self) -> Vec<(HttpResponse, u16)> {
         let mut responses = Vec::new();
-        for uri in [LOGIN, REFRESH] {
+        for uri in [LOGIN, REFRESH, "/api/v1/auth/logout"] {
             for (body, content_type, status) in [
                 ("{}", "application/json", 422), ("{", "application/json", 400),
                 ("{}", "text/plain", 415),

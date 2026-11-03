@@ -71,3 +71,19 @@ pub(super) const INSERT_USERS_COLUMNS: [Users; 8] = [
     Users::UpdatedAtLow,
     Users::Version,
 ];
+
+#[derive(Iden)]
+pub(super) enum AuthSessions {
+    #[iden = "auth_sessions"]
+    Table,
+    RefreshHash,
+    UserId,
+}
+
+#[derive(Iden)]
+pub(super) enum AuthAccessTokens {
+    #[iden = "auth_access_tokens"]
+    Table,
+    AccessHash,
+    RefreshHash,
+}

@@ -7,5 +7,11 @@ pub enum AuthenticationApplicationError {
     MissingBearerToken,
 
     #[error("User not found")]
-    NotFound
+    NotFound,
+
+    #[error("Invalid token")]
+    InvalidToken,
+
+    #[error(transparent)]
+    Storage(#[from] anyhow::Error),
 }

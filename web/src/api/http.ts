@@ -11,15 +11,16 @@ export class ApiError extends Error {
 }
 
 export type RequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+  method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE"
   body?: unknown
+  cache?: RequestCache
   timeoutMs?: number | null
   expectBody?: boolean
 }
 
 export async function sendRequest(
   path: string,
-  { method = "GET", body, timeoutMs = 10_000 }: RequestOptions = {},
+  { method = "GET", body, cache, timeoutMs = 10_000 }: RequestOptions = {},
   token?: string
 ): Promise<Response> {
   const controller = new AbortController()
@@ -27,6 +28,7 @@ export async function sendRequest(
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   const init: RequestInit = { method, headers, signal: controller.signal }
+  if (cache) init.cache = cache
   if (body instanceof FormData) {
     init.body = body
   } else if (body !== undefined) {

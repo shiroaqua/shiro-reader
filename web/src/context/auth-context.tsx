@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { getAuthState, subscribeToAuth, restoreSession, login, logout } from "@/api/auth"
+import { getAuthState, subscribeToAuth, restoreSession, monitorSession, login, logout } from "@/api/auth"
 
 interface AuthContextType {
   isAuthenticated: boolean
   username: string | null
   login: (username: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   isLoading: boolean
 }
 
@@ -24,7 +24,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       previous = current
     })
     void restoreSession()
-    return unsubscribe
+    const stopMonitoring = monitorSession()
+    return () => {
+      unsubscribe()
+      stopMonitoring()
+    }
   }, [queryClient])
 
   return (

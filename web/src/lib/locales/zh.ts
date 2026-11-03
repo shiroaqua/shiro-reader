@@ -1,4 +1,5 @@
 export const zh = {
+  "auth.logout_failed": "登出失败，无法确认令牌已注销，请重试。",
   "identity.authentication.invalid_credentials": "用户名或密码错误。",
   "identity.authentication.invalid_token": "登录已失效，请重新登录。",
   "identity.authentication.invalid_token_type": "登录已失效，请重新登录。",

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +35,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookshelfBooks } from "@/components/bookshelf-books"
 import { useTranslation } from "@/lib/i18n"
 import { useAuth } from "@/context/auth-context"
+import { notifyError } from "@/lib/error-notifications"
 
 export function DashboardScreen() {
   const { t } = useTranslation()
@@ -148,12 +149,24 @@ function UserProfileMenu({
   onLogout,
 }: {
   username: string | null
-  onLogout: () => void
+  onLogout: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const submitting = useRef(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
-  const handleLogout = () => {
-    onLogout()
+  const handleLogout = async () => {
+    if (submitting.current) return
+    submitting.current = true
+    setIsLoggingOut(true)
+    try {
+      await onLogout()
+    } catch {
+      notifyError("auth.logout_failed")
+    } finally {
+      submitting.current = false
+      setIsLoggingOut(false)
+    }
   }
 
   return (
@@ -164,6 +177,7 @@ function UserProfileMenu({
             render={
               <SidebarMenuButton
                 size="lg"
+                disabled={isLoggingOut}
                 className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
               />
             }
@@ -189,6 +203,7 @@ function UserProfileMenu({
             <DropdownMenuGroup>
               <DropdownMenuItem
                 onClick={handleLogout}
+                disabled={isLoggingOut}
                 className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
               >
                 <LogOut />

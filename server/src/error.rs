@@ -89,6 +89,10 @@ impl From<AuthenticationApplicationError> for AppError {
             AuthenticationApplicationError::MissingBearerToken => AppError::Unauthorized {
                 message: "identity.authentication.missing_bearer_token",
             },
+            AuthenticationApplicationError::InvalidToken => AppError::Unauthorized {
+                message: "identity.authentication.invalid_token",
+            },
+            AuthenticationApplicationError::Storage(error) => AppError::Internal(error),
             AuthenticationApplicationError::NotFound => AppError::NotFound {
                 message: "identity.authentication.user_not_found",
             },

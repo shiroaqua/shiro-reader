@@ -16,6 +16,7 @@ use crate::application::identity::user::service::UserService;
 
 use crate::application::identity::user::ports::UserRepository;
 use crate::infrastructure::repositories::sqlite_user_repository::SqliteUserRepository;
+use crate::infrastructure::repositories::sqlite_session_repository::SqliteSessionRepository;
 use crate::{
     application::library::book::file::service::BookFileService,
     config::Config,
@@ -102,6 +103,7 @@ impl AppState {
             auth_service: Arc::new(AuthenticationService::new(
                 user_repository.clone(),
                 crypto_service.clone(),
+                Arc::new(SqliteSessionRepository::new(pool)),
             )),
             bookfile_service: Arc::new(BookFileService::new(book_file_storage)),
             user_sqlpool_provider,

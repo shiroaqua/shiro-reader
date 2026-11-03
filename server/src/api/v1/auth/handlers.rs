@@ -2,9 +2,9 @@ use axum::{Json, extract::State, http::StatusCode};
 
 use crate::{
     api::v1::auth::dto::{
-        LoginRequest, LoginResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse,
+        LogoutRequest, LoginRequest, LoginResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse,
     },
-    application::identity::authentication::commands::{LoginCommand, RefreshAccessTokenCommand},
+    application::identity::authentication::commands::{LogoutCommand, LoginCommand, RefreshAccessTokenCommand},
     error::AppError,
     state::AppState,
 };
@@ -36,4 +36,13 @@ pub async fn refresh_access_token(
         .await?;
 
     Ok((StatusCode::OK, Json(output.into())))
+}
+
+/// Idempotent for a valid refresh token, including an already revoked session.
+pub async fn logout(
+    State(state): State<AppState>,
+    Json(request): Json<LogoutRequest>,
+) -> Result<StatusCode, AppError> {
+    state.auth_service.logout(LogoutCommand { token: request.token }).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

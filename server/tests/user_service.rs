@@ -104,7 +104,7 @@ async fn unregister_invalidates_login_refresh_and_existing_access() {
     app.unregister(&reader.user_id).await.assert_ok();
     app.attempt_login("Reader", PASSWORD).await.assert_error(HttpError::InvalidCredentials);
     app.attempt_refresh(&reader).await.assert_error(HttpError::AccountNotFound);
-    app.access_books(&reader).await.assert_error(HttpError::UserNotFound);
+    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
     app.access_books(&other).await.assert_status(200);
     app.unregister(&reader.user_id).await.assert_error(UserError::NotFound);
 }

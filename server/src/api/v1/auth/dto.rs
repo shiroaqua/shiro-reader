@@ -21,3 +21,8 @@ pub struct LoginResponse {
 pub struct RefreshAccessTokenResponse {
     pub access_token: String,
 }
+
+#[derive(Deserialize)]
+pub struct LogoutRequest {
+    pub token: String,
+}

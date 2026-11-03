@@ -132,6 +132,20 @@ impl SqliteExecutor {
         T::try_from(&row)
     }
 
+    pub async fn fetch_exists<E>(
+        &self,
+        sql: &str,
+        values: SqlxValues,
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<bool, E> {
+        let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(map_error)?;
+
+        Ok(row.is_some())
+    }
+
     pub async fn fetch_all<T, E>(
         &self,
         sql: &str,

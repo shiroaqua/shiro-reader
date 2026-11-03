@@ -81,3 +81,71 @@ async fn malformed_login_and_refresh_requests_are_rejected() {
         response.assert_status(expected_status);
     }
 }
+
+#[tokio::test]
+async fn logout_revokes_the_whole_session_but_preserves_other_logins() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let refreshed = app.refresh(&reader).await;
+    let other_device = app.login("Reader", PASSWORD).await;
+    let other_user = app.session("Other").await;
+
+    app.logout(&reader).await.assert_empty(204);
+    app.logout(&reader).await.assert_empty(204);
+    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
+    app.access_books(&refreshed).await.assert_error(HttpError::InvalidToken);
+    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
+    app.access_books(&other_device).await.assert_status(200);
+    app.attempt_refresh(&other_device).await.assert_status(200);
+    app.access_books(&other_user).await.assert_status(200);
+}
+
+#[tokio::test]
+async fn invalid_logout_credentials_cannot_revoke_a_session() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.logout_with_access(&reader).await.assert_error(WrongTokenType);
+    for case in [Malformed, Expired, Future, WrongIssuer, WrongAudience, MissingExpiry, WrongSignature, WrongAlgorithm] {
+        app.logout_token(&invalid_token(case, true)).await.assert_error(HttpError::InvalidToken);
+    }
+    app.access_books(&reader).await.assert_status(200);
+    app.attempt_refresh(&reader).await.assert_status(200);
+}
+
+#[tokio::test]
+async fn signed_but_unregistered_tokens_are_not_accepted() {
+    use support::crypto::{access_token, claims, sign, SECRET};
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let claims = claims(&reader.user_id);
+    app.access_with_token(&access_token(&claims)).await.assert_error(HttpError::InvalidToken);
+    let refresh = sign(&claims, Some("refresh+jwt"), jsonwebtoken::Algorithm::HS256, SECRET);
+    app.refresh_token(&refresh).await.assert_error(HttpError::InvalidToken);
+    app.logout_token(&refresh).await.assert_empty(204);
+    app.access_books(&reader).await.assert_status(200);
+}
+
+#[tokio::test]
+async fn logout_persists_across_application_rebuilds() {
+    let root = tempfile::tempdir().unwrap();
+    let app = TestApp::at(root.path()).await;
+    let reader = app.session("Reader").await;
+    let other = app.login("Reader", PASSWORD).await;
+    app.logout(&reader).await.assert_empty(204);
+    drop(app);
+    let app = TestApp::at(root.path()).await;
+    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
+    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
+    app.access_books(&other).await.assert_status(200);
+}
+
+#[tokio::test]
+async fn concurrent_refresh_cannot_resurrect_a_logged_out_session() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let (logout, refresh) = tokio::join!(app.logout(&reader), app.attempt_refresh(&reader));
+    logout.assert_empty(204);
+    app.assert_refresh_result_revoked(refresh).await;
+    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
+    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
+}
