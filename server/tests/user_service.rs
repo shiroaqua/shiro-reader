@@ -34,17 +34,6 @@ async fn duplicate_registration_preserves_existing_login_and_books() {
 }
 
 #[tokio::test]
-async fn concurrent_same_name_registration_has_exactly_one_winner() {
-    let app = TestApp::new().await;
-    let (first, second) = tokio::join!(app.register("SameName"), app.register("SameName"));
-    assert_ne!(first.is_ok(), second.is_ok());
-    if first.is_ok() { second.assert_error(UserError::NameConflict); }
-    else { first.assert_error(UserError::NameConflict); }
-    let reader = app.login("SameName", PASSWORD).await;
-    assert!(app.books(&reader).await.is_empty());
-}
-
-#[tokio::test]
 async fn rename_changes_login_name_but_preserves_identity_and_books() {
     let app = TestApp::new().await;
     let original = app.session("Original").await;

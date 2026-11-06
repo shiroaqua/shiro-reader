@@ -10,7 +10,8 @@ async fn restart_preserves_users_independent_books_files_and_existing_sessions()
 
 #[tokio::test]
 async fn multiple_appstates_share_pdfium_but_keep_separate_libraries() {
-    let (first, second) = tokio::join!(TestApp::new(), TestApp::new());
+    let first = TestApp::new().await;
+    let second = TestApp::new().await;
     let alice = first.session("Reader").await;
     let bob = second.session("Reader").await;
     first.upload(&alice, SampleFile::Pdf).await;

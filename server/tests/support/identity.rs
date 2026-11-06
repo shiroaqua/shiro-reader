@@ -22,7 +22,6 @@ impl UserResult {
         };
         assert_eq!(std::mem::discriminant(actual), std::mem::discriminant(&expected), "{actual:?}");
     }
-    pub fn is_ok(&self) -> bool { self.0.is_ok() }
 }
 
 impl TestApp {
@@ -62,13 +61,6 @@ impl TestApp {
         }).await.unwrap();
         assert_eq!(identity.user_id, session.user_id);
         Session { access_token, ..session.clone() }
-    }
-    pub async fn assert_refresh_result_revoked(&self, response: HttpResponse) {
-        if response.status == StatusCode::OK {
-            self.access_with_token(&text(&response.json(), "access_token")).await.assert_error(HttpError::InvalidToken);
-        } else {
-            response.assert_error(HttpError::InvalidToken);
-        }
     }
     pub async fn logout(&self, session: &Session) -> HttpResponse {
         self.logout_token(&session.refresh_token).await

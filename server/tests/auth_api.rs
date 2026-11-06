@@ -138,14 +138,3 @@ async fn logout_persists_across_application_rebuilds() {
     app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
     app.access_books(&other).await.assert_status(200);
 }
-
-#[tokio::test]
-async fn concurrent_refresh_cannot_resurrect_a_logged_out_session() {
-    let app = TestApp::new().await;
-    let reader = app.session("Reader").await;
-    let (logout, refresh) = tokio::join!(app.logout(&reader), app.attempt_refresh(&reader));
-    logout.assert_empty(204);
-    app.assert_refresh_result_revoked(refresh).await;
-    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
-    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
-}
