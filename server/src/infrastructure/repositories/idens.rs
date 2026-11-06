@@ -87,3 +87,31 @@ pub(super) enum AuthAccessTokens {
     AccessHash,
     RefreshHash,
 }
+
+#[derive(Iden)]
+pub(super) enum TagDefinitions {
+    Table,
+    Id,
+    Name,
+    ParentId,
+    AllowsValue,
+    ValueRegex,
+    Version,
+}
+
+pub(super) const FULL_TAG_DEFINITION_COLUMNS: [TagDefinitions; 6] = [
+    TagDefinitions::Id,
+    TagDefinitions::Name,
+    TagDefinitions::ParentId,
+    TagDefinitions::AllowsValue,
+    TagDefinitions::ValueRegex,
+    TagDefinitions::Version,
+];
+
+#[derive(Iden)]
+pub(super) enum BookTags {
+    Table,
+    BookId,
+    TagId,
+    Value,
+}

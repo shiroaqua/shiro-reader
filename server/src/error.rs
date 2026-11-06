@@ -19,8 +19,10 @@ use crate::{
         library::{
             book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
             errors::LibraryApplicationError,
+            tag::errors::TagApplicationError,
         },
     },
+    domain::library::tag::errors::TagDomainError,
 };
 
 #[derive(Debug, Serialize)]
@@ -173,6 +175,7 @@ impl From<IdentityApplicationError> for AppError {
 impl From<LibraryApplicationError> for AppError {
     fn from(value: LibraryApplicationError) -> Self {
         match value {
+            LibraryApplicationError::Tag(error) => error.into(),
             LibraryApplicationError::Book(b) => match b {
                 BookApplicationError::InvalidId => AppError::BadRequest {
                     message: "library.book.invalid_id",
@@ -225,6 +228,52 @@ impl From<LibraryApplicationError> for AppError {
                 BookFileApplicationError::Storage(error) => AppError::Internal(error),
 
             },
+        }
+    }
+}
+impl From<TagApplicationError> for AppError {
+    fn from(value: TagApplicationError) -> Self {
+        match value {
+            TagApplicationError::Domain(error) => match error {
+                TagDomainError::InvalidId => Self::BadRequest {
+                    message: "library.tag.invalid_id",
+                },
+                TagDomainError::MissingName => Self::BadRequest {
+                    message: "library.tag.missing_name",
+                },
+                TagDomainError::InvalidNameFormat => Self::BadRequest {
+                    message: "library.tag.invalid_name_format",
+                },
+                TagDomainError::NameUnchanged => Self::BadRequest {
+                    message: "library.tag.name_unchanged",
+                },
+                TagDomainError::InvalidValueRegex => Self::BadRequest {
+                    message: "library.tag.invalid_value_regex",
+                },
+                TagDomainError::ValueRegexNotAllowed => Self::BadRequest {
+                    message: "library.tag.value_regex_not_allowed",
+                },
+                TagDomainError::ValueRequired => Self::BadRequest {
+                    message: "library.tag.value_required",
+                },
+                TagDomainError::ValueNotAllowed => Self::BadRequest {
+                    message: "library.tag.value_not_allowed",
+                },
+                TagDomainError::ValueRegexMismatch => Self::BadRequest {
+                    message: "library.tag.value_regex_mismatch",
+                },
+                TagDomainError::NotFound => Self::NotFound {
+                    message: "library.tag.not_found",
+                },
+                TagDomainError::InvalidTree => Self::Internal(error.into()),
+            },
+            TagApplicationError::ParentNotFound => Self::NotFound {
+                message: "library.tag.parent_not_found",
+            },
+            TagApplicationError::VersionConflict => Self::Conflict {
+                message: "library.tag.version_conflict",
+            },
+            TagApplicationError::Storage(error) => Self::Internal(error),
         }
     }
 }

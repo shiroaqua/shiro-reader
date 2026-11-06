@@ -165,6 +165,23 @@ impl SqliteExecutor {
 }
 
 impl SqliteTransaction<'_> {
+    pub async fn fetch_all<T, E>(
+        &mut self,
+        sql: &str,
+        values: SqlxValues,
+        map_error: impl Fn(sqlx::Error) -> E,
+    ) -> Result<Vec<T>, E>
+    where
+        T: for<'row> TryFrom<&'row SqliteRow, Error = E>,
+    {
+        let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
+            .fetch_all(self.tx.as_mut())
+            .await
+            .map_err(map_error)?;
+
+        rows.iter().map(T::try_from).collect()
+    }
+
     pub async fn execute<E>(
         &mut self,
         sql: &str,

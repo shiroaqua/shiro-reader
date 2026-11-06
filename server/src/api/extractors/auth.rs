@@ -6,9 +6,11 @@ use crate::{
             commands::VerifyAccessToeknCommand, errors::AuthenticationApplicationError,
         },
         library::book::service::BookService,
+        library::tag::service::TagService,
     },
     error::AppError,
     infrastructure::repositories::sqlite_book_repository::SqliteBookRepository,
+    infrastructure::repositories::sqlite_tag_repository::SqliteTagRepository,
     state::AppState,
 };
 
@@ -18,6 +20,7 @@ pub struct User {
 
 pub struct RoutedState {
     pub book_service: BookService<SqliteBookRepository>,
+    pub tag_service: TagService<SqliteTagRepository>,
 }
 
 impl FromRequestParts<AppState> for RoutedState {
@@ -53,9 +56,10 @@ impl FromRequestParts<AppState> for RoutedState {
         let pool = state.user_sqlpool_provider.route(&user_id)?;
         Ok(RoutedState {
             book_service: BookService::new(
-                SqliteBookRepository::new(pool),
+                SqliteBookRepository::new(pool.clone()),
                 state.bookfile_service.clone(),
             ),
+            tag_service: TagService::new(SqliteTagRepository::new(pool)),
         })
     }
 }

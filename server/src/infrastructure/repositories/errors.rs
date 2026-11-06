@@ -30,3 +30,21 @@ pub enum UserRepositoryError {
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum TagRepositoryError {
+    #[error("tag not found")]
+    NotFound,
+
+    #[error("parent tag not found")]
+    ParentNotFound,
+
+    #[error("book not found")]
+    BookNotFound,
+
+    #[error("tag changed concurrently")]
+    VersionConflict,
+
+    #[error(transparent)]
+    Storage(#[from] anyhow::Error),
+}

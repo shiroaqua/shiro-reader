@@ -5,10 +5,12 @@ mod identity;
 mod lifecycle;
 mod library;
 mod runtime;
+mod tag;
 
 pub use identity::*;
 pub use lifecycle::Restart;
 pub use library::*;
+pub use tag::*;
 
 use axum::{Router, body::{Body, Bytes, to_bytes}, http::{Method, Request, StatusCode, HeaderMap}};
 use serde::{Deserialize, Serialize};

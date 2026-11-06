@@ -4,8 +4,10 @@ use thiserror::Error;
 
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
+use crate::application::library::tag::errors::TagApplicationError;
 use crate::domain::library::book::errors::BookDomainError;
-use crate::infrastructure::repositories::errors::LibraryRepositoryError;
+use crate::domain::library::tag::errors::TagDomainError;
+use crate::infrastructure::repositories::errors::{LibraryRepositoryError, TagRepositoryError};
 
 #[derive(Debug, Error)]
 pub enum LibraryApplicationError {
@@ -14,6 +16,9 @@ pub enum LibraryApplicationError {
 
     #[error("Book file error: {0}")]
     BookFile(#[from] BookFileApplicationError),
+
+    #[error("Tag error: {0}")]
+    Tag(#[from] TagApplicationError),
 }
 
 impl From<BookDomainError> for BookApplicationError {
@@ -53,6 +58,24 @@ impl From<LibraryRepositoryError> for LibraryApplicationError {
             LibraryRepositoryError::BookTitleConflict => Self::Book(BookApplicationError::TitleConflict),
             LibraryRepositoryError::InvalidBookFileType => Self::Book(BookApplicationError::Storage(anyhow::Error::new(value))), 
             LibraryRepositoryError::Storage(error) => Self::Book(BookApplicationError::Storage(error)),
+        }
+    }
+}
+
+impl From<TagDomainError> for LibraryApplicationError {
+    fn from(error: TagDomainError) -> Self {
+        Self::Tag(error.into())
+    }
+}
+
+impl From<TagRepositoryError> for LibraryApplicationError {
+    fn from(error: TagRepositoryError) -> Self {
+        match error {
+            TagRepositoryError::NotFound => TagDomainError::NotFound.into(),
+            TagRepositoryError::ParentNotFound => TagApplicationError::ParentNotFound.into(),
+            TagRepositoryError::BookNotFound => BookApplicationError::NotFound.into(),
+            TagRepositoryError::VersionConflict => TagApplicationError::VersionConflict.into(),
+            TagRepositoryError::Storage(error) => TagApplicationError::Storage(error).into(),
         }
     }
 }
