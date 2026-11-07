@@ -10,6 +10,17 @@ CREATE TABLE tag_definitions (
     CHECK (allows_value IN (0, 1)),
     CHECK (allows_value = 1 OR value_regex IS NULL),
     CHECK (parent_id IS NULL OR parent_id <> id),
+    
+    CONSTRAINT chk_tag_id_uuid
+        CHECK (
+            length(id) = 36
+            AND substr(id, 9, 1) = '-'
+            AND substr(id, 14, 1) = '-'
+            AND substr(id, 19, 1) = '-'
+            AND substr(id, 24, 1) = '-'
+            AND lower(id) = id
+            AND replace(id, '-', '') NOT GLOB '*[^0-9a-f]*'
+        ),
 
     FOREIGN KEY (parent_id) REFERENCES tag_definitions (id) ON DELETE RESTRICT
 );
