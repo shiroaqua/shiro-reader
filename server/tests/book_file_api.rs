@@ -3,6 +3,7 @@ use support::*;
 use HttpError::*;
 use SampleFile::*;
 
+// 验证 PDF 和 EPUB 文件可上传、查询和原样下载，且重复上传被拒绝。
 #[tokio::test]
 async fn upload_lookup_download_and_deduplication() {
     let app = TestApp::new().await;
@@ -15,6 +16,7 @@ async fn upload_lookup_download_and_deduplication() {
     }
 }
 
+// 验证上传时拒绝缺失哈希、缺失文件、重复哈希字段和非法哈希。
 #[tokio::test]
 async fn upload_rejects_missing_and_duplicate_fields() {
     let app = TestApp::new().await;
@@ -25,6 +27,7 @@ async fn upload_rejects_missing_and_duplicate_fields() {
     app.upload_parts(Some(&reader), &[INVALID_HASH], Some(b"file")).await.assert_error(InvalidHash);
 }
 
+// 验证哈希不匹配的上传失败后不留下可查询文件，且可重新上传正确内容。
 #[tokio::test]
 async fn failed_upload_allows_valid_retry() {
     let app = TestApp::new().await;
@@ -35,6 +38,7 @@ async fn failed_upload_allows_valid_retry() {
     app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
 }
 
+// 验证上传不支持的文件格式时返回对应错误。
 #[tokio::test]
 async fn unsupported_file_is_rejected() {
     let app = TestApp::new().await;
@@ -43,6 +47,7 @@ async fn unsupported_file_is_rejected() {
     app.upload_parts(Some(&reader), &[&file.hash], Some(&file.bytes)).await.assert_error(UnsupportedFile);
 }
 
+// 验证查询和下载文件时拒绝非法哈希或不存在的文件。
 #[tokio::test]
 async fn lookup_and_download_reject_invalid_and_missing_hashes() {
     let app = TestApp::new().await;

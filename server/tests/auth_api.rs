@@ -3,6 +3,7 @@ use support::*;
 use support::crypto::{invalid_token, InvalidToken::*};
 use HttpError::*;
 
+// 验证用户名登录区分大小写，并支持 Unicode 用户名。
 #[tokio::test]
 async fn username_login_is_exact_and_supports_unicode() {
     let app = TestApp::new().await;
@@ -16,6 +17,7 @@ async fn username_login_is_exact_and_supports_unicode() {
     app.attempt_login("READER", PASSWORD).await.assert_error(InvalidCredentials);
 }
 
+// 验证错误的登录凭据和非法用户名返回对应的错误。
 #[tokio::test]
 async fn bad_credentials_and_invalid_names_have_expected_errors() {
     let app = TestApp::new().await;
@@ -26,6 +28,7 @@ async fn bad_credentials_and_invalid_names_have_expected_errors() {
     app.attempt_login("", PASSWORD).await.assert_error(MissingUsername);
 }
 
+// 验证刷新令牌可重复使用，且刷新后保留用户身份和书籍访问权限。
 #[tokio::test]
 async fn refresh_preserves_identity_and_book_access_and_can_be_reused() {
     let app = TestApp::new().await;
@@ -39,6 +42,7 @@ async fn refresh_preserves_identity_and_book_access_and_can_be_reused() {
     }
 }
 
+// 验证访问令牌和刷新令牌不能互换使用。
 #[tokio::test]
 async fn access_and_refresh_cannot_be_interchanged() {
     let app = TestApp::new().await;
@@ -47,6 +51,7 @@ async fn access_and_refresh_cannot_be_interchanged() {
     app.access_with_refresh(&reader).await.assert_error(WrongTokenType);
 }
 
+// 验证所有书库操作都要求身份认证。
 #[tokio::test]
 async fn every_library_operation_requires_authentication() {
     let app = TestApp::new().await;
@@ -55,6 +60,7 @@ async fn every_library_operation_requires_authentication() {
     }
 }
 
+// 验证认证头必须提供 Bearer 令牌，且 Bearer 标识不区分大小写。
 #[tokio::test]
 async fn bearer_scheme_is_case_insensitive_but_required() {
     let app = TestApp::new().await;
@@ -65,6 +71,7 @@ async fn bearer_scheme_is_case_insensitive_but_required() {
     app.access_with_mixed_case_bearer(&reader).await.assert_status(200);
 }
 
+// 验证各类无效令牌统一返回不暴露校验细节的 HTTP 错误。
 #[tokio::test]
 async fn invalid_tokens_have_sanitized_http_errors() {
     let app = TestApp::new().await;
@@ -74,6 +81,7 @@ async fn invalid_tokens_have_sanitized_http_errors() {
     }
 }
 
+// 验证格式错误的登录和令牌刷新请求返回预期状态码。
 #[tokio::test]
 async fn malformed_login_and_refresh_requests_are_rejected() {
     let app = TestApp::new().await;
@@ -82,6 +90,7 @@ async fn malformed_login_and_refresh_requests_are_rejected() {
     }
 }
 
+// 验证重复登出具有幂等性，整个会话失效且其他登录不受影响。
 #[tokio::test]
 async fn logout_revokes_the_whole_session_but_preserves_other_logins() {
     let app = TestApp::new().await;
@@ -100,6 +109,7 @@ async fn logout_revokes_the_whole_session_but_preserves_other_logins() {
     app.access_books(&other_user).await.assert_status(200);
 }
 
+// 验证错误类型或无效的登出令牌被拒绝，且现有会话仍可使用。
 #[tokio::test]
 async fn invalid_logout_credentials_cannot_revoke_a_session() {
     let app = TestApp::new().await;
@@ -112,6 +122,7 @@ async fn invalid_logout_credentials_cannot_revoke_a_session() {
     app.attempt_refresh(&reader).await.assert_status(200);
 }
 
+// 验证签名有效但未登记的令牌无法访问或刷新，登出它也不影响现有会话。
 #[tokio::test]
 async fn signed_but_unregistered_tokens_are_not_accepted() {
     use support::crypto::{access_token, claims, sign, SECRET};
@@ -125,6 +136,7 @@ async fn signed_but_unregistered_tokens_are_not_accepted() {
     app.access_books(&reader).await.assert_status(200);
 }
 
+// 验证应用重建后已登出的会话仍然失效，其他会话仍可访问。
 #[tokio::test]
 async fn logout_persists_across_application_rebuilds() {
     let root = tempfile::tempdir().unwrap();

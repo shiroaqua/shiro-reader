@@ -3,6 +3,7 @@ use support::*;
 use HttpError::*;
 use SampleFile::*;
 
+// 验证用户无法查询、重命名、删除其他用户的私有书籍或获取其封面。
 #[tokio::test]
 async fn another_user_cannot_read_or_change_private_books() {
     let app = TestApp::new().await;
@@ -18,6 +19,7 @@ async fn another_user_cannot_read_or_change_private_books() {
     book.assert_unchanged().await;
 }
 
+// 验证用户共享电子书文件，但同名书籍、重命名和删除操作在各自书架中独立。
 #[tokio::test]
 async fn users_share_files_but_keep_independent_bookshelves() {
     let app = TestApp::new().await;

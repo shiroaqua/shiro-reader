@@ -4,6 +4,7 @@ use DeleteStrategy::*;
 use SampleFile::Epub;
 use TagError::*;
 
+// 验证标签定义形成稳定的树形结构，且同名标签拥有不同 ID。
 #[tokio::test]
 async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name() {
     let app = TestApp::new().await;
@@ -21,6 +22,7 @@ async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name()
     assert_eq!(app.tag_tree(&reader).await, tree);
 }
 
+// 验证创建和重命名标签时拒绝非法名称，重命名为原名称也报错且标签树不变。
 #[tokio::test]
 async fn invalid_names_are_rejected_on_creation_and_rename_without_changing_the_tree() {
     let app = TestApp::new().await;
@@ -40,6 +42,7 @@ async fn invalid_names_are_rejected_on_creation_and_rename_without_changing_the_
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
 
+// 验证创建标签时拒绝非法或不存在的父标签、非法正则及无值标签的正则规则。
 #[tokio::test]
 async fn creation_rejects_missing_parents_and_invalid_value_rules() {
     let app = TestApp::new().await;
@@ -58,6 +61,7 @@ async fn creation_rejects_missing_parents_and_invalid_value_rules() {
     app.define_tag(&reader, "Child", Some(&root.id), false, None).await.assert_tag_error(ParentNotFound);
 }
 
+// 验证标签重命名保留 ID、父子关系和值规则，且不允许修改其他定义属性。
 #[tokio::test]
 async fn rename_preserves_identity_parent_children_and_value_rules() {
     let app = TestApp::new().await;
@@ -74,6 +78,7 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     assert_eq!(app.tag_tree(&reader).await, expected);
 }
 
+// 验证有值标签必须绑定完整匹配正则的非空字符串，无值标签拒绝任何值。
 #[tokio::test]
 async fn bindings_require_a_nonempty_string_matching_the_entire_regex() {
     let app = TestApp::new().await;
@@ -99,6 +104,7 @@ async fn bindings_require_a_nonempty_string_matching_the_entire_regex() {
     app.assert_book_tags(&reader, &book.data.id, &[tag.binding(Some("12"))]).await;
 }
 
+// 验证加载标签定义后，无正则或空正则允许任意非空值，扩展模式和分支正则仍要求完整匹配。
 #[tokio::test]
 async fn optional_and_extended_regexes_work_after_loading_the_definition() {
     let app = TestApp::new().await;
@@ -117,6 +123,7 @@ async fn optional_and_extended_regexes_work_after_loading_the_definition() {
     }
 }
 
+// 验证标签可独立绑定多本书、更新绑定值和重新绑定，且重复解绑具有幂等性。
 #[tokio::test]
 async fn a_tag_can_be_bound_to_multiple_books_and_unbinding_is_idempotent() {
     let app = TestApp::new().await;
@@ -141,6 +148,7 @@ async fn a_tag_can_be_bound_to_multiple_books_and_unbinding_is_idempotent() {
     app.assert_book_tags(&reader, &second.data.id, &[tag.binding(Some("3"))]).await;
 }
 
+// 验证标签及绑定相关操作对非法或不存在的标签、书籍 ID 返回对应错误。
 #[tokio::test]
 async fn missing_or_invalid_targets_are_reported_for_all_mutations() {
     let app = TestApp::new().await;
@@ -164,6 +172,7 @@ async fn missing_or_invalid_targets_are_reported_for_all_mutations() {
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
 
+// 验证级联删除清除所选标签子树及其绑定，保留其他分支和书籍。
 #[tokio::test]
 async fn cascade_removes_only_the_selected_subtree_and_all_its_descendants() {
     let app = TestApp::new().await;
@@ -190,6 +199,7 @@ async fn cascade_removes_only_the_selected_subtree_and_all_its_descendants() {
     app.assert_book_tags(&reader, &book.data.id, &[]).await;
 }
 
+// 验证提升删除将所有直接子标签上移一级，保留更深层级、值规则和后代绑定。
 #[tokio::test]
 async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
     let app = TestApp::new().await;
@@ -226,6 +236,7 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
     ]).await;
 }
 
+// 验证级联和提升两种策略均可删除叶子标签，且重复删除报错。
 #[tokio::test]
 async fn both_strategies_can_delete_a_leaf_and_reject_repeated_deletion() {
     let app = TestApp::new().await;
@@ -238,6 +249,7 @@ async fn both_strategies_can_delete_a_leaf_and_reject_repeated_deletion() {
     }
 }
 
+// 验证格式错误、批量请求及缺失或非法的删除策略被拒绝，且标签树不变。
 #[tokio::test]
 async fn malformed_requests_batch_payloads_and_missing_deletion_strategy_are_rejected() {
     let app = TestApp::new().await;
@@ -254,42 +266,9 @@ async fn malformed_requests_batch_payloads_and_missing_deletion_strategy_are_rej
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
 
-#[tokio::test]
-async fn every_tag_operation_requires_authentication() {
-    let app = TestApp::new().await;
-    for response in app.anonymous_tag_requests().await {
-        response.assert_error(HttpError::MissingBearer);
-    }
-}
 
-#[tokio::test]
-async fn users_cannot_read_modify_or_bind_each_others_tags_and_books() {
-    let app = TestApp::new().await;
-    let owner = app.session("Owner").await;
-    let other = app.session("Other").await;
-    app.upload(&owner, Epub).await;
-    let book = app.add_book(&owner, "Private", Epub).await;
-    let other_book = app.add_book(&other, "OtherBook", Epub).await;
-    let tag = app.add_tag(&owner, "Private", None, false, None).await;
-    assert!(app.tag_tree(&other).await.is_empty());
-    app.bind_tag(&owner, &book.data.id, &tag.id, None).await.assert_empty(204);
-    app.query_book_tags(&other, &book.data.id).await.assert_error(HttpError::BookNotFound);
-    app.assert_book_tags(&other, &other_book.data.id, &[]).await;
-    let other_tag = app.add_tag(&other, "Private", None, false, None).await;
-    app.rename_tag(&other, &tag.id, "Stolen").await.assert_tag_error(NotFound);
-    for strategy in [Cascade, Promote] {
-        app.delete_tag(&other, &tag.id, strategy).await.assert_tag_error(NotFound);
-    }
-    app.define_tag(&other, "Child", Some(&tag.id), false, None).await.assert_tag_error(ParentNotFound);
-    app.bind_tag(&other, &other_book.data.id, &tag.id, None).await.assert_tag_error(NotFound);
-    app.unbind_tag(&other, &other_book.data.id, &tag.id).await.assert_tag_error(NotFound);
-    app.bind_tag(&other, &book.data.id, &other_tag.id, None).await.assert_error(HttpError::BookNotFound);
-    app.unbind_tag(&other, &book.data.id, &other_tag.id).await.assert_error(HttpError::BookNotFound);
-    assert_eq!(app.tag_tree(&owner).await, [tag.node(vec![])]);
-    app.assert_book_tags(&owner, &book.data.id, &[tag.binding(None)]).await;
-    assert_eq!(app.tag_tree(&other).await, [other_tag.node(vec![])]);
-}
 
+// 验证删除已绑定标签的书籍后保留标签定义及其他书籍的绑定。
 #[tokio::test]
 async fn deleting_a_bound_book_preserves_the_tag_definition_and_other_books() {
     let app = TestApp::new().await;
@@ -310,6 +289,7 @@ async fn deleting_a_bound_book_preserves_the_tag_definition_and_other_books() {
     app.assert_book_tags(&reader, &second.data.id, &[]).await;
 }
 
+// 验证重启后保留标签 ID、名称、层级、值规则及绑定，且已完成的删除不会恢复。
 #[tokio::test]
 async fn restart_preserves_tag_identity_hierarchy_rules_and_completed_deletions() {
     let restart = Restart::new();

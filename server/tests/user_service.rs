@@ -2,6 +2,7 @@ mod support;
 use support::*;
 use SampleFile::*;
 
+// 验证注册不同用户名会创建身份独立且书架为空的用户。
 #[tokio::test]
 async fn registration_creates_distinct_users_with_empty_bookshelves() {
     let app = TestApp::new().await;
@@ -12,6 +13,7 @@ async fn registration_creates_distinct_users_with_empty_bookshelves() {
     assert!(app.books(&second).await.is_empty());
 }
 
+// 验证注册时拒绝空用户名和非法格式，接受合法用户名。
 #[tokio::test]
 async fn registration_rejects_invalid_names() {
     let app = TestApp::new().await;
@@ -22,6 +24,7 @@ async fn registration_rejects_invalid_names() {
     app.register("Valid").await.assert_ok();
 }
 
+// 验证重复注册被拒绝，且现有用户的登录和书籍不受影响。
 #[tokio::test]
 async fn duplicate_registration_preserves_existing_login_and_books() {
     let app = TestApp::new().await;
@@ -33,6 +36,7 @@ async fn duplicate_registration_preserves_existing_login_and_books() {
     book.assert_unchanged().await;
 }
 
+// 验证修改用户名后需使用新名称登录，且用户身份和书籍保持不变。
 #[tokio::test]
 async fn rename_changes_login_name_but_preserves_identity_and_books() {
     let app = TestApp::new().await;
@@ -47,6 +51,7 @@ async fn rename_changes_login_name_but_preserves_identity_and_books() {
     book.assert_unchanged().await;
 }
 
+// 验证修改密码后旧密码失效、新密码可重复设置，且用户身份和书籍保持不变。
 #[tokio::test]
 async fn password_change_rejects_old_password_and_preserves_identity() {
     let app = TestApp::new().await;
@@ -62,6 +67,7 @@ async fn password_change_rejects_old_password_and_preserves_identity() {
     app.login("Reader", "new-password").await;
 }
 
+// 验证非法、未变化或冲突的用户名修改被拒绝，且原用户名仍可登录。
 #[tokio::test]
 async fn invalid_renames_preserve_current_name() {
     let app = TestApp::new().await;
@@ -74,6 +80,7 @@ async fn invalid_renames_preserve_current_name() {
     }
 }
 
+// 验证修改用户名、修改密码和注销时拒绝非法或不存在的用户 ID。
 #[tokio::test]
 async fn mutations_reject_invalid_and_unknown_users() {
     let app = TestApp::new().await;
@@ -85,6 +92,7 @@ async fn mutations_reject_invalid_and_unknown_users() {
     }
 }
 
+// 验证注销账户后登录、刷新和现有访问均失效，其他用户不受影响且重复注销报错。
 #[tokio::test]
 async fn unregister_invalidates_login_refresh_and_existing_access() {
     let app = TestApp::new().await;

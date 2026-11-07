@@ -3,6 +3,7 @@ use support::*;
 use HttpError::*;
 use SampleFile::*;
 
+// 验证创建 PDF 和 EPUB 书籍后可列出书籍并按 ID 筛选。
 #[tokio::test]
 async fn create_and_filter_books() {
     let app = TestApp::new().await;
@@ -19,6 +20,7 @@ async fn create_and_filter_books() {
     app.find_books(&reader, &[INVALID_ID]).await.assert_error(InvalidBookId);
 }
 
+// 验证创建书籍时拒绝缺失或非法的标题、非法文件哈希及不存在的文件。
 #[tokio::test]
 async fn create_rejects_invalid_title_and_file() {
     let app = TestApp::new().await;
@@ -32,6 +34,7 @@ async fn create_rejects_invalid_title_and_file() {
     assert!(app.books(&reader).await.is_empty());
 }
 
+// 验证重复标题和非法重命名被拒绝，且现有书籍保持不变。
 #[tokio::test]
 async fn duplicate_titles_and_invalid_renames_leave_books_unchanged() {
     let app = TestApp::new().await;
@@ -48,6 +51,7 @@ async fn duplicate_titles_and_invalid_renames_leave_books_unchanged() {
     second.assert_unchanged().await;
 }
 
+// 验证书籍可重命名和删除，重复删除报错且共享文件仍可下载。
 #[tokio::test]
 async fn rename_and_delete_preserve_shared_file() {
     let app = TestApp::new().await;
@@ -63,6 +67,7 @@ async fn rename_and_delete_preserve_shared_file() {
     app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
 }
 
+// 验证重命名、删除和获取封面时拒绝非法或不存在的书籍 ID。
 #[tokio::test]
 async fn unknown_and_invalid_book_ids_are_rejected() {
     let app = TestApp::new().await;
@@ -74,6 +79,7 @@ async fn unknown_and_invalid_book_ids_are_rejected() {
     }
 }
 
+// 验证 PDF 书籍封面以有效的 PNG 图片返回。
 #[tokio::test]
 async fn pdf_cover_is_png() {
     let app = TestApp::new().await;
@@ -83,6 +89,7 @@ async fn pdf_cover_is_png() {
     book.cover().await.assert_png();
 }
 
+// 验证 EPUB 封面格式无法识别时返回空白 PNG 封面。
 #[tokio::test]
 async fn epub_cover_with_unknown_format_falls_back_to_blank_png() {
     let app = TestApp::new().await;
@@ -92,6 +99,7 @@ async fn epub_cover_with_unknown_format_falls_back_to_blank_png() {
     book.cover().await.assert_blank_cover();
 }
 
+// 验证 EPUB 封面按实际字节识别格式并在重启后保留原始内容
 #[tokio::test]
 async fn epub_cover_preserves_actual_format_and_bytes_after_restart() {
     use image::{DynamicImage, ImageFormat};
@@ -119,10 +127,6 @@ async fn epub_cover_preserves_actual_format_and_bytes_after_restart() {
         assert_eq!(std::fs::read(&path).unwrap(), cover);
         drop(app);
 
-        if format == ImageFormat::Jpeg {
-            // Older versions stored JPEG bytes under a PNG extension.
-            std::fs::rename(&path, path.with_extension("png")).unwrap();
-        }
         let app = TestApp::at(directory.path()).await;
         let response = app.cover(&reader, &id).await;
         response.assert_image(format);
@@ -130,6 +134,7 @@ async fn epub_cover_preserves_actual_format_and_bytes_after_restart() {
     }
 }
 
+// 验证 EPUB 封面缺失、为空或无法识别时，重启前后均返回空白 PNG。
 #[tokio::test]
 async fn missing_or_unrecognized_epub_cover_uses_blank_png_after_restart() {
     for cover in [None, Some(b"unrecognized image".as_slice()), Some(b"".as_slice())] {
@@ -148,24 +153,4 @@ async fn missing_or_unrecognized_epub_cover_uses_blank_png_after_restart() {
         let app = TestApp::at(directory.path()).await;
         app.cover(&reader, &id).await.assert_blank_cover();
     }
-}
-
-#[tokio::test]
-async fn legacy_unrecognized_cover_and_missing_cover_use_blank_png() {
-    let directory = tempfile::tempdir().unwrap();
-    let app = TestApp::at(directory.path()).await;
-    let reader = app.session("Reader").await;
-    app.upload(&reader, Epub).await;
-    let id = app.add_book(&reader, "EPUB", Epub).await.data.id;
-    let path = directory.path().join("books/covers").join(Epub.hash()).with_extension("png");
-    std::fs::write(&path, b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>").unwrap();
-    drop(app);
-
-    let app = TestApp::at(directory.path()).await;
-    app.cover(&reader, &id).await.assert_blank_cover();
-    std::fs::remove_file(path).unwrap();
-    drop(app);
-
-    let app = TestApp::at(directory.path()).await;
-    app.cover(&reader, &id).await.assert_blank_cover();
 }

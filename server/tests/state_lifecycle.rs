@@ -1,6 +1,7 @@
 mod support;
 use support::*;
 
+// 验证重启后保留用户、各自的书架和共享文件，且原有会话仍可访问和刷新。
 #[tokio::test]
 async fn restart_preserves_users_independent_books_files_and_existing_sessions() {
     let restart = Restart::new();
@@ -8,6 +9,7 @@ async fn restart_preserves_users_independent_books_files_and_existing_sessions()
     restart.assert_users_books_and_tokens_restored().await;
 }
 
+// 验证多个应用状态可共用 Pdfium 并保持书库独立，销毁后重建仍可生成 PDF 封面。
 #[tokio::test]
 async fn multiple_appstates_share_pdfium_but_keep_separate_libraries() {
     let first = TestApp::new().await;
