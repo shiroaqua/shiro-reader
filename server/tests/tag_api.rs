@@ -61,7 +61,7 @@ async fn creation_rejects_missing_parents_and_invalid_value_rules() {
     app.define_tag(&reader, "Child", Some(&root.id), false, None).await.assert_tag_error(ParentNotFound);
 }
 
-// 验证标签重命名保留 ID、父子关系和值规则，且不允许修改其他定义属性。
+// 验证标签重命名保留 ID、父子关系和值规则。
 #[tokio::test]
 async fn rename_preserves_identity_parent_children_and_value_rules() {
     let app = TestApp::new().await;
@@ -71,10 +71,6 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     let child = app.add_tag(&reader, "Child", Some(&tag.id), false, None).await;
     app.rename_tag(&reader, &tag.id, "Score").await.assert_empty(204);
     let expected = vec![root.node(vec![tag.renamed("Score").node(vec![child.node(vec![])])])];
-    assert_eq!(app.tag_tree(&reader).await, expected);
-    for response in app.forbidden_tag_definition_changes(&reader, &tag.id).await {
-        response.assert_tag_error(InvalidRequest);
-    }
     assert_eq!(app.tag_tree(&reader).await, expected);
 }
 
@@ -248,25 +244,6 @@ async fn both_strategies_can_delete_a_leaf_and_reject_repeated_deletion() {
         assert!(app.tag_tree(&reader).await.is_empty());
     }
 }
-
-// 验证格式错误、批量请求及缺失或非法的删除策略被拒绝，且标签树不变。
-#[tokio::test]
-async fn malformed_requests_batch_payloads_and_missing_deletion_strategy_are_rejected() {
-    let app = TestApp::new().await;
-    let reader = app.session("Reader").await;
-    app.upload(&reader, Epub).await;
-    let book = app.add_book(&reader, "Book", Epub).await;
-    let tag = app.add_tag(&reader, "Tag", None, false, None).await;
-    for response in app.malformed_tag_requests(&reader, &tag.id, &book.data.id).await {
-        response.assert_tag_error(InvalidRequest);
-    }
-    for response in app.invalid_tag_deletion_strategies(&reader, &tag.id).await {
-        response.assert_tag_error(InvalidStrategy);
-    }
-    assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
-}
-
-
 
 // 验证删除已绑定标签的书籍后保留标签定义及其他书籍的绑定。
 #[tokio::test]

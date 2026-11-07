@@ -1,16 +1,12 @@
 use axum::{
-    Json,
-    extract::{Path, Query, rejection::{JsonRejection, QueryRejection}},
-    http::StatusCode,
+    Json, extract::{Path, Query, rejection::QueryRejection}, http::StatusCode,
 };
 
 use crate::{
-    api::extractors::auth::RoutedState,
-    application::library::tag::commands::{
+    api::extractors::{auth::RoutedState}, application::library::tag::commands::{
         BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, RenameTagCommand,
         UnbindBookTagCommand,
-    },
-    error::AppError,
+    }, error::AppError,
 };
 
 use super::dto::{
@@ -20,9 +16,8 @@ use super::dto::{
 
 pub async fn create_tag(
     state: RoutedState,
-    request: Result<Json<CreateTagRequest>, JsonRejection>,
+    Json(request): Json<CreateTagRequest>,
 ) -> Result<(StatusCode, Json<TagResponse>), AppError> {
-    let Json(request) = request.map_err(invalid_request)?;
     let output = state.tag_service.define_tag(CreateTagDefinitionCommand {
         name: request.name,
         parent_id: request.parent_id,
@@ -35,9 +30,8 @@ pub async fn create_tag(
 pub async fn rename_tag(
     state: RoutedState,
     Path(tag_id): Path<String>,
-    request: Result<Json<RenameTagRequest>, JsonRejection>,
+    Json(request): Json<RenameTagRequest>,
 ) -> Result<StatusCode, AppError> {
-    let Json(request) = request.map_err(invalid_request)?;
     state.tag_service.rename_tag(RenameTagCommand {
         id: tag_id,
         name: request.name,
@@ -56,9 +50,8 @@ pub async fn get_book_tags(
 pub async fn bind_tag(
     state: RoutedState,
     Path(book_id): Path<String>,
-    request: Result<Json<BindBookTagRequest>, JsonRejection>,
+    Json(request): Json<BindBookTagRequest>,
 ) -> Result<StatusCode, AppError> {
-    let Json(request) = request.map_err(invalid_request)?;
     state.tag_service.bind_book_tag(BindBookTagCommand {
         book_id,
         tag_id: request.tag_id,
@@ -70,9 +63,8 @@ pub async fn bind_tag(
 pub async fn unbind_tag(
     state: RoutedState,
     Path(book_id): Path<String>,
-    request: Result<Json<UnbindBookTagRequest>, JsonRejection>,
+    Json(request): Json<UnbindBookTagRequest>,
 ) -> Result<StatusCode, AppError> {
-    let Json(request) = request.map_err(invalid_request)?;
     state.tag_service.unbind_book_tag(UnbindBookTagCommand {
         book_id,
         tag_id: request.tag_id,
@@ -100,8 +92,4 @@ pub async fn delete_tag(
         strategy: query.strategy.into(),
     }).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn invalid_request(_error: JsonRejection) -> AppError {
-    AppError::BadRequest { message: "library.tag.invalid_request" }
 }

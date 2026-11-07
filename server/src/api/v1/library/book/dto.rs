@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateBookRequest {
     pub title: String,
     pub hash: String,
@@ -10,18 +11,21 @@ pub struct CreateBookRequest {
 
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RenameBookRequest {
     pub title: String,
 }
 
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BooksQuery {
     #[serde(default)]
     pub id: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateBookResponse {
     pub id: String,
     #[serde(rename = "type")]
@@ -30,6 +34,7 @@ pub struct CreateBookResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct GetBookResponse {
     pub id: String,
     pub title: String,

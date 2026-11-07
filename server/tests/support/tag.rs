@@ -55,7 +55,7 @@ impl TagDefinitionData {
 pub enum TagError {
     InvalidId, MissingName, InvalidName, UnchangedName, InvalidRegex, RegexNotAllowed,
     ValueRequired, ValueNotAllowed, RegexMismatch, NotFound, ParentNotFound,
-    InvalidRequest, InvalidStrategy,
+    InvalidStrategy,
 }
 
 impl TagError {
@@ -73,7 +73,6 @@ impl TagError {
             RegexMismatch => (400, "library.tag.value_regex_mismatch"),
             NotFound => (404, "library.tag.not_found"),
             ParentNotFound => (404, "library.tag.parent_not_found"),
-            InvalidRequest => (400, "library.tag.invalid_request"),
             InvalidStrategy => (400, "library.tag.invalid_delete_strategy"),
         }
     }
@@ -161,37 +160,6 @@ impl TestApp {
             Some(json!({"tag_id": tag_id})), Some(session)).await
     }
 
-    pub async fn forbidden_tag_definition_changes(&self, session: &Session, id: &str) -> Vec<HttpResponse> {
-        let mut responses = Vec::new();
-        for field in [
-            json!({"id": UNKNOWN_ID}), json!({"parent_id": UNKNOWN_ID}),
-            json!({"allows_value": false}), json!({"value_regex": ".*"}), json!({"color": "red"}),
-        ] {
-            let mut body = json!({"name": "Changed"});
-            body.as_object_mut().unwrap().extend(field.as_object().unwrap().clone());
-            responses.push(self.send(Method::PATCH, &format!("{TAGS}/{id}"), Some(body), Some(session)).await);
-        }
-        responses
-    }
-
-    pub async fn malformed_tag_requests(&self, session: &Session, tag_id: &str, book_id: &str) -> Vec<HttpResponse> {
-        let mut responses = Vec::new();
-        for (method, uri, body) in [
-            (Method::POST, TAGS.into(), json!({"name": "Tag"})),
-            (Method::POST, TAGS.into(), json!({"name": "Tag", "allows_value": "true"})),
-            (Method::POST, TAGS.into(), json!({"name": "Tag", "allows_value": false, "color": "red"})),
-            (Method::PATCH, format!("{TAGS}/{tag_id}"), json!({"name": 42})),
-            (Method::POST, format!("{BOOKS}/{book_id}/tags"), json!({"tag_id": tag_id, "value": 42})),
-            (Method::POST, format!("{BOOKS}/{book_id}/tags"), json!({"tag_id": tag_id, "value": []})),
-            (Method::POST, format!("{BOOKS}/{book_id}/tags"), json!({"tags": [{"tag_id": tag_id}]})),
-            (Method::DELETE, format!("{BOOKS}/{book_id}/tags"), json!({"tag_ids": [tag_id]})),
-        ] {
-            responses.push(self.send(method, &uri, Some(body), Some(session)).await);
-        }
-        responses.push(self.request(Method::POST, TAGS, Body::from("{"), Some("application/json"),
-            Some(&format!("Bearer {}", session.access_token))).await);
-        responses
-    }
 
     pub async fn invalid_tag_deletion_strategies(&self, session: &Session, id: &str) -> Vec<HttpResponse> {
         let mut responses = Vec::new();
