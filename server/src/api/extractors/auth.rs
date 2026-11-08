@@ -2,16 +2,10 @@ use axum::{extract::FromRequestParts, http::header::AUTHORIZATION};
 
 use crate::{
     application::{
-        identity::authentication::{
+        identity::{authentication::{
             commands::VerifyAccessToeknCommand, errors::AuthenticationApplicationError,
-        },
-        library::book::service::BookService,
-        library::tag::service::TagService,
-    },
-    error::AppError,
-    infrastructure::repositories::sqlite_book_repository::SqliteBookRepository,
-    infrastructure::repositories::sqlite_tag_repository::SqliteTagRepository,
-    state::AppState,
+        }, errors::IdentityApplicationError}, library::{book::service::BookService, tag::service::TagService},
+    }, error::AppError, infrastructure::repositories::{sqlite_book_repository::SqliteBookRepository, sqlite_tag_repository::SqliteTagRepository}, state::AppState,
 };
 
 pub struct User {
@@ -53,7 +47,9 @@ impl FromRequestParts<AppState> for RoutedState {
             .await?
             .user_id;
 
-        let pool = state.user_sqlpool_provider.route(&user_id)?;
+        let pool = state.user_sqlpool_provider.route(&user_id).map_err(|_| IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken))?;
+
+
         Ok(RoutedState {
             book_service: BookService::new(
                 SqliteBookRepository::new(pool.clone()),

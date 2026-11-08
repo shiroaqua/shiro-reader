@@ -58,7 +58,7 @@ impl AuthenticationService {
         command: RefreshAccessTokenCommand,
     ) -> Result<RefreshAccessTokenOutput, IdentityApplicationError> {
         let user_id = self.crypto.verify_refresh_token(&command.token)?;
-        let _ =  self.repository.find_by_id(&UserId::parse(&user_id)?).await?;
+        let _ =  self.repository.find_by_id(&UserId::parse(&user_id)?).await.map_err(|_| IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken))?;
 
         let access_token = self.crypto.issue_access_token(user_id.clone())?;
         if !self.sessions.add_access(&user_id, &token_hash(&command.token), &token_hash(&access_token))
