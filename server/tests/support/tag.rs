@@ -1,6 +1,6 @@
 use super::*;
 
-const TAGS: &str = "/api/v1/library/bookshelf/tags";
+const TAGS: &str = "/api/v1/library/tags";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
