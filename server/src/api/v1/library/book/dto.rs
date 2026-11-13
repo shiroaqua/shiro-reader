@@ -26,16 +26,7 @@ pub struct BooksQuery {
 
 #[derive(Debug, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CreateBookResponse {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub file_type: String,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct GetBookResponse {
+pub struct BookResponse {
     pub id: String,
     pub title: String,
     pub hash: String,

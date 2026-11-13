@@ -10,13 +10,13 @@ use crate::{
 };
 
 use super::dto::{
-    BookTagResponse, BindBookTagRequest, CreateTagRequest, DeleteTagQuery, RenameTagRequest, TagResponse,
+    BookTagResponse, BindBookTagRequest, DefineTagRequest, DeleteTagQuery, RenameTagRequest, TagResponse,
     MoveTagRequest, TagTreeNodeResponse, UnbindBookTagRequest,
 };
 
 pub async fn create_tag(
     state: RoutedState,
-    Json(request): Json<CreateTagRequest>,
+    Json(request): Json<DefineTagRequest>,
 ) -> Result<(StatusCode, Json<TagResponse>), AppError> {
     let output = state.tag_service.define_tag(CreateTagDefinitionCommand {
         name: request.name,

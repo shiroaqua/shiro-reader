@@ -16,7 +16,7 @@ use crate::{
 pub async fn create_book(
     state: RoutedState,
     Json(request): Json<CreateBookRequest>,
-) -> Result<(StatusCode, Json<CreateBookResponse>), AppError> {
+) -> Result<(StatusCode, Json<BookResponse>), AppError> {
     let output = state
         .book_service
         .create_book(CreateBookCommand {
@@ -76,8 +76,8 @@ pub async fn download_cover(
 pub async fn get_books(
     state: RoutedState,
     Query(query): Query<BooksQuery>,
-) -> Result<(StatusCode, Json<Vec<GetBookResponse>>), AppError> {
-    let response_data: Vec<GetBookResponse> = state
+) -> Result<(StatusCode, Json<Vec<BookResponse>>), AppError> {
+    let response_data: Vec<BookResponse> = state
         .book_service
         .get_books(GetBooksQuery {
             book_ids: query.id,

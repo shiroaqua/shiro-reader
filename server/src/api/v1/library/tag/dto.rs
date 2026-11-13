@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CreateTagRequest {
+pub struct DefineTagRequest {
     pub name: String,
     pub parent_id: Option<String>,
     pub allows_value: bool,

@@ -11,15 +11,11 @@ import { notifyError } from "@/lib/error-notifications"
 
 export const bookshelf = {
   book: {
-    create: async (title: string, hash: string) => {
-      const book = await request<Book>("bookshelf/books", {
+    create: (title: string, hash: string) => {
+      return request<Book>("bookshelf/books", {
         method: "POST",
         body: { title, hash },
       })
-      book.title = title
-      book.hash = hash
-      book.updated_at = book.created_at
-      return book
     },
     list: () => request<Book[]>("bookshelf/books"),
     rename: (id: Book["id"], title: string) =>

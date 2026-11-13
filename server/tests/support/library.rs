@@ -73,25 +73,23 @@ impl TestApp {
         self.send(Method::POST, BOOKS, Some(json!({"title": title, "hash": hash})), Some(session)).await
     }
 
-    // Read the stored representation through HTTP; never fabricate fields from the request.
+    // The create and list endpoints expose the same complete book representation.
     pub async fn add_book(&self, session: &Session, title: &str, file: SampleFile) -> Book<'_> {
         let before = Utc::now();
         let response = self.create_book(session, title, &file.hash()).await;
         response.assert_status(201);
         let created = response.json();
-        let id = text(&created, "id");
-        uuid::Uuid::parse_str(&id).expect("book ID");
-        assert_eq!(created.as_object().unwrap().len(), 3);
-        assert_eq!(created["type"], file.file_type());
-        let books = self.books_by_ids(session, &[&id]).await;
-        assert_eq!(books.len(), 1);
-        let data = books.into_iter().next().unwrap();
+        assert_eq!(created.as_object().unwrap().len(), 6);
+        let data: BookData = serde_json::from_value(created).expect("created book fields");
+        uuid::Uuid::parse_str(&data.id).expect("book ID");
         assert_eq!(data.title, title);
         assert_eq!(data.hash, file.hash());
         assert_eq!(data.file_type, file.file_type());
-        assert_eq!(serde_json::to_value(data.created_at).unwrap(), created["created_at"]);
         assert!((before..=Utc::now()).contains(&data.created_at));
         assert_eq!(data.created_at, data.updated_at);
+        let books = self.books_by_ids(session, &[&data.id]).await;
+        assert_eq!(books.len(), 1);
+        assert_eq!(books[0], data);
         Book { data, app: self, session: session.clone() }
     }
 
