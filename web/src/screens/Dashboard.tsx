@@ -39,7 +39,7 @@ import { notifyError } from "@/lib/error-notifications"
 export function DashboardScreen() {
   const { t } = useTranslation()
   const { username, logout } = useAuth()
-  const [isRootBookshelfSelected, setIsRootBookshelfSelected] = useState(false)
+  const [isRootBookshelfSelected, setIsRootBookshelfSelected] = useState(true)
 
   const menus: DashboardMenu[] = [
     {
