@@ -30,6 +30,12 @@ pub enum TagDomainError {
     #[error("tag not found")]
     NotFound,
 
+    #[error("parent tag not found")]
+    ParentNotFound,
+
+    #[error("tag cannot be moved under itself or one of its descendants")]
+    InvalidMove,
+
     #[error("tag tree contains duplicate ids, missing parents or a cycle")]
     InvalidTree,
 }

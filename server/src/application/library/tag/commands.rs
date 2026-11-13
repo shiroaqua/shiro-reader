@@ -15,6 +15,12 @@ pub struct RenameTagCommand {
 }
 
 #[derive(Debug)]
+pub struct MoveTagCommand {
+    pub id: String,
+    pub parent_id: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct BindBookTagCommand {
     pub book_id: String,
     pub tag_id: String,

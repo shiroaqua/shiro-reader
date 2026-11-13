@@ -5,7 +5,7 @@ use crate::{
         book::value_objects::BookId,
         tag::{
             entity::{BookTag, TagDefinition},
-            tree::TagDeletion,
+            tree::{TagDeletion, TagParentChange},
             value_objects::TagId,
         },
     },
@@ -24,10 +24,17 @@ pub trait TagRepository: Send + Sync {
     async fn bind_tag(&self, binding: &BookTag) -> Result<(), TagRepositoryError>;
     async fn unbind_tag(&self, book_id: &BookId, tag_id: &TagId) -> Result<(), TagRepositoryError>;
     async fn begin_delete(&self) -> Result<Box<dyn TagDeleteTransaction + '_>, TagRepositoryError>;
+    async fn begin_move(&self) -> Result<Box<dyn TagMoveTransaction + '_>, TagRepositoryError>;
 }
 
 #[async_trait]
 pub trait TagDeleteTransaction: Send {
     async fn list(&mut self) -> Result<Vec<TagDefinition>, TagRepositoryError>;
     async fn commit(self: Box<Self>, deletion: TagDeletion) -> Result<(), TagRepositoryError>;
+}
+
+#[async_trait]
+pub trait TagMoveTransaction: Send {
+    async fn list(&mut self) -> Result<Vec<TagDefinition>, TagRepositoryError>;
+    async fn commit(self: Box<Self>, change: TagParentChange) -> Result<(), TagRepositoryError>;
 }

@@ -17,6 +17,12 @@ pub struct RenameTagRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct MoveTagRequest {
+    pub parent_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BindBookTagRequest {
     pub tag_id: String,
     pub value: Option<String>,

@@ -4,14 +4,14 @@ use axum::{
 
 use crate::{
     api::extractors::{auth::RoutedState}, application::library::tag::commands::{
-        BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, RenameTagCommand,
-        UnbindBookTagCommand,
+        BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, MoveTagCommand,
+        RenameTagCommand, UnbindBookTagCommand,
     }, error::AppError,
 };
 
 use super::dto::{
     BookTagResponse, BindBookTagRequest, CreateTagRequest, DeleteTagQuery, RenameTagRequest, TagResponse,
-    TagTreeNodeResponse, UnbindBookTagRequest,
+    MoveTagRequest, TagTreeNodeResponse, UnbindBookTagRequest,
 };
 
 pub async fn create_tag(
@@ -35,6 +35,18 @@ pub async fn rename_tag(
     state.tag_service.rename_tag(RenameTagCommand {
         id: tag_id,
         name: request.name,
+    }).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn move_tag(
+    state: RoutedState,
+    Path(tag_id): Path<String>,
+    Json(request): Json<MoveTagRequest>,
+) -> Result<StatusCode, AppError> {
+    state.tag_service.move_tag(MoveTagCommand {
+        id: tag_id,
+        parent_id: request.parent_id,
     }).await?;
     Ok(StatusCode::NO_CONTENT)
 }

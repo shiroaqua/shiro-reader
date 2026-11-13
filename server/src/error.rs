@@ -265,6 +265,12 @@ impl From<TagApplicationError> for AppError {
                 TagDomainError::NotFound => Self::NotFound {
                     message: "library.tag.not_found",
                 },
+                TagDomainError::ParentNotFound => Self::NotFound {
+                    message: "library.tag.parent_not_found",
+                },
+                TagDomainError::InvalidMove => Self::BadRequest {
+                    message: "library.tag.invalid_move",
+                },
                 TagDomainError::InvalidTree => Self::Internal(error.into()),
             },
             TagApplicationError::ParentNotFound => Self::NotFound {

@@ -55,7 +55,7 @@ impl TagDefinitionData {
 pub enum TagError {
     InvalidId, MissingName, InvalidName, UnchangedName, InvalidRegex, RegexNotAllowed,
     ValueRequired, ValueNotAllowed, RegexMismatch, NotFound, ParentNotFound,
-    InvalidStrategy,
+    InvalidMove, InvalidStrategy,
 }
 
 impl TagError {
@@ -73,6 +73,7 @@ impl TagError {
             RegexMismatch => (400, "library.tag.value_regex_mismatch"),
             NotFound => (404, "library.tag.not_found"),
             ParentNotFound => (404, "library.tag.parent_not_found"),
+            InvalidMove => (400, "library.tag.invalid_move"),
             InvalidStrategy => (400, "library.tag.invalid_delete_strategy"),
         }
     }
@@ -142,7 +143,11 @@ impl TestApp {
     }
 
     pub async fn rename_tag(&self, session: &Session, id: &str, name: &str) -> HttpResponse {
-        self.send(Method::PATCH, &format!("{TAGS}/{id}"), Some(json!({"name": name})), Some(session)).await
+        self.send(Method::PATCH, &format!("{TAGS}/{id}/name"), Some(json!({"name": name})), Some(session)).await
+    }
+
+    pub async fn move_tag(&self, session: &Session, id: &str, parent: Option<&str>) -> HttpResponse {
+        self.send(Method::PATCH, &format!("{TAGS}/{id}/parent"), Some(json!({"parent_id": parent})), Some(session)).await
     }
 
     pub async fn delete_tag(&self, session: &Session, id: &str, strategy: DeleteStrategy) -> HttpResponse {
@@ -175,7 +180,8 @@ impl TestApp {
             (Method::GET, TAGS.into(), None),
             (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/tags"), None),
             (Method::POST, TAGS.into(), Some(json!({"name": "Tag", "allows_value": false}))),
-            (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}"), Some(json!({"name": "Renamed"}))),
+            (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}/name"), Some(json!({"name": "Renamed"}))),
+            (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}/parent"), Some(json!({"parent_id": null}))),
             (Method::DELETE, format!("{TAGS}/{UNKNOWN_ID}?strategy=CASCADE"), None),
             (Method::POST, format!("{BOOKS}/{UNKNOWN_ID}/tags"), Some(json!({"tag_id": UNKNOWN_ID}))),
             (Method::DELETE, format!("{BOOKS}/{UNKNOWN_ID}/tags"), Some(json!({"tag_id": UNKNOWN_ID}))),

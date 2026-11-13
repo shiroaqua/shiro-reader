@@ -21,9 +21,16 @@ impl TagTree {
             if by_id.insert(tag.id().clone(), index).is_some() {
                 return Err(TagDomainError::InvalidTree);
             }
-            children.entry(tag.parent_id().cloned()).or_default().push(index);
+            children
+                .entry(tag.parent_id().cloned())
+                .or_default()
+                .push(index);
         }
-        if tags.iter().filter_map(TagDefinition::parent_id).any(|id| !by_id.contains_key(id)) {
+        if tags
+            .iter()
+            .filter_map(TagDefinition::parent_id)
+            .any(|id| !by_id.contains_key(id))
+        {
             return Err(TagDomainError::InvalidTree);
         }
 
@@ -39,11 +46,18 @@ impl TagTree {
         if visited != tags.len() {
             return Err(TagDomainError::InvalidTree);
         }
-        Ok(Self { tags, by_id, children })
+        Ok(Self {
+            tags,
+            by_id,
+            children,
+        })
     }
 
     pub fn children_of(&self, parent_id: Option<&TagId>) -> impl Iterator<Item = &TagDefinition> {
-        self.children.get(&parent_id.cloned()).into_iter().flatten()
+        self.children
+            .get(&parent_id.cloned())
+            .into_iter()
+            .flatten()
             .map(|index| &self.tags[*index])
     }
 
@@ -67,18 +81,61 @@ impl TagTree {
                 }
                 // 持久化时先删子孙，最后删父标签。
                 deleted_ids.reverse();
-                Ok(TagDeletion { deleted_ids, promoted_children: Vec::new() })
+                Ok(TagDeletion {
+                    deleted_ids,
+                    promoted_children: Vec::new(),
+                })
             }
             TagDeleteStrategy::Promote => {
-                let promoted_children = self.children_of(Some(id))
+                let promoted_children = self
+                    .children_of(Some(id))
                     .map(|child| TagParentChange {
                         id: child.id().clone(),
                         parent_id: tag.parent_id().cloned(),
                     })
                     .collect();
-                Ok(TagDeletion { deleted_ids: vec![id.clone()], promoted_children })
+                Ok(TagDeletion {
+                    deleted_ids: vec![id.clone()],
+                    promoted_children,
+                })
             }
         }
+    }
+
+    pub fn plan_move(
+        &self,
+        id: &TagId,
+        parent_id: Option<&TagId>,
+    ) -> Result<TagParentChange, TagDomainError> {
+        let source_index = *self.by_id.get(id).ok_or(TagDomainError::NotFound)?;
+        let parent_index = parent_id
+            .map(|parent_id| {
+                self.by_id
+                    .get(parent_id)
+                    .copied()
+                    .ok_or(TagDomainError::ParentNotFound)
+            })
+            .transpose()?;
+
+        let tag = &self.tags[source_index];
+        if tag.parent_id() == parent_id {
+            return Err(TagDomainError::InvalidMove);
+        }
+
+        let mut ancestor = parent_index;
+        while let Some(index) = ancestor {
+            if index == source_index {
+                return Err(TagDomainError::InvalidMove);
+            }
+            ancestor = self.tags[index]
+                .parent_id()
+                .and_then(|id| self.by_id.get(id).copied());
+        }
+
+        Ok(TagParentChange {
+            id: id.clone(),
+            parent_id: parent_id.cloned(),
+        })
     }
 }
 

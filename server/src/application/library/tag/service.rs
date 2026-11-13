@@ -14,8 +14,8 @@ use crate::{
 
 use super::{
     commands::{
-        BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, RenameTagCommand,
-        UnbindBookTagCommand,
+        BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, MoveTagCommand,
+        RenameTagCommand, UnbindBookTagCommand,
     },
     dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     ports::TagRepository,
@@ -62,6 +62,19 @@ impl<T: TagRepository> TagService<T> {
         let mut tag_def = self.repository.find_by_id(&id).await?;
         tag_def.rename(name)?;
         self.repository.commit(tag_def).await?;
+        Ok(())
+    }
+
+    pub async fn move_tag(
+        &self,
+        command: MoveTagCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = TagId::parse(command.id)?;
+        let parent_id = command.parent_id.map(TagId::parse).transpose()?;
+        let mut transaction = self.repository.begin_move().await?;
+        let tree = TagTree::new(transaction.list().await?)?;
+        let change= tree.plan_move(&id, parent_id.as_ref())?;
+        transaction.commit(change).await?;
         Ok(())
     }
 

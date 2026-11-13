@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use axum::{
     Router,
-    routing::{delete, get},
+    routing::{delete, get, patch},
 };
 
 pub mod book;
@@ -39,6 +39,8 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/tags/{tag_id}",
-            delete(tag::handlers::delete_tag).patch(tag::handlers::rename_tag),
+            delete(tag::handlers::delete_tag),
         )
+        .route("/tags/{tag_id}/name", patch(tag::handlers::rename_tag))
+        .route("/tags/{tag_id}/parent", patch(tag::handlers::move_tag))
 }

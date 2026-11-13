@@ -74,6 +74,54 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     assert_eq!(app.tag_tree(&reader).await, expected);
 }
 
+// 验证移动标签可更换父级或移至根层，同时保留子树、值规则和书籍绑定。
+#[tokio::test]
+async fn moving_a_tag_preserves_its_subtree_rules_and_book_bindings() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "Book", Epub).await;
+    let first_root = app.add_tag(&reader, "FirstRoot", None, false, None).await;
+    let second_root = app.add_tag(&reader, "SecondRoot", None, false, None).await;
+    let category = app.add_tag(&reader, "Category", Some(&first_root.id), true, Some("[A-Z]+")).await;
+    let child = app.add_tag(&reader, "Child", Some(&category.id), false, None).await;
+    app.bind_tag(&reader, &book.data.id, &category.id, Some("FICTION")).await.assert_empty(204);
+
+    app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_empty(204);
+    app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_tag_error(InvalidMove);
+    assert_eq!(app.tag_tree(&reader).await, [
+        first_root.node(vec![]),
+        second_root.node(vec![category.under(Some(&second_root.id)).node(vec![child.node(vec![])])]),
+    ]);
+
+    app.move_tag(&reader, &category.id, None).await.assert_empty(204);
+    assert_eq!(app.tag_tree(&reader).await, [
+        category.under(None).node(vec![child.node(vec![])]),
+        first_root.node(vec![]),
+        second_root.node(vec![]),
+    ]);
+    app.assert_book_tags(&reader, &book.data.id, &[category.binding(Some("FICTION"))]).await;
+}
+
+// 验证移动拒绝不存在的目标、自挂载和移入后代，并且失败时不改变标签树。
+#[tokio::test]
+async fn moving_a_tag_rejects_missing_targets_and_cyclic_hierarchies() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let root = app.add_tag(&reader, "Root", None, false, None).await;
+    let branch = app.add_tag(&reader, "Branch", Some(&root.id), false, None).await;
+    let leaf = app.add_tag(&reader, "Leaf", Some(&branch.id), false, None).await;
+
+    for (id, error) in [(INVALID_ID, InvalidId), (UNKNOWN_ID, NotFound)] {
+        app.move_tag(&reader, id, None).await.assert_tag_error(error);
+    }
+    app.move_tag(&reader, &branch.id, Some(INVALID_ID)).await.assert_tag_error(InvalidId);
+    app.move_tag(&reader, &branch.id, Some(UNKNOWN_ID)).await.assert_tag_error(ParentNotFound);
+    app.move_tag(&reader, &branch.id, Some(&branch.id)).await.assert_tag_error(InvalidMove);
+    app.move_tag(&reader, &root.id, Some(&leaf.id)).await.assert_tag_error(InvalidMove);
+    assert_eq!(app.tag_tree(&reader).await, [root.node(vec![branch.node(vec![leaf.node(vec![])])])]);
+}
+
 // 验证有值标签必须绑定完整匹配正则的非空字符串，无值标签拒绝任何值。
 #[tokio::test]
 async fn bindings_require_a_nonempty_string_matching_the_entire_regex() {

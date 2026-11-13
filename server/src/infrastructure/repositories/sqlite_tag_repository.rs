@@ -6,12 +6,12 @@ use sea_query_sqlx::SqlxBinder;
 use sqlx::{SqlitePool, sqlite::SqliteRow};
 
 use crate::{
-    application::library::tag::{dto::BookTagOutput, ports::{TagDeleteTransaction, TagRepository}},
+    application::library::tag::{dto::BookTagOutput, ports::{TagDeleteTransaction, TagMoveTransaction, TagRepository}},
     domain::library::{
         book::value_objects::BookId,
         tag::{
             entity::{BookTag, TagDefinition},
-            tree::TagDeletion,
+            tree::{TagDeletion, TagParentChange},
             value_objects::{TagId, TagName, TagValueRule},
         },
     },
@@ -156,6 +156,13 @@ impl TagRepository for SqliteTagRepository {
             versions: HashMap::new(),
         }))
     }
+
+    async fn begin_move(&self) -> Result<Box<dyn TagMoveTransaction + '_>, TagRepositoryError> {
+        Ok(Box::new(SqliteTagMoveTransaction {
+            tx: self.db.begin(map_sqlx_error).await?,
+            versions: HashMap::new(),
+        }))
+    }
 }
 
 struct SqliteTagDeleteTransaction<'a> {
@@ -197,6 +204,37 @@ impl TagDeleteTransaction for SqliteTagDeleteTransaction<'_> {
             // 仅这些标签的绑定通过外键级联清理；上提标签的绑定保持原样。
             tx.execute_affected(&sql, values, TagRepositoryError::VersionConflict, map_sqlx_error).await?;
         }
+        tx.commit(map_sqlx_error).await
+    }
+}
+
+struct SqliteTagMoveTransaction<'a> {
+    tx: SqliteTransaction<'a>,
+    versions: HashMap<TagId, i64>,
+}
+
+#[async_trait]
+impl TagMoveTransaction for SqliteTagMoveTransaction<'_> {
+    async fn list(&mut self) -> Result<Vec<TagDefinition>, TagRepositoryError> {
+        let (sql, values) = definitions_query().build_sqlx(SqliteQueryBuilder);
+        let records: Vec<VersionedRecord<TagDefinition>> = self.tx.fetch_all(&sql, values, map_sqlx_error).await?;
+        self.versions = records.iter().map(|record| (record.id().clone(), record.version)).collect();
+        Ok(records.into_iter().map(|record| record.value).collect())
+    }
+
+    async fn commit(self: Box<Self>, change: TagParentChange) -> Result<(), TagRepositoryError> {
+        let Self { mut tx, versions } = *self;
+        let version = *versions.get(change.id()).ok_or(TagRepositoryError::VersionConflict)?;
+        let (sql, values) = Query::update()
+            .table(TagDefinitions::Table)
+            .values([
+                (TagDefinitions::ParentId, change.parent_id().map(ToString::to_string).into()),
+                (TagDefinitions::Version, (version + 1).into()),
+            ])
+            .and_where(Expr::col(TagDefinitions::Id).eq(change.id().to_string()))
+            .and_where(Expr::col(TagDefinitions::Version).eq(version))
+            .build_sqlx(SqliteQueryBuilder);
+        tx.execute_affected(&sql, values, TagRepositoryError::VersionConflict, map_sqlx_error).await?;
         tx.commit(map_sqlx_error).await
     }
 }
