@@ -16,7 +16,6 @@ import {
   Search,
   Clock,
   LibraryBig,
-  Tag,
   NotebookPen,
   ChartNoAxesCombined,
   Trash,
@@ -53,17 +52,14 @@ export function DashboardScreen() {
       icon: <LibraryBig />,
       name: t("dashboard.bookshelf"),
       isActive: isRootBookshelfSelected,
-      onSelect: () => setIsRootBookshelfSelected(true),
+      onSelect: () => {
+        setIsRootBookshelfSelected(true)
+      },
     },
     {
       id: "recent",
       icon: <Clock />,
       name: t("dashboard.recent"),
-    },
-    {
-      id: "tags",
-      icon: <Tag />,
-      name: t("dashboard.tags"),
     },
     {
       id: "notes",

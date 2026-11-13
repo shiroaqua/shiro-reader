@@ -7,6 +7,7 @@ import {
   LibraryBig,
   LoaderCircle,
   Pencil,
+  Tag,
   Trash2,
   Upload,
 } from "lucide-react"
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BookTagDialog } from "@/components/book-tag-dialog"
 import { notifyError } from "@/lib/error-notifications"
 import { formatBookDate } from "@/lib/format"
 import { booksQueryKey } from "@/lib/query-keys"
@@ -58,7 +60,7 @@ export function BookshelfBooks() {
   const { t, locale } = useTranslation()
   const { data: books, isPending, isError } = useQuery<Book[]>({
     queryKey: booksQueryKey,
-    queryFn: () => library.bookshelf.getBooks(),
+    queryFn: () => library.bookshelf.book.list(),
   })
   const [sort, setSort] = useState<BookSort>(loadBookSort)
   const sortedBooks = useMemo(
@@ -170,7 +172,7 @@ function UploadBookButton() {
           if (!(await library.files.book.exists(hash)))
             await library.files.book.upload(hash, file);
 
-          await library.bookshelf.createBook(
+          await library.bookshelf.book.create(
             file.name.replace(BOOK_FILE_PATTERN, "").trim(),
             hash
           )
@@ -232,7 +234,7 @@ function BookCard({ book }: { book: Book }) {
   useEffect(() => {
     let active = true
     let objectUrl: string | undefined
-    void library.bookshelf.getCover(book.id).then((blob) => {
+    void library.bookshelf.book.getCover(book.id).then((blob) => {
       if (!active) return
       objectUrl = URL.createObjectURL(blob)
       setCoverUrl(objectUrl)
@@ -246,6 +248,7 @@ function BookCard({ book }: { book: Book }) {
   }, [book.id])
   const [renaming, setRenaming] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
 
   const updateBooks = (update: (books: Book[]) => Book[]) =>
     queryClient.setQueryData<Book[]>(booksQueryKey, (books) => books && update(books))
@@ -263,7 +266,7 @@ function BookCard({ book }: { book: Book }) {
   }
 
   const renameMutation = useMutation({
-    mutationFn: (title: string) => library.bookshelf.renameBook(book.id, title),
+    mutationFn: (title: string) => library.bookshelf.book.rename(book.id, title),
     onSuccess: (_, title) => {
       updateBooks((books) => books.map((item) => (item.id === book.id ? { ...item, title } : item)))
       setRenaming(false)
@@ -273,7 +276,7 @@ function BookCard({ book }: { book: Book }) {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () => library.bookshelf.deleteBook(book.id),
+    mutationFn: () => library.bookshelf.book.delete(book.id),
     onSuccess: () => {
       setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
@@ -349,6 +352,10 @@ function BookCard({ book }: { book: Book }) {
           <Pencil aria-hidden="true" />
           {t("book.rename")}
         </ContextMenuItem>
+        <ContextMenuItem onClick={() => setTagsOpen(true)}>
+          <Tag aria-hidden="true" />
+          {t("book.tags")}
+        </ContextMenuItem>
         <ContextMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
           <Trash2 aria-hidden="true" />
           {t("book.delete")}
@@ -388,6 +395,7 @@ function BookCard({ book }: { book: Book }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <BookTagDialog book={book} open={tagsOpen} onOpenChange={setTagsOpen} />
     </ContextMenu>
   )
 }
