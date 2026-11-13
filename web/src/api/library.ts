@@ -102,9 +102,15 @@ export const tag = {
   define: (tag: Omit<Tag, "id">) =>
     request<Tag>("tags", { method: "POST", body: tag }),
   rename: (id: Tag["id"], name: string) =>
-    request<void>(`tags/${encodeURIComponent(id)}`, {
+    request<void>(`tags/${encodeURIComponent(id)}/name`, {
       method: "PATCH",
       body: { name },
+      expectBody: false,
+    }),
+  move: (id: Tag["id"], parentId: Tag["parent_id"]) =>
+    request<void>(`tags/${encodeURIComponent(id)}/parent`, {
+      method: "PATCH",
+      body: { parent_id: parentId },
       expectBody: false,
     }),
   undefine: (id: Tag["id"], strategy: UndefineTagStrategy) =>

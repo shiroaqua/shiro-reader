@@ -22,7 +22,7 @@ import {
   valueTypeLabelKey,
   type ValueType,
 } from "@/lib/tag-value-patterns"
-import type { TagTreeNode } from "@/lib/types"
+import type { Tag, TagTreeNode } from "@/lib/types"
 import { cn } from "cn"
 
 /** The dialog grows with the tag list up to a cap; past that the list, not the dialog, scrolls. */
@@ -65,7 +65,15 @@ export function useTagTreeView() {
       return next
     })
 
-  return { tagsQuery, tree, query, setQuery, visibleTree, expanded, toggleExpand }
+  return {
+    tagsQuery,
+    tree,
+    query,
+    setQuery,
+    visibleTree,
+    expanded,
+    toggleExpand,
+  }
 }
 
 /** Three-column header: action on the left, centered title, action on the right. */
@@ -293,9 +301,11 @@ export function TagTreeItem({
 export function CreateTagDialog({
   parentId,
   onClose,
+  onStage,
 }: {
   parentId: string | null
   onClose: () => void
+  onStage?: (definition: Omit<Tag, "id">) => void
 }) {
   const { t } = useTranslation()
   const [name, setName] = useState("")
@@ -317,6 +327,16 @@ export function CreateTagDialog({
 
   const submit = () => {
     if (!canSubmit) return
+    const definition = {
+      name: name.trim(),
+      parent_id: parentId,
+      ...toValueRule(valueType),
+    }
+    if (onStage) {
+      onStage(definition)
+      onClose()
+      return
+    }
     createMutation.mutate()
   }
 
