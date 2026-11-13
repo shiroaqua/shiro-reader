@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react"
+import { useMemo, useState, type PointerEventHandler, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronRight, LoaderCircle, Plus, Search, Tags } from "lucide-react"
 import { library } from "@/api/library"
@@ -65,6 +65,9 @@ export function useTagTreeView() {
       return next
     })
 
+  const expand = (id: string) =>
+    setExpanded((current) => new Set([...(current ?? branchIds), id]))
+
   return {
     tagsQuery,
     tree,
@@ -73,6 +76,7 @@ export function useTagTreeView() {
     visibleTree,
     expanded,
     toggleExpand,
+    expand,
   }
 }
 
@@ -220,7 +224,7 @@ export function TagTreeBox({
     )
 
   return (
-    <div className={boxClassName}>
+    <div className={boxClassName} data-tag-tree-root>
       {visibleTree.length === 0 && (
         <p
           role="status"
@@ -248,6 +252,7 @@ export function TagTreeItem({
   disabled,
   selected,
   onToggleExpand,
+  onPointerDown,
   children,
   renderChild,
 }: {
@@ -257,6 +262,7 @@ export function TagTreeItem({
   disabled: boolean
   selected?: boolean
   onToggleExpand: (id: string) => void
+  onPointerDown?: PointerEventHandler<HTMLDivElement>
   children: ReactNode
   renderChild: (child: TagTreeNode) => ReactNode
 }) {
@@ -271,6 +277,8 @@ export function TagTreeItem({
       aria-expanded={hasChildren ? isOpen : undefined}
     >
       <div
+        data-tag-id={node.id}
+        onPointerDown={onPointerDown}
         style={{ paddingLeft: `${depth * 1.25 + 0.25}rem` }}
         className="group/row flex min-h-9 items-center gap-1 rounded-md pr-1 transition-colors focus-within:bg-muted/60 hover:bg-muted/60"
       >

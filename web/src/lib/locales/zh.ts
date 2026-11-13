@@ -113,6 +113,8 @@ export const zh = {
   "tag.pending": "待提交",
   "tag.pending_create": "待创建",
   "tag.pending_delete": "待取消定义",
+  "tag.pending_move": "待移动",
+  "tag.select": "选择标签{name}",
   "tag.pending_changes": "待提交更改 {count} 项",
   "tag.undo_pending_delete": "撤销待删除操作",
   "tag.manage": "管理标签",

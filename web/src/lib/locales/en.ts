@@ -115,6 +115,8 @@ export const en: Record<keyof typeof zh, string> = {
   "tag.pending": "Pending",
   "tag.pending_create": "Pending creation",
   "tag.pending_delete": "Pending deletion",
+  "tag.pending_move": "Pending move",
+  "tag.select": "Select tag {name}",
   "tag.pending_changes": "{count} pending changes",
   "tag.undo_pending_delete": "Undo pending deletion",
   "tag.manage": "Manage tags",

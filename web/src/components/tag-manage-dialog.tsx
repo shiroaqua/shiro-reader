@@ -1,4 +1,11 @@
-import { useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Pencil, Plus, Trash2, Undo2 } from "lucide-react"
 import { library } from "@/api/library"
@@ -42,26 +49,28 @@ type PendingCreate = Omit<Tag, "id"> & { draftId: string }
 
 type TagChanges = {
   creates: PendingCreate[]
+  moves: [string, string | null][]
   renames: [string, string][]
   deletes: [string, UndefineTagStrategy][]
 }
 
 type CommitProgress = {
   createdIds: Map<string, string>
+  movedIds: string[]
   renamedIds: string[]
   deletedIds: string[]
 }
 
 class TagManageCommitError extends Error {
-  constructor(
-    originalError: unknown,
-    readonly progress: CommitProgress
-  ) {
+  readonly progress: CommitProgress
+
+  constructor(originalError: unknown, progress: CommitProgress) {
     super("Failed to commit tag changes", { cause: originalError })
+    this.progress = progress
   }
 }
 
-/** Stages tag definitions, renames and deletions until Done is pressed. */
+/** Stages tag definitions, moves, renames and deletions until Done is pressed. */
 export function TagManageDialog({
   open,
   onOpenChange,
@@ -99,11 +108,14 @@ function TagManageForm({
 }) {
   const { t } = useTranslation()
   const view = useTagTreeView()
-  const { tagsQuery, expanded, toggleExpand } = view
+  const { tagsQuery, expanded, toggleExpand, expand } = view
   const [active, setActive] = useState<ActiveDialog | null>(null)
   const [pendingCreates, setPendingCreates] = useState<PendingCreate[]>([])
   const [pendingRenames, setPendingRenames] = useState<
     ReadonlyMap<string, string>
+  >(() => new Map())
+  const [pendingMoves, setPendingMoves] = useState<
+    ReadonlyMap<string, string | null>
   >(() => new Map())
   const [pendingDeletes, setPendingDeletes] = useState<
     ReadonlyMap<string, PendingDelete>
@@ -112,8 +124,12 @@ function TagManageForm({
     () => new Set()
   )
   const tree = useMemo(
-    () => addPendingCreates(view.tree, pendingCreates),
-    [view.tree, pendingCreates]
+    () =>
+      applyPendingMoves(
+        addPendingCreates(view.tree, pendingCreates),
+        pendingMoves
+      ),
+    [view.tree, pendingCreates, pendingMoves]
   )
   const visibleTree = useMemo(
     () => filterTagTree(tree, view.query),
@@ -141,24 +157,20 @@ function TagManageForm({
     [tree, pendingDeletes]
   )
   const pendingCount =
-    pendingCreates.length + pendingRenames.size + pendingDeletes.size
+    pendingCreates.length +
+    pendingMoves.size +
+    pendingRenames.size +
+    pendingDeletes.size
   const queryClient = useQueryClient()
   const saveMutation = useMutation({
     mutationFn: async (changes: TagChanges) => {
       const progress: CommitProgress = {
         createdIds: new Map(),
+        movedIds: [],
         renamedIds: [],
         deletedIds: [],
       }
       try {
-        for (const [id, strategy] of changes.deletes) {
-          await library.tag.undefine(id, strategy)
-          progress.deletedIds.push(id)
-        }
-        for (const [id, name] of changes.renames) {
-          await library.tag.rename(id, name)
-          progress.renamedIds.push(id)
-        }
         for (const create of changes.creates) {
           const { draftId, ...definition } = create
           const parentId = definition.parent_id
@@ -171,6 +183,21 @@ function TagManageForm({
           })
           progress.createdIds.set(draftId, savedTag.id)
         }
+        for (const [id, parentId] of changes.moves) {
+          await library.tag.move(
+            id,
+            parentId ? (progress.createdIds.get(parentId) ?? parentId) : null
+          )
+          progress.movedIds.push(id)
+        }
+        for (const [id, strategy] of changes.deletes) {
+          await library.tag.undefine(id, strategy)
+          progress.deletedIds.push(id)
+        }
+        for (const [id, name] of changes.renames) {
+          await library.tag.rename(id, name)
+          progress.renamedIds.push(id)
+        }
       } catch (error) {
         throw new TagManageCommitError(error, progress)
       }
@@ -179,6 +206,7 @@ function TagManageForm({
     onError: (error, changes) => {
       if (!(error instanceof TagManageCommitError)) return
       const createdDraftIds = new Set(error.progress.createdIds.keys())
+      const movedIds = new Set(error.progress.movedIds)
       const renamedIds = new Set(error.progress.renamedIds)
       const deletedIds = new Set(error.progress.deletedIds)
       const removedIds = new Set<string>()
@@ -199,6 +227,19 @@ function TagManageForm({
             [...current].filter(
               ([id]) => !renamedIds.has(id) && !removedIds.has(id)
             )
+          )
+      )
+      setPendingMoves(
+        (current) =>
+          new Map(
+            [...current]
+              .filter(([id]) => !movedIds.has(id) && !removedIds.has(id))
+              .map(([id, parentId]) => [
+                id,
+                parentId
+                  ? (error.progress.createdIds.get(parentId) ?? parentId)
+                  : null,
+              ])
           )
       )
       setPendingDeletes(
@@ -274,17 +315,165 @@ function TagManageForm({
       return next
     })
 
+  const stageMove = (id: string, parentId: string | null) => {
+    const node = findTag(tree, id)
+    if (
+      !node ||
+      node.parent_id === parentId ||
+      (parentId &&
+        (collectSubtreeIds(node).includes(parentId) ||
+          pendingDeletes.has(parentId) ||
+          cascadeDeletedIds.has(parentId)))
+    ) {
+      return
+    }
+    if (parentId) expand(parentId)
+    if (id.startsWith("draft:")) {
+      setPendingCreates((current) =>
+        current.map((create) =>
+          create.draftId === id ? { ...create, parent_id: parentId } : create
+        )
+      )
+    } else {
+      setPendingMoves((current) => {
+        const next = new Map(current)
+        if (view.tree.length && findTag(view.tree, id)?.parent_id === parentId)
+          next.delete(id)
+        else next.set(id, parentId)
+        return next
+      })
+    }
+  }
+
+  const dragCleanup = useRef<(() => void) | null>(null)
+  useEffect(() => () => dragCleanup.current?.(), [])
+
+  const startDrag = (
+    node: TagTreeNode,
+    event: ReactPointerEvent<HTMLDivElement>
+  ) => {
+    if (
+      event.button !== 0 ||
+      event.pointerType === "touch" ||
+      saveMutation.isPending ||
+      pendingDeletes.has(node.id) ||
+      cascadeDeletedIds.has(node.id) ||
+      (event.target instanceof Element &&
+        event.target.closest("button, input, a, [role='checkbox']"))
+    ) return
+
+    event.preventDefault()
+    dragCleanup.current?.()
+    const source = event.currentTarget
+    source.setPointerCapture(event.pointerId)
+    const preview = document.createElement("div")
+    const checkbox = source.querySelector("[role='checkbox']")?.cloneNode(true)
+    const name = document.createElement("span")
+    name.textContent = pendingRenames.get(node.id) ?? node.name
+    name.className = "min-w-0 truncate text-sm"
+    if (checkbox) preview.append(checkbox)
+    preview.append(name)
+    const originalOpacity = source.style.opacity
+    Object.assign(preview.style, {
+      position: "fixed",
+      left: `${event.clientX}px`,
+      top: `${event.clientY}px`,
+      display: "flex",
+      alignItems: "center",
+      gap: "0.5rem",
+      width: "max-content",
+      maxWidth: "min(15rem, calc(100vw - 2rem))",
+      minHeight: "2.25rem",
+      padding: "0.375rem 0.75rem",
+      transform: "translate(-50%, -50%) scale(0.88)",
+      transformOrigin: "center",
+      opacity: "0.7",
+      pointerEvents: "none",
+      zIndex: "100",
+      backgroundColor: "var(--popover)",
+      color: "var(--popover-foreground)",
+      border: "1px solid var(--border)",
+      borderRadius: "0.375rem",
+      boxShadow: "0 8px 24px rgb(0 0 0 / 0.15)",
+    })
+    preview.setAttribute("aria-hidden", "true")
+    preview.inert = true
+    document.body.append(preview)
+    source.style.opacity = "0.25"
+
+    const descendants = new Set(collectSubtreeIds(node))
+    const dropTargetAt = (x: number, y: number) => {
+      const hit = document.elementFromPoint(x, y)
+      const treeRoot = hit?.closest<HTMLElement>("[data-tag-tree-root]")
+      if (!treeRoot) return null
+      const row = hit?.closest<HTMLElement>("[data-tag-id]")
+      const parentId = row?.dataset.tagId ?? null
+      if (
+        parentId === node.parent_id ||
+        (parentId &&
+          (descendants.has(parentId) ||
+            pendingDeletes.has(parentId) ||
+            cascadeDeletedIds.has(parentId)))
+      ) return null
+      return { element: row ?? treeRoot, parentId }
+    }
+    let highlighted: HTMLElement | null = null
+    const highlight = (target: HTMLElement | null) => {
+      if (target === highlighted) return
+      highlighted?.classList.remove("ring-2", "ring-primary", "bg-primary/10")
+      target?.classList.add("ring-2", "ring-primary", "bg-primary/10")
+      highlighted = target
+    }
+
+    const cleanup = () => {
+      highlight(null)
+      source.style.opacity = originalOpacity
+      preview.remove()
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", drop)
+      window.removeEventListener("pointercancel", cancel)
+      window.removeEventListener("blur", cancel)
+      window.removeEventListener("keydown", onKeyDown)
+      dragCleanup.current = null
+    }
+    const move = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== event.pointerId) return
+      preview.style.left = `${pointer.clientX}px`
+      preview.style.top = `${pointer.clientY}px`
+      highlight(dropTargetAt(pointer.clientX, pointer.clientY)?.element ?? null)
+    }
+    const drop = (pointer: PointerEvent) => {
+      if (pointer.pointerId !== event.pointerId) return
+      const target = dropTargetAt(pointer.clientX, pointer.clientY)
+      cleanup()
+      if (target) stageMove(node.id, target.parentId)
+    }
+    const cancel = () => cleanup()
+    const onKeyDown = (key: KeyboardEvent) => {
+      if (key.key === "Escape") cleanup()
+    }
+    dragCleanup.current = cleanup
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", drop)
+    window.addEventListener("pointercancel", cancel)
+    window.addEventListener("blur", cancel)
+    window.addEventListener("keydown", onKeyDown)
+  }
+
   const submit = () => {
     if (saveMutation.isPending) return
     const changes = prepareChanges(
+      view.tree,
       tree,
       tagMetadata,
       pendingCreates,
+      pendingMoves,
       pendingRenames,
       pendingDeletes
     )
     if (
       changes.creates.length === 0 &&
+      changes.moves.length === 0 &&
       changes.renames.length === 0 &&
       changes.deletes.length === 0
     ) {
@@ -316,6 +505,7 @@ function TagManageForm({
       onToggleExpand={toggleExpand}
       onToggleSelect={toggleSelect}
       pendingRename={pendingRenames.get(node.id)}
+      pendingMove={pendingMoves.has(node.id)}
       pendingDelete={pendingDeletes.has(node.id)}
       pendingCreate={pendingCreates.some(
         (create) => create.draftId === node.id
@@ -325,6 +515,7 @@ function TagManageForm({
       }
       disabled={saveMutation.isPending}
       onStageRename={stageRename}
+      onPointerDown={(event) => startDrag(node, event)}
       onRestoreDelete={restoreDelete}
       onAddChild={(parent) =>
         setActive({ kind: "create", parentId: parent.id })
@@ -447,6 +638,7 @@ function ManageTreeRow({
   expanded,
   selected,
   pendingRename,
+  pendingMove,
   pendingDelete,
   pendingCreate,
   coveredByCascade,
@@ -454,6 +646,7 @@ function ManageTreeRow({
   onToggleExpand,
   onToggleSelect,
   onStageRename,
+  onPointerDown,
   onRestoreDelete,
   onAddChild,
   onDelete,
@@ -464,6 +657,7 @@ function ManageTreeRow({
   expanded: ReadonlySet<string>
   selected: ReadonlySet<string>
   pendingRename: string | undefined
+  pendingMove: boolean
   pendingDelete: boolean
   pendingCreate: boolean
   coveredByCascade: boolean
@@ -471,6 +665,7 @@ function ManageTreeRow({
   onToggleExpand: (id: string) => void
   onToggleSelect: (node: TagTreeNode, checked: boolean) => void
   onStageRename: (id: string, name: string) => void
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRestoreDelete: (id: string) => void
   onAddChild: (node: TagTreeNode) => void
   onDelete: (node: TagTreeNode) => void
@@ -489,6 +684,7 @@ function ManageTreeRow({
       disabled={disabled || coveredByCascade}
       selected={checked}
       onToggleExpand={onToggleExpand}
+      onPointerDown={onPointerDown}
       renderChild={renderChild}
     >
       {renaming ? (
@@ -500,10 +696,12 @@ function ManageTreeRow({
         />
       ) : (
         <>
-          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 text-sm">
+          <div className="flex min-w-0 flex-1 cursor-grab items-center gap-2 py-1.5 text-sm">
             <Checkbox
+              className="relative before:absolute before:-inset-1 before:content-['']"
               checked={checked}
               disabled={disabled || coveredByCascade}
+              aria-label={t("tag.select").replace("{name}", node.name)}
               onCheckedChange={(next) => onToggleSelect(node, next === true)}
             />
             <span
@@ -524,12 +722,17 @@ function ManageTreeRow({
                   {t("tag.pending")}
                 </span>
               )}
+            {pendingMove && !isPendingDeletion && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("tag.pending_move")}
+              </span>
+            )}
             {isPendingDeletion && (
               <span className="shrink-0 text-xs text-muted-foreground">
                 {t("tag.pending_delete")}
               </span>
             )}
-          </label>
+          </div>
           <div className={ROW_ACTIONS_CLASS_NAME}>
             {pendingDelete ? (
               <Button
@@ -821,6 +1024,32 @@ function addPendingCreates(
   return tree
 }
 
+function applyPendingMoves(
+  tree: TagTreeNode[],
+  moves: ReadonlyMap<string, string | null>
+): TagTreeNode[] {
+  const detach = (nodes: TagTreeNode[], id: string): TagTreeNode | undefined => {
+    const index = nodes.findIndex((node) => node.id === id)
+    if (index !== -1) return nodes.splice(index, 1)[0]
+    for (const node of nodes) {
+      const found = detach(node.children, id)
+      if (found) return found
+    }
+  }
+
+  for (const [id, parentId] of moves) {
+    const node = findTag(tree, id)
+    const parent = parentId ? findTag(tree, parentId) : null
+    if (!node || (parentId && !parent)) continue
+    if (parentId && collectSubtreeIds(node).includes(parentId)) continue
+    detach(tree, id)
+    node.parent_id = parentId
+    if (parent) parent.children.push(node)
+    else tree.push(node)
+  }
+  return tree
+}
+
 function collectCascadeDeletedIds(
   tree: TagTreeNode[],
   pendingDeletes: ReadonlyMap<string, PendingDelete>
@@ -862,9 +1091,11 @@ function resolveParentAfterPartialCommit(
 }
 
 function prepareChanges(
+  serverTree: TagTreeNode[],
   tree: TagTreeNode[],
   metadata: Map<string, { depth: number; ancestors: string[] }>,
   pendingCreates: PendingCreate[],
+  pendingMoves: ReadonlyMap<string, string | null>,
   pendingRenames: ReadonlyMap<string, string>,
   pendingDeletes: ReadonlyMap<string, PendingDelete>
 ): TagChanges {
@@ -902,6 +1133,12 @@ function prepareChanges(
   const renames = [...pendingRenames].filter(
     ([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id)
   )
+  const moves = [...pendingMoves]
+    .filter(([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id))
+    .map(([id, parentId]) =>
+      [id, resolveParentId(parentId)] as [string, string | null]
+    )
+    .filter(([id, parentId]) => findTag(serverTree, id)?.parent_id !== parentId)
   const pendingCreateIds = new Set(
     pendingCreates.map((create) => create.draftId)
   )
@@ -922,5 +1159,5 @@ function prepareChanges(
         (metadata.get(rightId)?.depth ?? 0) - (metadata.get(leftId)?.depth ?? 0)
     )
 
-  return { creates, renames, deletes }
+  return { creates, moves, renames, deletes }
 }
