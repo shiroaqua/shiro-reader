@@ -29,6 +29,7 @@ impl From<BookDomainError> for BookApplicationError {
             BookDomainError::InvalidTitleFormat => Self::InvalidTitleFormat,
             BookDomainError::InvalidHash => Self::InvalidHashFormat,
             BookDomainError::TitleUnchanged => Self::TitleUnchanged,
+            BookDomainError::InvalidTimestamp => Self::Storage(anyhow::Error::new(value)),
         }
     }
 }

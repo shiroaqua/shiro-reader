@@ -14,4 +14,7 @@ pub enum BookDomainError {
 
     #[error("unchanged book title")]
     TitleUnchanged,
+
+    #[error("invalid book timestamp")]
+    InvalidTimestamp,
 }

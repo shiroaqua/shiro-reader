@@ -21,14 +21,20 @@ pub struct Book {
 }
 
 impl Book {
-    pub fn new(id: BookId, title: BookTitle, hash: Hash, created_at: i128) -> Self {
-        Self {
+    pub fn new(
+        id: BookId,
+        title: BookTitle,
+        hash: Hash,
+        created_at: i128,
+    ) -> Result<Self, BookDomainError> {
+        validate_timestamps(created_at, created_at)?;
+        Ok(Self {
             id,
             title,
             hash,
-            created_at: created_at,
+            created_at,
             updated_at: created_at,
-        }
+        })
     }
 
     pub(crate) fn reconstitute(
@@ -37,14 +43,15 @@ impl Book {
         hash: Hash,
         created_at: i128,
         updated_at: i128,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, BookDomainError> {
+        validate_timestamps(created_at, updated_at)?;
+        Ok(Self {
             id,
             title,
             hash,
             created_at,
             updated_at,
-        }
+        })
     }
 
     pub fn id(&self) -> &BookId {
@@ -75,4 +82,23 @@ impl Book {
         self.title = new_title;
         Ok(())
     }
+}
+
+fn validate_timestamps(created_at: i128, updated_at: i128) -> Result<(), BookDomainError> {
+    if !is_valid_timestamp(created_at)
+        || !is_valid_timestamp(updated_at)
+        || updated_at < created_at
+    {
+        return Err(BookDomainError::InvalidTimestamp);
+    }
+    Ok(())
+}
+
+fn is_valid_timestamp(timestamp: i128) -> bool {
+    let seconds = timestamp.div_euclid(1_000_000_000);
+    let Ok(seconds) = i64::try_from(seconds) else {
+        return false;
+    };
+    let nanos = timestamp.rem_euclid(1_000_000_000) as u32;
+    chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, nanos).is_some()
 }

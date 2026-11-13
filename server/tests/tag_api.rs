@@ -70,8 +70,12 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     let tag = app.add_tag(&reader, "Rating", Some(&root.id), true, Some("[0-9]+")).await;
     let child = app.add_tag(&reader, "Child", Some(&tag.id), false, None).await;
     app.rename_tag(&reader, &tag.id, "Score").await.assert_empty(204);
-    let expected = vec![root.node(vec![tag.renamed("Score").node(vec![child.node(vec![])])])];
-    assert_eq!(app.tag_tree(&reader).await, expected);
+    let tree = app.tag_tree(&reader).await;
+    let renamed = TagDefinitionData::find(&tree, &tag.id).unwrap();
+    assert_eq!(renamed.created_at, tag.created_at);
+    assert!(renamed.updated_at > tag.updated_at);
+    let expected = vec![root.node(vec![tag.renamed("Score").modified_at(renamed.updated_at).node(vec![child.node(vec![])])])];
+    assert_eq!(tree, expected);
 }
 
 // 验证移动标签可更换父级或移至根层，同时保留子树、值规则和书籍绑定。
@@ -89,14 +93,22 @@ async fn moving_a_tag_preserves_its_subtree_rules_and_book_bindings() {
 
     app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_empty(204);
     app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_tag_error(InvalidMove);
-    assert_eq!(app.tag_tree(&reader).await, [
+    let moved_tree = app.tag_tree(&reader).await;
+    let moved_category = TagDefinitionData::find(&moved_tree, &category.id).unwrap();
+    assert_eq!(moved_category.created_at, category.created_at);
+    assert!(moved_category.updated_at > category.updated_at);
+    assert_eq!(moved_tree, [
         first_root.node(vec![]),
-        second_root.node(vec![category.under(Some(&second_root.id)).node(vec![child.node(vec![])])]),
+        second_root.node(vec![category.under(Some(&second_root.id)).modified_at(moved_category.updated_at).node(vec![child.node(vec![])])]),
     ]);
 
     app.move_tag(&reader, &category.id, None).await.assert_empty(204);
-    assert_eq!(app.tag_tree(&reader).await, [
-        category.under(None).node(vec![child.node(vec![])]),
+    let root_tree = app.tag_tree(&reader).await;
+    let moved_to_root = TagDefinitionData::find(&root_tree, &category.id).unwrap();
+    assert_eq!(moved_to_root.created_at, category.created_at);
+    assert!(moved_to_root.updated_at > moved_category.updated_at);
+    assert_eq!(root_tree, [
+        category.under(None).modified_at(moved_to_root.updated_at).node(vec![child.node(vec![])]),
         first_root.node(vec![]),
         second_root.node(vec![]),
     ]);
@@ -265,14 +277,29 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
         root.binding(None), first.binding(Some("7")), second.binding(None),
         leaf.binding(None), sibling.binding(None),
     ]).await;
-    assert_eq!(app.tag_tree(&reader).await, [root.node(vec![
-        first.under(Some(&root.id)).node(vec![leaf.node(vec![])]),
-        second.under(Some(&root.id)).node(vec![]), sibling.node(vec![]),
+    let promoted_tree = app.tag_tree(&reader).await;
+    let promoted_first = TagDefinitionData::find(&promoted_tree, &first.id).unwrap();
+    let promoted_second = TagDefinitionData::find(&promoted_tree, &second.id).unwrap();
+    assert_eq!(promoted_first.created_at, first.created_at);
+    assert_eq!(promoted_second.created_at, second.created_at);
+    assert!(promoted_first.updated_at > first.updated_at);
+    assert!(promoted_second.updated_at > second.updated_at);
+    assert_eq!(promoted_tree, [root.node(vec![
+        first.under(Some(&root.id)).modified_at(promoted_first.updated_at).node(vec![leaf.node(vec![])]) ,
+        second.under(Some(&root.id)).modified_at(promoted_second.updated_at).node(vec![]), sibling.node(vec![]),
     ])]);
     app.delete_tag(&reader, &root.id, Promote).await.assert_empty(204);
-    assert_eq!(app.tag_tree(&reader).await, [
-        first.under(None).node(vec![leaf.node(vec![])]),
-        second.under(None).node(vec![]), sibling.under(None).node(vec![]),
+    let rootless_tree = app.tag_tree(&reader).await;
+    let rootless_first = TagDefinitionData::find(&rootless_tree, &first.id).unwrap();
+    let rootless_second = TagDefinitionData::find(&rootless_tree, &second.id).unwrap();
+    let rootless_sibling = TagDefinitionData::find(&rootless_tree, &sibling.id).unwrap();
+    assert!(rootless_first.updated_at > promoted_first.updated_at);
+    assert!(rootless_second.updated_at > promoted_second.updated_at);
+    assert!(rootless_sibling.updated_at > sibling.updated_at);
+    assert_eq!(rootless_tree, [
+        first.under(None).modified_at(rootless_first.updated_at).node(vec![leaf.node(vec![])]),
+        second.under(None).modified_at(rootless_second.updated_at).node(vec![]),
+        sibling.under(None).modified_at(rootless_sibling.updated_at).node(vec![]),
     ]);
     app.rename_tag(&reader, &first.id, "Arenamed").await.assert_empty(204);
     app.assert_book_tags(&reader, &book.data.id, &[

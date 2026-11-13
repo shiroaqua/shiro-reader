@@ -150,7 +150,7 @@ impl TryFrom<&SqliteRow> for VersionedRecord<Book> {
                 row.get_hash(&Books::Hash.to_string())?,
                 join_timestamp_ns(row.get(&Books::CreatedAtHigh.to_string())?, row.get(&Books::CreatedAtLow.to_string())?),
                 join_timestamp_ns(row.get(&Books::UpdatedAtHigh.to_string())?, row.get(&Books::UpdatedAtLow.to_string())?),
-            ),
+            ).map_err(map_invalid_data)?,
             version: row.get(&Books::Version.to_string())?,
         })
     }

@@ -10,6 +10,7 @@ use crate::{
             value_objects::{TagId, TagName, TagValueRule},
         },
     },
+    shared::time::now_ns,
 };
 
 use super::{
@@ -35,7 +36,7 @@ impl<T: TagRepository> TagService<T> {
         let parent_id = command.parent_id.map(TagId::parse).transpose()?;
         let value_rule = TagValueRule::new(command.allows_value, command.value_regex)?;
      
-        let tag_def = TagDefinition::new(name, parent_id, value_rule);
+        let tag_def = TagDefinition::new(name, parent_id, value_rule, now_ns())?;
         self.repository.create(&tag_def).await?;
         Ok((&tag_def).into())
     }
@@ -48,7 +49,7 @@ impl<T: TagRepository> TagService<T> {
         let id = TagId::parse(command.id)?;
         let mut transaction = self.repository.begin_delete().await?;
         let tree = TagTree::new(transaction.list().await?)?;
-        let deletion = tree.plan_delete(&id, command.strategy)?;
+        let deletion = tree.plan_delete(&id, command.strategy, now_ns())?;
         transaction.commit(deletion).await?;
         Ok(())
     }
@@ -60,7 +61,7 @@ impl<T: TagRepository> TagService<T> {
         let id = TagId::parse(command.id)?;
         let name = TagName::parse(command.name)?;
         let mut tag_def = self.repository.find_by_id(&id).await?;
-        tag_def.rename(name)?;
+        tag_def.rename(name, now_ns())?;
         self.repository.commit(tag_def).await?;
         Ok(())
     }
@@ -73,7 +74,7 @@ impl<T: TagRepository> TagService<T> {
         let parent_id = command.parent_id.map(TagId::parse).transpose()?;
         let mut transaction = self.repository.begin_move().await?;
         let tree = TagTree::new(transaction.list().await?)?;
-        let change= tree.plan_move(&id, parent_id.as_ref())?;
+        let change = tree.plan_move(&id, parent_id.as_ref(), now_ns())?;
         transaction.commit(change).await?;
         Ok(())
     }

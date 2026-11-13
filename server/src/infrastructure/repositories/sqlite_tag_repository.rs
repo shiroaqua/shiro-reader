@@ -18,7 +18,10 @@ use crate::{
     infrastructure::repositories::{
         errors::TagRepositoryError,
         idens::{BookTags, Books, FULL_TAG_DEFINITION_COLUMNS, TagDefinitions},
-        sqlite::{SqliteExecutor, SqliteRowExt, SqliteTransaction, VersionedRecord, map_invalid_data},
+        sqlite::{
+            join_timestamp_ns, split_timestamp_ns, SqliteExecutor, SqliteRowExt,
+            SqliteTransaction, VersionedRecord, map_invalid_data,
+        },
     },
 };
 
@@ -36,6 +39,8 @@ impl SqliteTagRepository {
 #[async_trait]
 impl TagRepository for SqliteTagRepository {
     async fn create(&self, definition: &TagDefinition) -> Result<(), TagRepositoryError> {
+        let created_at = split_timestamp_ns(definition.created_at());
+        let updated_at = split_timestamp_ns(definition.updated_at());
         let mut tx = self.db.begin(map_sqlx_error).await?;
         if let Some(parent_id) = definition.parent_id() {
             if !tag_exists(&mut tx, parent_id).await? {
@@ -51,6 +56,10 @@ impl TagRepository for SqliteTagRepository {
                 Expr::val(definition.parent_id().map(ToString::to_string)),
                 Expr::val(definition.value_rule().allows_value()),
                 Expr::val(definition.value_rule().value_regex().map(str::to_owned)),
+                Expr::val(created_at.0),
+                Expr::val(created_at.1),
+                Expr::val(updated_at.0),
+                Expr::val(updated_at.1),
                 Expr::val(0_i64),
             ])
             .build_sqlx(SqliteQueryBuilder);
@@ -67,10 +76,13 @@ impl TagRepository for SqliteTagRepository {
 
     async fn commit(&self, definition: VersionedRecord<TagDefinition>) -> Result<(), TagRepositoryError> {
         let mut tx = self.db.begin(map_sqlx_error).await?;
+        let updated_at = split_timestamp_ns(definition.updated_at());
         let (sql, values) = Query::update()
             .table(TagDefinitions::Table)
             .values([
                 (TagDefinitions::Name, definition.name().to_string().into()),
+                (TagDefinitions::UpdatedAtHigh, updated_at.0.into()),
+                (TagDefinitions::UpdatedAtLow, updated_at.1.into()),
                 (TagDefinitions::Version, (definition.version+1).into()),
             ])
             .and_where(Expr::col(TagDefinitions::Id).eq(definition.id().to_string()))
@@ -183,10 +195,13 @@ impl TagDeleteTransaction for SqliteTagDeleteTransaction<'_> {
         let Self { mut tx, versions } = *self;
         for change in deletion.promoted_children() {
             let version = *versions.get(change.id()).ok_or(TagRepositoryError::VersionConflict)?;
+            let updated_at = split_timestamp_ns(change.updated_at());
             let (sql, values) = Query::update()
                 .table(TagDefinitions::Table)
                 .values([
                     (TagDefinitions::ParentId, change.parent_id().map(ToString::to_string).into()),
+                    (TagDefinitions::UpdatedAtHigh, updated_at.0.into()),
+                    (TagDefinitions::UpdatedAtLow, updated_at.1.into()),
                     (TagDefinitions::Version, (version+1).into()),
                 ])
                 .and_where(Expr::col(TagDefinitions::Id).eq(change.id().to_string()))
@@ -225,10 +240,13 @@ impl TagMoveTransaction for SqliteTagMoveTransaction<'_> {
     async fn commit(self: Box<Self>, change: TagParentChange) -> Result<(), TagRepositoryError> {
         let Self { mut tx, versions } = *self;
         let version = *versions.get(change.id()).ok_or(TagRepositoryError::VersionConflict)?;
+        let updated_at = split_timestamp_ns(change.updated_at());
         let (sql, values) = Query::update()
             .table(TagDefinitions::Table)
             .values([
                 (TagDefinitions::ParentId, change.parent_id().map(ToString::to_string).into()),
+                (TagDefinitions::UpdatedAtHigh, updated_at.0.into()),
+                (TagDefinitions::UpdatedAtLow, updated_at.1.into()),
                 (TagDefinitions::Version, (version + 1).into()),
             ])
             .and_where(Expr::col(TagDefinitions::Id).eq(change.id().to_string()))
@@ -291,11 +309,19 @@ impl TryFrom<&SqliteRow> for VersionedRecord<TagDefinition> {
             row.get(&TagDefinitions::ValueRegex.to_string())?,
         ).map_err(map_invalid_data)?;
         let version = row.get::<i64>(&TagDefinitions::Version.to_string())?;
+        let created_at = join_timestamp_ns(
+            row.get(&TagDefinitions::CreatedAtHigh.to_string())?,
+            row.get(&TagDefinitions::CreatedAtLow.to_string())?,
+        );
+        let updated_at = join_timestamp_ns(
+            row.get(&TagDefinitions::UpdatedAtHigh.to_string())?,
+            row.get(&TagDefinitions::UpdatedAtLow.to_string())?,
+        );
         if version < 0 {
             return Err(anyhow::anyhow!("invalid tag version").into());
         }
         Ok(Self {
-            value: TagDefinition::reconstitute(id, name, parent_id, value_rule).map_err(map_invalid_data)?,
+            value: TagDefinition::reconstitute(id, name, parent_id, value_rule, created_at, updated_at).map_err(map_invalid_data)?,
             version,
         })
     }

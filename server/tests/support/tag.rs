@@ -1,4 +1,5 @@
 use super::*;
+use chrono::{DateTime, Utc};
 
 const TAGS: &str = "/api/v1/library/tags";
 
@@ -10,6 +11,8 @@ pub struct TagDefinitionData {
     pub parent_id: Option<String>,
     pub allows_value: bool,
     pub value_regex: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -20,6 +23,8 @@ pub struct TagNode {
     pub parent_id: Option<String>,
     pub allows_value: bool,
     pub value_regex: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
     pub children: Vec<TagNode>,
 }
 
@@ -39,6 +44,8 @@ impl TagDefinitionData {
         TagNode {
             id: self.id.clone(), name: self.name.clone(), parent_id: self.parent_id.clone(),
             allows_value: self.allows_value, value_regex: self.value_regex.clone(), children,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
         }
     }
 
@@ -46,8 +53,22 @@ impl TagDefinitionData {
         Self { parent_id: parent.map(str::to_owned), ..self.clone() }
     }
 
+    pub fn modified_at(&self, updated_at: DateTime<Utc>) -> Self {
+        Self { updated_at, ..self.clone() }
+    }
+
     pub fn renamed(&self, name: &str) -> Self {
         Self { name: name.into(), ..self.clone() }
+    }
+
+    pub fn find<'a>(tree: &'a [TagNode], id: &str) -> Option<&'a TagNode> {
+        tree.iter().find_map(|node| {
+            if node.id == id {
+                Some(node)
+            } else {
+                Self::find(&node.children, id)
+            }
+        })
     }
 }
 
@@ -133,6 +154,7 @@ impl TestApp {
         assert_eq!(tag.parent_id.as_deref(), parent);
         assert_eq!(tag.allows_value, allows_value);
         assert_eq!(tag.value_regex.as_deref(), regex.filter(|pattern| !pattern.is_empty()));
+        assert_eq!(tag.created_at, tag.updated_at);
         tag
     }
 

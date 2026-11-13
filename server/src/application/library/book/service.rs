@@ -40,7 +40,7 @@ impl<T: BookRepository> BookService<T> {
         let id = BookId::new();
         let title = BookTitle::parse(command.title)?;
         let hash = self.bookfile.parse_existing_hash(&command.hash)?;
-        let book = Book::new(id, title, hash,now);
+        let book = Book::new(id, title, hash, now)?;
         self.repository.create(&book).await?;
 
         Ok(CreateBookOutput {

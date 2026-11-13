@@ -38,4 +38,7 @@ pub enum TagDomainError {
 
     #[error("tag tree contains duplicate ids, missing parents or a cycle")]
     InvalidTree,
+
+    #[error("invalid tag timestamp")]
+    InvalidTimestamp,
 }

@@ -96,15 +96,23 @@ pub(super) enum TagDefinitions {
     ParentId,
     AllowsValue,
     ValueRegex,
+    CreatedAtHigh,
+    CreatedAtLow,
+    UpdatedAtHigh,
+    UpdatedAtLow,
     Version,
 }
 
-pub(super) const FULL_TAG_DEFINITION_COLUMNS: [TagDefinitions; 6] = [
+pub(super) const FULL_TAG_DEFINITION_COLUMNS: [TagDefinitions; 10] = [
     TagDefinitions::Id,
     TagDefinitions::Name,
     TagDefinitions::ParentId,
     TagDefinitions::AllowsValue,
     TagDefinitions::ValueRegex,
+    TagDefinitions::CreatedAtHigh,
+    TagDefinitions::CreatedAtLow,
+    TagDefinitions::UpdatedAtHigh,
+    TagDefinitions::UpdatedAtLow,
     TagDefinitions::Version,
 ];
 

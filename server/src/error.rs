@@ -272,6 +272,7 @@ impl From<TagApplicationError> for AppError {
                     message: "library.tag.invalid_move",
                 },
                 TagDomainError::InvalidTree => Self::Internal(error.into()),
+                TagDomainError::InvalidTimestamp => Self::Internal(error.into()),
             },
             TagApplicationError::ParentNotFound => Self::NotFound {
                 message: "library.tag.parent_not_found",

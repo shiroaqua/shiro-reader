@@ -41,8 +41,12 @@ impl Restart {
                 app.rename_tag(&session, &promoted.id, "Score").await.assert_empty(204);
                 app.delete_tag(&session, &root.id, DeleteStrategy::Promote).await.assert_empty(204);
                 app.delete_tag(&session, &removed.id, DeleteStrategy::Cascade).await.assert_empty(204);
+                let tree = app.tag_tree(&session).await;
+                let persisted_promoted = TagDefinitionData::find(&tree, &promoted.id).unwrap();
                 let saved = SavedTags {
-                    session, book, promoted: promoted.renamed("Score").under(None), leaf,
+                    session, book,
+                    promoted: promoted.renamed("Score").under(None).modified_at(persisted_promoted.updated_at),
+                    leaf,
                     deleted_ids: vec![root.id, removed.id, removed_child.id],
                 };
                 // 只保存测试通过 API 获得的数据，不读取应用数据库。
@@ -72,8 +76,13 @@ impl Restart {
                     app.rename_tag(&saved.session, &id, "Missing").await.assert_tag_error(TagError::NotFound);
                 }
                 app.rename_tag(&saved.session, &saved.promoted.id, "AfterRestart").await.assert_empty(204);
-                assert_eq!(app.tag_tree(&saved.session).await,
-                    [saved.promoted.renamed("AfterRestart").node(vec![saved.leaf.node(vec![])])]);
+                let tree = app.tag_tree(&saved.session).await;
+                let renamed = TagDefinitionData::find(&tree, &saved.promoted.id).unwrap();
+                assert_eq!(renamed.created_at, saved.promoted.created_at);
+                assert!(renamed.updated_at > saved.promoted.updated_at);
+                assert_eq!(tree,
+                    [saved.promoted.renamed("AfterRestart").modified_at(renamed.updated_at)
+                        .node(vec![saved.leaf.node(vec![])])]);
                 app.assert_book_tags(&saved.session, &saved.book.id, &[saved.promoted.binding(Some("8"))]).await;
             }
             Some("seed") => {}

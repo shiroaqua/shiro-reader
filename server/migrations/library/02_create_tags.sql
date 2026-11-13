@@ -4,6 +4,10 @@ CREATE TABLE tag_definitions (
     parent_id    TEXT,
     allows_value BOOLEAN NOT NULL,
     value_regex  TEXT,
+    created_at_high INTEGER NOT NULL,
+    created_at_low INTEGER NOT NULL,
+    updated_at_high INTEGER NOT NULL,
+    updated_at_low INTEGER NOT NULL,
     version      BIGINT  NOT NULL DEFAULT 0,
 
     CHECK (version >= 0),
