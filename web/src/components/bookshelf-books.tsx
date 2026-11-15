@@ -74,16 +74,16 @@ export function BookshelfBooks() {
   }
 
   return (
-    <section aria-labelledby="bookshelf-books-title" className="flex flex-1 flex-col gap-4 p-4">
+    <section aria-labelledby="bookshelf-books-title" className="flex flex-1 flex-col gap-5 p-6">
       <div className="flex items-center justify-end gap-2">
         <SortBooksMenu sort={sort} onChange={changeSort} />
         <UploadBookButton />
       </div>
       {isPending ? (
         <div aria-busy="true" aria-label={t("book.loading")} className={GRID_CLASS_NAME}>
-          {Array.from({ length: 6 }, (_, index) => (
-            <div key={index} className="flex flex-col gap-2">
-              <Skeleton className="aspect-[3/4] w-full" />
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="flex flex-col gap-2.5">
+              <Skeleton className="aspect-[3/4] w-full rounded-xl" />
               <Skeleton className="h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
             </div>
@@ -96,10 +96,12 @@ export function BookshelfBooks() {
       ) : books.length === 0 ? (
         <div
           role="status"
-          className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground"
+          className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground"
         >
-          <LibraryBig aria-hidden="true" className="size-12" />
-          <p className="text-sm">{t("book.empty")}</p>
+          <div className="flex size-20 items-center justify-center rounded-2xl bg-muted/80">
+            <LibraryBig aria-hidden="true" className="size-10" />
+          </div>
+          <p className="text-sm font-medium text-foreground">{t("book.empty")}</p>
         </div>
       ) : (
         <ul aria-label={t("book.list")} className={GRID_CLASS_NAME}>
@@ -224,7 +226,7 @@ function UploadBookButton() {
 }
 
 const GRID_CLASS_NAME =
-  "grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-x-4 gap-y-6"
+  "grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-5 gap-y-7"
 
 function BookCard({ book }: { book: Book }) {
   const { t } = useTranslation()
@@ -299,19 +301,19 @@ function BookCard({ book }: { book: Book }) {
     <ContextMenu disabled={renaming}>
       <ContextMenuTrigger
         render={<li />}
-        className="flex min-w-0 flex-col gap-1"
+        className="group/card flex min-w-0 flex-col gap-1.5"
       >
-      <div className="aspect-[3/4] w-full overflow-hidden rounded-md border bg-muted">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 bg-muted shadow-sm transition-all duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25">
         {coverFailed ? (
-          <div className="flex size-full items-center justify-center text-muted-foreground">
-            <BookOpen aria-hidden="true" className="size-8" />
+          <div className="flex size-full items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/5 text-muted-foreground">
+            <BookOpen aria-hidden="true" className="size-8 opacity-40" />
           </div>
         ) : (
           <img
             src={coverUrl}
             alt=""
             loading="lazy"
-            className="size-full object-cover"
+            className="size-full object-cover transition-transform duration-200 group-hover/card:scale-[1.02]"
             onError={() => setCoverFailed(true)}
           />
         )}
@@ -339,11 +341,11 @@ function BookCard({ book }: { book: Book }) {
           }}
         />
       ) : (
-        <h2 title={book.title} className="mt-1 line-clamp-2 text-center text-sm font-medium break-all">
+        <h2 title={book.title} className="mt-1.5 line-clamp-2 text-center text-sm font-medium leading-snug break-all">
           {book.title}
         </h2>
       )}
-      <time dateTime={book.updated_at} className="text-center text-xs text-muted-foreground">
+      <time dateTime={book.updated_at} className="text-center text-[11px] text-muted-foreground">
         {formatBookDate(book.updated_at)}
       </time>
       </ContextMenuTrigger>

@@ -30,17 +30,30 @@ export function LoginScreen() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
-      <div className="w-full max-w-md px-4">
-        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-slate-900 dark:text-white mb-2">ShiroReader</h1>
-            <p className="text-slate-600 dark:text-slate-400">{t("login.subtitle")}</p>
-          </div>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
+      {/* Decorative background */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="absolute -top-1/4 -right-1/4 h-[600px] w-[600px] rounded-full bg-primary/5 blur-3xl" />
+        <div className="absolute -bottom-1/4 -left-1/4 h-[500px] w-[500px] rounded-full bg-primary/5 blur-3xl" />
+      </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+      <div className="relative z-10 w-full max-w-sm px-4">
+        {/* Logo area */}
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary/10 shadow-sm">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
+            </svg>
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">ShiroReader</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">{t("login.subtitle")}</p>
+        </div>
+
+        {/* Card */}
+        <div className="rounded-2xl border border-border/60 bg-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">
                 {t("login.username")}
               </label>
               <Input
@@ -49,12 +62,12 @@ export function LoginScreen() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={isLoading}
-                className="bg-slate-50 dark:bg-slate-700 dark:text-white dark:placeholder:text-slate-500"
+                className="h-10"
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            <div className="space-y-1.5">
+              <label className="block text-sm font-medium text-foreground">
                 {t("login.password")}
               </label>
               <Input
@@ -63,23 +76,23 @@ export function LoginScreen() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
-                className="bg-slate-50 dark:bg-slate-700 dark:text-white dark:placeholder:text-slate-500"
+                className="h-10"
               />
             </div>
 
             <Button
               type="submit"
               disabled={isLoading || !username || !password}
-              className="w-full mt-6"
+              className="h-10 w-full text-sm font-semibold"
             >
               {isLoading ? t("login.loading") : t("login.submit")}
             </Button>
           </form>
 
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
-            <p className="text-center text-sm text-slate-600 dark:text-slate-400">
+          <div className="mt-6 border-t border-border/60 pt-5">
+            <p className="text-center text-sm text-muted-foreground">
               {t("login.no_account")}
-              <button className="ml-1 text-blue-600 dark:text-blue-400 hover:underline">
+              <button className="ml-1 font-medium text-primary hover:underline">
                 {t("login.register")}
               </button>
             </p>

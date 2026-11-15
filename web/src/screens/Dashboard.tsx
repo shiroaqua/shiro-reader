@@ -82,7 +82,7 @@ export function DashboardScreen() {
     <SidebarProvider>
       <Sidebar collapsible="icon">
         <SidebarContent>
-          <SidebarGroup>
+          <SidebarGroup className="pt-3">
             <SidebarMenu>
               {menus.map((item) => (
                 <DashboardMenuItem key={item.id} item={item} />
@@ -99,9 +99,15 @@ export function DashboardScreen() {
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col bg-background">
+        <header className="flex h-12 items-center gap-2 border-b border-border/50 px-4">
           <SidebarTrigger />
-        {isRootBookshelfSelected && <BookshelfBooks />}
+          <div className="h-4 w-px bg-border/60" />
+          <h1 className="text-sm font-medium text-foreground">{t("dashboard.bookshelf")}</h1>
+        </header>
+        <div className="flex-1 overflow-y-auto">
+          {isRootBookshelfSelected && <BookshelfBooks />}
+        </div>
       </main>
     </SidebarProvider>
   )
@@ -179,8 +185,8 @@ function UserProfileMenu({
             }
           >
             <Avatar className="h-8 w-8 rounded-lg">
-              <AvatarFallback className="rounded-lg bg-gradient-to-br from-blue-400 to-blue-600">
-                <User className="size-4 text-white" />
+              <AvatarFallback className="rounded-lg bg-gradient-to-br from-primary/80 to-primary">
+                <User className="size-4 text-primary-foreground" />
               </AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
