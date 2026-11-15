@@ -4,7 +4,7 @@ use crate::application::identity::authentication::errors::AuthenticationApplicat
 use crate::application::identity::crypto::errors::CryptoApplicationError;
 use crate::application::identity::user::errors::UserApplicationError;
 use crate::domain::identity::user::errors::UserDomainError;
-use crate::infrastructure::repositories::errors::UserRepositoryError;
+use crate::infrastructure::db::sqlite::sqlite_error;
 
 #[derive(Debug, Error)]
 pub enum IdentityApplicationError {
@@ -27,6 +27,9 @@ impl From<UserDomainError> for UserApplicationError {
             UserDomainError::InvalidPasswordHash => Self::InvalidPasswordHash,
             UserDomainError::NameUnchanged => Self::NameUnchanged,
             UserDomainError::PasswordHashUnchanged => Self::PasswordHashUnchanged,
+            UserDomainError::InvalidTimestamp => {
+                Self::Storage(anyhow::anyhow!("invalid user timestamp"))
+            }
         }
     }
 }
@@ -37,13 +40,14 @@ impl From<UserDomainError> for IdentityApplicationError {
     }
 }
 
-impl From<UserRepositoryError> for IdentityApplicationError {
-    fn from(err: UserRepositoryError) -> Self {
-        match err {
-            UserRepositoryError::UserNotFound => Self::User(UserApplicationError::NotFound),
-            UserRepositoryError::UserNameConflict => Self::User(UserApplicationError::NameConflict),
-            UserRepositoryError::UserVersionConflict => Self::User(UserApplicationError::VersionConflict),
-            UserRepositoryError::Storage(error) => Self::User(UserApplicationError::Storage(error)),
+pub(crate) fn user_storage(error: toasty::Error) -> IdentityApplicationError {
+    if error.is_record_not_found() {
+        return UserApplicationError::NotFound.into();
+    }
+    if let Some(rusqlite::Error::SqliteFailure(code, Some(message))) = sqlite_error(&error) {
+        if code.extended_code == 2067 && message.contains("users.name") {
+            return UserApplicationError::NameConflict.into();
         }
     }
+    UserApplicationError::Storage(error.into()).into()
 }

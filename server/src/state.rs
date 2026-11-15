@@ -6,7 +6,7 @@ use anyhow::Context;
 use argon2::Params;
 use dashmap::DashMap;
 use pdfium_render::prelude::{Pdfium, PdfiumError};
-use sqlx::{Pool, Sqlite};
+use toasty::Db;
 
 use crate::application::identity::authentication::errors::AuthenticationApplicationError;
 use crate::application::identity::authentication::service::AuthenticationService;
@@ -14,9 +14,7 @@ use crate::application::identity::crypto::service::CryptoService;
 use crate::application::identity::errors::IdentityApplicationError;
 use crate::application::identity::user::service::UserService;
 
-use crate::application::identity::user::ports::UserRepository;
-use crate::infrastructure::repositories::sqlite_user_repository::SqliteUserRepository;
-use crate::infrastructure::repositories::sqlite_session_repository::SqliteSessionRepository;
+use crate::domain::{EntityId, identity::user::entity::User};
 use crate::{
     application::library::book::file::service::BookFileService,
     config::Config,
@@ -48,7 +46,7 @@ pub struct AppState {
     pub auth_service: Arc<AuthenticationService>,
     pub bookfile_service: Arc<BookFileService>,
 
-    pub user_sqlpool_provider: Arc<UserSqlPoolProvider>,
+    pub user_database_provider: Arc<UserDatabaseProvider>,
 }
 
 impl AppState {
@@ -71,20 +69,12 @@ impl AppState {
         ));
         let pdfium = shared_pdfium()?;
 
-        let pool = db::pool::connect(
-            &config.root_directory.join("user.db"),
-            config.database.max_connections,
-        )
-        .await?;
-        sqlx::migrate!("./migrations/identity").run(&pool).await?;
+        let identity_db = db::pool::connect_identity(&config.root_directory.join("user.db")).await?;
 
-        let user_repository: Arc<dyn UserRepository> =
-            Arc::new(SqliteUserRepository::new(pool.clone()));
-
-        let user_sqlpool_provider = Arc::new(UserSqlPoolProvider::new(&config));
-        let ids = user_repository.list_ids().await?;
-        for id in ids {
-            user_sqlpool_provider.append(&id).await?;
+        let user_database_provider = Arc::new(UserDatabaseProvider::new(&config));
+        let users = User::all().exec(&mut identity_db.clone()).await?;
+        for user in users {
+            user_database_provider.append(&user.id().to_string()).await?;
         }
 
         let mut book_file_storage = BookFileStorage::new(
@@ -96,38 +86,35 @@ impl AppState {
 
         Ok(Self {
             user_service: Arc::new(UserService::new(
-                user_repository.clone(),
-                user_sqlpool_provider.clone(),
+                identity_db.clone(),
+                user_database_provider.clone(),
                 crypto_service.clone(),
             )),
             auth_service: Arc::new(AuthenticationService::new(
-                user_repository.clone(),
+                identity_db,
                 crypto_service.clone(),
-                Arc::new(SqliteSessionRepository::new(pool)),
             )),
             bookfile_service: Arc::new(BookFileService::new(book_file_storage)),
-            user_sqlpool_provider,
+            user_database_provider,
         })
     }
 }
 
 
 
-pub struct UserSqlPoolProvider {
+pub struct UserDatabaseProvider {
     root_directory: PathBuf,
-    max_connections: u32,
-    map: DashMap<String, Pool<Sqlite>>,
+    map: DashMap<String, Db>,
 }
 
-impl UserSqlPoolProvider {
+impl UserDatabaseProvider {
     pub fn new(config: &Config) -> Self {
         Self {
             root_directory: config.root_directory.clone(),
-            max_connections: config.database.max_connections,
             map: DashMap::new(),
         }
     }
-    pub fn route(&self, user_id: &str) -> Result<Pool<Sqlite>, IdentityApplicationError> {
+    pub fn route(&self, user_id: &str) -> Result<Db, IdentityApplicationError> {
         if let Some(t) = self.map.get(user_id) {
             Ok(t.value().clone())
         } else {
@@ -142,19 +129,14 @@ impl UserSqlPoolProvider {
         std::fs::create_dir_all(&base_path)?;
         std::fs::create_dir_all(&base_path.join("covers"))?;
         std::fs::create_dir_all(&base_path.join("notes"))?;
-        let pool = db::pool::connect(
-            &base_path.join("library.db"),
-            self.max_connections,
-        )
-        .await?;
-        sqlx::migrate!("./migrations/library").run(&pool).await?;
+        let pool = db::pool::connect_library(&base_path.join("library.db")).await?;
         self.map.insert(user_id.to_owned(), pool);
         Ok(())
     }
 
     pub async fn remove(&self, user_id: &str) -> anyhow::Result<()> {
         if let Some(pool) = self.map.remove(user_id) {
-            pool.1.close().await;
+            drop(pool.1);
             std::fs::remove_dir_all(self.root_directory.join("users").join(&user_id))?;
             Ok(())
         } else {

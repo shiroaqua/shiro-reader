@@ -8,7 +8,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::shared::time::now_sec;
+use jiff::Timestamp;
 
 use super::errors::CryptoApplicationError;
 
@@ -52,8 +52,8 @@ impl CryptoService {
         Self {
             argon2_params: argon2_params,
             jwt_parms: JwtParms {
-                encoding_key: EncodingKey::from_secret(jwt_secret),
-                decoding_key: DecodingKey::from_secret(jwt_secret),
+                encoding_key: EncodingKey::from_secret(jwt_secret).expect("Invalid jwt secret key format."),
+                decoding_key: DecodingKey::from_secret(jwt_secret).expect("Invalid jwt secret key format."),
                 issuer: jwt_issuer,
                 audience: jwt_audience,
                 validation: validation,
@@ -88,7 +88,10 @@ impl CryptoService {
     }
 
     pub fn issue_access_token(&self, user_id: String) -> Result<String, CryptoApplicationError> {
-        let now = now_sec();
+        let now: u64 = Timestamp::now()
+            .as_second()
+            .try_into()
+            .expect("system clock is before UNIX_EPOCH");
         let claims = Claims {
             iss: self.jwt_parms.issuer.clone(),
             sub: user_id,
@@ -105,7 +108,10 @@ impl CryptoService {
     }
 
     pub fn issue_refresh_token(&self, user_id: String) -> Result<String, CryptoApplicationError> {
-        let now = now_sec();
+        let now: u64 = Timestamp::now()
+            .as_second()
+            .try_into()
+            .expect("system clock is before UNIX_EPOCH");
         let claims = Claims {
             iss: self.jwt_parms.issuer.clone(),
             sub: user_id.to_string(),

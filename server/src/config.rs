@@ -5,7 +5,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub telemetry: TelemetryConfig,
     pub crypto: CryptoConfig,
-    pub database: DatabaseConfig,
     pub root_directory: PathBuf,
 }
 
@@ -25,11 +24,6 @@ pub struct TelemetryConfig {
 pub enum LogFormat {
     Pretty,
     Json,
-}
-
-#[derive(Debug, Clone)]
-pub struct DatabaseConfig {
-    pub max_connections: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -63,10 +57,6 @@ impl Config {
             max_upload_size: env_var("MAX_UPLOAD_SIZE", &(256 * 1024 * 1024 /* 256MB */).to_string()).parse::<usize>()?,
         };
 
-        let database = DatabaseConfig {
-            max_connections: env_var("DATABASE_MAX_CONNECTIONS", "5").parse()?,
-        };
-
         let telemetry = TelemetryConfig {
             log_format: match env_var("LOG_FORMAT", "pretty").as_str() {
                 "json" => LogFormat::Json,
@@ -89,7 +79,6 @@ impl Config {
 
         Ok(Self {
             server,
-            database,
             telemetry,
             crypto,
             root_directory,

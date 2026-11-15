@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -61,8 +61,8 @@ pub struct TagResponse {
     pub parent_id: Option<String>,
     pub allows_value: bool,
     pub value_regex: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Serialize)]

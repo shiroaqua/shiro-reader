@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use super::errors::TagDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed)]
 pub struct TagId(Uuid);
 
 impl TagId {
@@ -27,7 +27,7 @@ impl Default for TagId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed)]
 pub struct TagName(String);
 
 impl TagName {

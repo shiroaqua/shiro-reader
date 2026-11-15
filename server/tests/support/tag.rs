@@ -1,5 +1,5 @@
 use super::*;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 const TAGS: &str = "/api/v1/library/tags";
 
@@ -11,8 +11,8 @@ pub struct TagDefinitionData {
     pub parent_id: Option<String>,
     pub allows_value: bool,
     pub value_regex: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -23,8 +23,8 @@ pub struct TagNode {
     pub parent_id: Option<String>,
     pub allows_value: bool,
     pub value_regex: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub children: Vec<TagNode>,
 }
 
@@ -53,7 +53,7 @@ impl TagDefinitionData {
         Self { parent_id: parent.map(str::to_owned), ..self.clone() }
     }
 
-    pub fn modified_at(&self, updated_at: DateTime<Utc>) -> Self {
+    pub fn modified_at(&self, updated_at: Timestamp) -> Self {
         Self { updated_at, ..self.clone() }
     }
 

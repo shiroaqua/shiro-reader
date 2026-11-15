@@ -4,4 +4,3 @@ pub mod errors;
 pub mod service;
 pub mod queries;
 pub mod commands;
-pub mod ports;

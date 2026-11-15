@@ -3,11 +3,20 @@ use uuid::Uuid;
 
 use crate::domain::library::book::errors::BookDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
 pub struct BookId(Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
 pub struct BookTitle(String);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookHash(pub(crate) blake3::Hash);
+
+impl BookHash {
+    pub fn as_hash(&self) -> &blake3::Hash {
+        &self.0
+    }
+}
 
 impl BookId {
     pub fn new() -> Self {

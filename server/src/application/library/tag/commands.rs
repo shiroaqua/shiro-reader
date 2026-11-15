@@ -34,7 +34,7 @@ pub struct UnbindBookTagCommand {
 }
 
 #[derive(Debug)]
-pub struct DeleteTagDefinitionCommand {
+pub struct UndefineTagCommand {
     pub id: String,
     pub strategy: TagDeleteStrategy,
 }

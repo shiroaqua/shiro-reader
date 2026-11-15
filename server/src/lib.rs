@@ -5,6 +5,5 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod infrastructure;
-pub mod shared;
 pub mod state;
 pub mod telemetry;

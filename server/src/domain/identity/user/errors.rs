@@ -17,4 +17,7 @@ pub enum UserDomainError {
     
     #[error("Unchanged password hash")]
     PasswordHashUnchanged,
+
+    #[error("Invalid user timestamp")]
+    InvalidTimestamp,
 }

@@ -8,9 +8,6 @@ pub enum TagApplicationError {
     #[error("parent tag not found")]
     ParentNotFound,
 
-    #[error("tag changed concurrently")]
-    VersionConflict,
-
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

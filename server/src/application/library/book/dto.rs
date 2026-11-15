@@ -1,11 +1,13 @@
+use jiff::Timestamp;
+
 #[derive(Debug)]
 pub struct CreateBookOutput {
     pub id: String,
     pub title: String,
     pub hash: String,
     pub file_type: String,
-    pub created_at: i128,
-    pub updated_at: i128,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 #[derive(Debug)]
@@ -14,6 +16,6 @@ pub struct GetBookOutput {
     pub title: String,
     pub hash: String,
     pub file_type: String,
-    pub created_at: i128,
-    pub updated_at: i128,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }

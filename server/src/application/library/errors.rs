@@ -1,13 +1,15 @@
 use std::io::{self, ErrorKind};
 
 use thiserror::Error;
-
+use crate::application::errors::MapToastyError;
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
 use crate::application::library::tag::errors::TagApplicationError;
+use crate::domain::library::book::entity::Book;
 use crate::domain::library::book::errors::BookDomainError;
+use crate::domain::library::tag::entity::{BookTag, TagDefinition};
 use crate::domain::library::tag::errors::TagDomainError;
-use crate::infrastructure::repositories::errors::{LibraryRepositoryError, TagRepositoryError};
+use crate::infrastructure::db::sqlite::sqlite_error;
 
 #[derive(Debug, Error)]
 pub enum LibraryApplicationError {
@@ -51,32 +53,38 @@ impl From<BookDomainError> for LibraryApplicationError {
     }
 }
 
-impl From<LibraryRepositoryError> for LibraryApplicationError {
-    fn from(value: LibraryRepositoryError) -> Self {
-        match value { // InvalidBookFileType好像是泛型转换出了问题，因此不该报告给用户具体错误
-            LibraryRepositoryError::BookNotFound => Self::Book(BookApplicationError::NotFound),
-            LibraryRepositoryError::BookVersionConflict => Self::Book(BookApplicationError::VersionConflict),
-            LibraryRepositoryError::BookTitleConflict => Self::Book(BookApplicationError::TitleConflict),
-            LibraryRepositoryError::InvalidBookFileType => Self::Book(BookApplicationError::Storage(anyhow::Error::new(value))), 
-            LibraryRepositoryError::Storage(error) => Self::Book(BookApplicationError::Storage(error)),
-        }
-    }
-}
-
 impl From<TagDomainError> for LibraryApplicationError {
     fn from(error: TagDomainError) -> Self {
         Self::Tag(error.into())
     }
 }
 
-impl From<TagRepositoryError> for LibraryApplicationError {
-    fn from(error: TagRepositoryError) -> Self {
-        match error {
-            TagRepositoryError::NotFound => TagDomainError::NotFound.into(),
-            TagRepositoryError::ParentNotFound => TagApplicationError::ParentNotFound.into(),
-            TagRepositoryError::BookNotFound => BookApplicationError::NotFound.into(),
-            TagRepositoryError::VersionConflict => TagApplicationError::VersionConflict.into(),
-            TagRepositoryError::Storage(error) => TagApplicationError::Storage(error).into(),
+
+impl MapToastyError<LibraryApplicationError> for Book {
+    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
+        if error.is_record_not_found() {
+            return BookApplicationError::NotFound.into();
         }
+        if let Some(rusqlite::Error::SqliteFailure(code, Some(message))) = sqlite_error(&error) {
+            if code.extended_code == 2067 && message.contains("books.title") {
+                return BookApplicationError::TitleConflict.into();
+            }
+        }
+        BookApplicationError::Storage(error.into()).into()
+    }
+}
+
+impl MapToastyError<LibraryApplicationError> for TagDefinition {
+    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
+        if error.is_record_not_found() {
+            return TagDomainError::NotFound.into();
+        }
+        TagApplicationError::Storage(error.into()).into()
+    }
+}
+
+impl MapToastyError<LibraryApplicationError> for BookTag {
+    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
+        TagApplicationError::Storage(error.into()).into()
     }
 }

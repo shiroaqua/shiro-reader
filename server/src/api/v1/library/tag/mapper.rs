@@ -1,7 +1,6 @@
 use crate::{
     application::library::tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     domain::library::tag::value_objects::TagDeleteStrategy,
-    shared::time,
 };
 
 use super::dto::{BookTagResponse, DeleteTagStrategy, TagResponse, TagTreeNodeResponse};
@@ -20,8 +19,8 @@ impl From<TagDefinitionOutput> for TagResponse {
             parent_id: output.parent_id,
             allows_value: output.allows_value,
             value_regex: output.value_regex,
-            created_at: time::ns_to_datetime(output.created_at),
-            updated_at: time::ns_to_datetime(output.updated_at),
+            created_at: output.created_at,
+            updated_at: output.updated_at,
         }
     }
 }

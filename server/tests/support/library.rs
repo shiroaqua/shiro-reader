@@ -1,5 +1,5 @@
 use super::*;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum SampleFile { Pdf, Epub }
@@ -43,8 +43,8 @@ pub struct BookData {
     pub hash: String,
     #[serde(rename = "type")]
     pub file_type: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 pub struct Book<'a> {
@@ -75,7 +75,7 @@ impl TestApp {
 
     // The create and list endpoints expose the same complete book representation.
     pub async fn add_book(&self, session: &Session, title: &str, file: SampleFile) -> Book<'_> {
-        let before = Utc::now();
+        let before = Timestamp::now();
         let response = self.create_book(session, title, &file.hash()).await;
         response.assert_status(201);
         let created = response.json();
@@ -85,7 +85,7 @@ impl TestApp {
         assert_eq!(data.title, title);
         assert_eq!(data.hash, file.hash());
         assert_eq!(data.file_type, file.file_type());
-        assert!((before..=Utc::now()).contains(&data.created_at));
+        assert!((before..=Timestamp::now()).contains(&data.created_at));
         assert_eq!(data.created_at, data.updated_at);
         let books = self.books_by_ids(session, &[&data.id]).await;
         assert_eq!(books.len(), 1);
@@ -158,7 +158,7 @@ impl Book<'_> {
         assert_eq!(current.hash, self.data.hash);
         assert_eq!(current.file_type, self.data.file_type);
         assert_eq!(current.created_at, self.data.created_at);
-        assert!(current.updated_at >= self.data.updated_at);
+        assert!(current.updated_at > self.data.updated_at);
     }
     pub async fn assert_unchanged(&self) { assert_eq!(self.reload().await, self.data); }
 }

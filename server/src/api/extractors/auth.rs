@@ -5,7 +5,7 @@ use crate::{
         identity::{authentication::{
             commands::VerifyAccessToeknCommand, errors::AuthenticationApplicationError,
         }, errors::IdentityApplicationError}, library::{book::service::BookService, tag::service::TagService},
-    }, error::AppError, infrastructure::repositories::{sqlite_book_repository::SqliteBookRepository, sqlite_tag_repository::SqliteTagRepository}, state::AppState,
+    }, error::AppError, state::AppState,
 };
 
 pub struct User {
@@ -13,8 +13,8 @@ pub struct User {
 }
 
 pub struct RoutedState {
-    pub book_service: BookService<SqliteBookRepository>,
-    pub tag_service: TagService<SqliteTagRepository>,
+    pub book_service: BookService,
+    pub tag_service: TagService,
 }
 
 impl FromRequestParts<AppState> for RoutedState {
@@ -47,15 +47,12 @@ impl FromRequestParts<AppState> for RoutedState {
             .await?
             .user_id;
 
-        let pool = state.user_sqlpool_provider.route(&user_id).map_err(|_| IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken))?;
+        let db = state.user_database_provider.route(&user_id).map_err(|_| IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken))?;
 
 
         Ok(RoutedState {
-            book_service: BookService::new(
-                SqliteBookRepository::new(pool.clone()),
-                state.bookfile_service.clone(),
-            ),
-            tag_service: TagService::new(SqliteTagRepository::new(pool)),
+            book_service: BookService::new(db.clone(), state.bookfile_service.clone()),
+            tag_service: TagService::new(db),
         })
     }
 }

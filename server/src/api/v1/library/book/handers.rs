@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub async fn create_book(
-    state: RoutedState,
+    mut state: RoutedState,
     Json(request): Json<CreateBookRequest>,
 ) -> Result<(StatusCode, Json<BookResponse>), AppError> {
     let output = state
@@ -29,7 +29,7 @@ pub async fn create_book(
 }
 
 pub async fn delete_book(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     state
@@ -41,7 +41,7 @@ pub async fn delete_book(
 }
 
 pub async fn rename_book(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
     Json(request): Json<RenameBookRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -57,7 +57,7 @@ pub async fn rename_book(
 }
 
 pub async fn download_cover(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<Response<Body>, AppError> {
     let (stream, content_type) = state
@@ -74,7 +74,7 @@ pub async fn download_cover(
 }
 
 pub async fn get_books(
-    state: RoutedState,
+    mut state: RoutedState,
     Query(query): Query<BooksQuery>,
 ) -> Result<(StatusCode, Json<Vec<BookResponse>>), AppError> {
     let response_data: Vec<BookResponse> = state

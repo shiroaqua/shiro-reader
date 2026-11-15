@@ -36,7 +36,7 @@ pub fn claims(user_id: &str) -> Value {
 pub fn sign(claims: &Value, typ: Option<&str>, algorithm: Algorithm, secret: &[u8]) -> String {
     let mut header = Header::new(algorithm);
     header.typ = typ.map(str::to_owned);
-    encode(&header, claims, &EncodingKey::from_secret(secret)).unwrap()
+    encode(&header, claims, &EncodingKey::from_secret(secret).expect("Invalid jwt secret key format.")).unwrap()
 }
 
 pub fn access_token(claims: &Value) -> String {
@@ -49,7 +49,7 @@ pub fn verified_claims(token: &str) -> Value {
     validation.validate_nbf = true;
     validation.set_issuer(&[ISSUER]);
     validation.set_audience(&[AUDIENCE]);
-    decode::<Value>(token, &DecodingKey::from_secret(SECRET), &validation).unwrap().claims
+    decode::<Value>(token, &DecodingKey::from_secret(SECRET).expect("Invalid jwt secret key format."), &validation).unwrap().claims
 }
 
 #[path = "crypto_checks.rs"]
@@ -76,5 +76,5 @@ pub fn invalid_token(case: InvalidToken, refresh: bool) -> String {
 }
 
 fn now_sec() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    jiff::Timestamp::now().as_second().try_into().unwrap()
 }

@@ -125,9 +125,6 @@ impl From<IdentityApplicationError> for AppError {
                 UserApplicationError::NameConflict => AppError::Conflict {
                     message: "identity.user.name_conflict",
                 },
-                UserApplicationError::VersionConflict => AppError::Conflict {
-                    message: "identity.user.version_conflict",
-                },
                 UserApplicationError::NameUnchanged => AppError::BadRequest {
                     message: "identity.user.name_unchanged",
                 },
@@ -194,9 +191,6 @@ impl From<LibraryApplicationError> for AppError {
                 },
                 BookApplicationError::NotFound => AppError::NotFound {
                     message: "library.book.not_found",
-                },
-                BookApplicationError::VersionConflict => AppError::Conflict {
-                    message: "library.book.version_conflict",
                 },
                 BookApplicationError::TitleConflict => AppError::Conflict {
                     message: "library.book.title_conflict",
@@ -276,9 +270,6 @@ impl From<TagApplicationError> for AppError {
             },
             TagApplicationError::ParentNotFound => Self::NotFound {
                 message: "library.tag.parent_not_found",
-            },
-            TagApplicationError::VersionConflict => Self::Conflict {
-                message: "library.tag.version_conflict",
             },
             TagApplicationError::Storage(error) => Self::Internal(error),
         }

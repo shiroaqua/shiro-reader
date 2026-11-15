@@ -8,7 +8,7 @@ use crate::domain::identity::user::errors::*;
 
 // ==================== UserId ====================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
 pub struct UserId(Uuid);
 
 impl UserId {
@@ -31,7 +31,7 @@ impl Default for UserId {
 
 // ==================== UserName ====================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed)]
 pub struct UserName(String);
 
 impl UserName {
@@ -59,7 +59,7 @@ impl UserName {
 // ==================== UserPasswordHash ====================
 
 // 不派生 Display、Debug 或 From，避免意外输出密码哈希或绕过校验。
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, toasty::Embed)]
 pub struct UserPasswordHash(String);
 
 impl UserPasswordHash {

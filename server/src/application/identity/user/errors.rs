@@ -18,9 +18,6 @@ pub enum UserApplicationError {
     #[error("User name conflict")]
     NameConflict,
 
-    #[error("User version conflict")]
-    VersionConflict,
-
     #[error("Unchanged user name")]
     NameUnchanged,
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::domain::EntityId;
 
 use super::{
     entity::TagDefinition,
@@ -65,7 +66,6 @@ impl TagTree {
         &self,
         id: &TagId,
         strategy: TagDeleteStrategy,
-        updated_at: i128,
     ) -> Result<TagDeletion, TagDomainError> {
         let index = *self.by_id.get(id).ok_or(TagDomainError::NotFound)?;
         let tag = &self.tags[index];
@@ -94,7 +94,6 @@ impl TagTree {
                         Ok(TagParentChange {
                             id: child.id().clone(),
                             parent_id: tag.parent_id().cloned(),
-                            updated_at: child.next_updated_at(updated_at)?,
                         })
                     })
                     .collect::<Result<Vec<_>, TagDomainError>>()?;
@@ -110,7 +109,6 @@ impl TagTree {
         &self,
         id: &TagId,
         parent_id: Option<&TagId>,
-        updated_at: i128,
     ) -> Result<TagParentChange, TagDomainError> {
         let source_index = *self.by_id.get(id).ok_or(TagDomainError::NotFound)?;
         let parent_index = parent_id
@@ -140,7 +138,6 @@ impl TagTree {
         Ok(TagParentChange {
             id: id.clone(),
             parent_id: parent_id.cloned(),
-            updated_at: tag.next_updated_at(updated_at)?,
         })
     }
 }
@@ -165,7 +162,6 @@ impl TagDeletion {
 pub struct TagParentChange {
     id: TagId,
     parent_id: Option<TagId>,
-    updated_at: i128,
 }
 
 impl TagParentChange {
@@ -175,9 +171,5 @@ impl TagParentChange {
 
     pub fn parent_id(&self) -> Option<&TagId> {
         self.parent_id.as_ref()
-    }
-
-    pub fn updated_at(&self) -> i128 {
-        self.updated_at
     }
 }

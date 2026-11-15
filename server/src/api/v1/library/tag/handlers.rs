@@ -4,7 +4,7 @@ use axum::{
 
 use crate::{
     api::extractors::{auth::RoutedState}, application::library::tag::commands::{
-        BindBookTagCommand, CreateTagDefinitionCommand, DeleteTagDefinitionCommand, MoveTagCommand,
+        BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand, MoveTagCommand,
         RenameTagCommand, UnbindBookTagCommand,
     }, error::AppError,
 };
@@ -15,7 +15,7 @@ use super::dto::{
 };
 
 pub async fn create_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Json(request): Json<DefineTagRequest>,
 ) -> Result<(StatusCode, Json<TagResponse>), AppError> {
     let output = state.tag_service.define_tag(CreateTagDefinitionCommand {
@@ -28,7 +28,7 @@ pub async fn create_tag(
 }
 
 pub async fn rename_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(tag_id): Path<String>,
     Json(request): Json<RenameTagRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -40,7 +40,7 @@ pub async fn rename_tag(
 }
 
 pub async fn move_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(tag_id): Path<String>,
     Json(request): Json<MoveTagRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -52,7 +52,7 @@ pub async fn move_tag(
 }
 
 pub async fn get_book_tags(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
 ) -> Result<Json<Vec<BookTagResponse>>, AppError> {
     let output = state.tag_service.get_book_tags(book_id).await?;
@@ -60,7 +60,7 @@ pub async fn get_book_tags(
 }
 
 pub async fn bind_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
     Json(request): Json<BindBookTagRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -73,7 +73,7 @@ pub async fn bind_tag(
 }
 
 pub async fn unbind_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(book_id): Path<String>,
     Json(request): Json<UnbindBookTagRequest>,
 ) -> Result<StatusCode, AppError> {
@@ -85,21 +85,21 @@ pub async fn unbind_tag(
 }
 
 pub async fn get_tree(
-    state: RoutedState,
+    mut state: RoutedState,
 ) -> Result<Json<Vec<TagTreeNodeResponse>>, AppError> {
     let output = state.tag_service.get_tree().await?;
     Ok(Json(output.into_iter().map(Into::into).collect()))
 }
 
 pub async fn delete_tag(
-    state: RoutedState,
+    mut state: RoutedState,
     Path(tag_id): Path<String>,
     query: Result<Query<DeleteTagQuery>, QueryRejection>,
 ) -> Result<StatusCode, AppError> {
     let Query(query) = query.map_err(|_| AppError::BadRequest {
         message: "library.tag.invalid_delete_strategy",
     })?;
-    state.tag_service.delete_tag_definition(DeleteTagDefinitionCommand {
+    state.tag_service.undefine_tag(UndefineTagCommand {
         id: tag_id,
         strategy: query.strategy.into(),
     }).await?;
