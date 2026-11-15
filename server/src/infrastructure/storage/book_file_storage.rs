@@ -18,6 +18,9 @@ use rayon::prelude::*;
 
 use crate::domain::library::book::file::entity::BookFileType;
 
+const BOOK_FILE_VERSION: u8 = 1;
+const BOOK_FILE_HEADER_SIZE: u64 = 1 + 1 + 32 + 8;
+
 pub struct BookFileStorage {
     dir: PathBuf,
     ext: String,
@@ -40,6 +43,7 @@ impl BookFileStorage {
             pdfium: pdfium,
         }
     }
+
     pub fn scan(&mut self) -> std::io::Result<()> {
         let files = Arc::new(DashMap::new());
 
@@ -67,7 +71,12 @@ impl BookFileStorage {
                         return;
                     }
                 };
-                let file_type = match read_file_type_from_book_file(&mut file, 1) {
+                let mut version = [0u8; 1];
+                if file.read_exact(&mut version).is_err() || version[0] != BOOK_FILE_VERSION {
+                    tracing::warn!("Skipped: Unsupported book file version: {}", file_name);
+                    return;
+                }
+                let file_type = match read_file_type_from_book_file(&mut file) {
                     Ok(ft) => ft,
                     Err(e) => {
                         tracing::warn!("Skipped: Cannot read file type from {}: {}", file_name, e);
@@ -81,24 +90,37 @@ impl BookFileStorage {
                         return;
                     }
                 };
-
-                let count = std::io::copy(&mut file, &mut hasher);
-                if let Err(e) = count {
-                    tracing::warn!("Skipped: Invalid file {}: {}", file_name, e);
+                let mut size_bytes = [0u8; 8];
+                if let Err(e) = file.read_exact(&mut size_bytes) {
+                    tracing::warn!("Skipped: Cannot read file size from {}: {}", file_name, e);
                     return;
                 }
+                let file_size = u64::from_be_bytes(size_bytes);
+
+                let actual_size = match std::io::copy(&mut file, &mut hasher) {
+                    Ok(size) => size,
+                    Err(e) => {
+                        tracing::warn!("Skipped: Invalid file {}: {}", file_name, e);
+                        return;
+                    }
+                };
 
                 let calculated_hash = hasher.finalize();
 
-                if file_hash == calculated_hash {
+                if file_size == actual_size
+                    && file_hash == calculated_hash
+                    && path.file_stem().and_then(|stem| stem.to_str()) == Some(file_hash.to_hex().as_str())
+                {
                     files.insert(calculated_hash, file_type);
                     tracing::debug!("loaded: {}", file_name);
                 } else {
                     tracing::warn!(
-                        "Skipped: Hash mismatch for file: {}. Expected: {}, Calculated: {}",
+                        "Skipped: Book file integrity mismatch: {}. Expected: {} ({} bytes), Calculated: {} ({} bytes)",
                         file_name,
                         file_hash.to_hex(),
-                        calculated_hash.to_hex()
+                        file_size,
+                        calculated_hash.to_hex(),
+                        actual_size
                     );
                 }
             });
@@ -163,6 +185,7 @@ impl BookFileStorage {
             temp_file.write_all(&buf)?;
         }
         temp_file.as_file_mut().flush()?;
+        let file_size = temp_file.as_file().metadata()?.len();
 
         let file_hash = hasher.finalize();
         if !hash.eq(&file_hash) {
@@ -171,12 +194,13 @@ impl BookFileStorage {
 
         let file_type = get_file_type(temp_file.as_file_mut())?;
         let mut final_temp_file = tempfile::NamedTempFile::new_in(&path)?;
-        final_temp_file.write_all(&vec![0])?; // version
-        final_temp_file.write_all(&vec![match file_type {
+        final_temp_file.write_all(&[BOOK_FILE_VERSION])?;
+        final_temp_file.write_all(&[match file_type {
             BookFileType::PDF => 0,
             BookFileType::EPUB => 1,
         }])?;
         final_temp_file.write_all(file_hash.as_bytes())?;
+        final_temp_file.write_all(&file_size.to_be_bytes())?;
 
         let cover = match file_type {
             BookFileType::PDF => extract_pdf_cover(temp_file.as_file_mut(), &self.pdfium),
@@ -236,7 +260,7 @@ impl BookFileStorage {
                     .with_extension(&self.ext),
             )
             .await?;
-            file.seek(std::io::SeekFrom::Start(2 + 32)).await?;
+            file.seek(std::io::SeekFrom::Start(BOOK_FILE_HEADER_SIZE)).await?;
             Ok(file)
         } else {
             Err(io::Error::from(io::ErrorKind::NotFound))
@@ -252,10 +276,8 @@ fn read_file_hash_from_book_file(file: &mut std::fs::File) -> io::Result<Hash> {
 
 fn read_file_type_from_book_file(
     file: &mut std::fs::File,
-    offset: u64,
 ) -> io::Result<BookFileType> {
     let mut buf = [0u8; 1];
-    file.seek(SeekFrom::Start(offset))?;
     file.read_exact(&mut buf)?;
     match buf[0] {
         0 => Ok(BookFileType::PDF),
