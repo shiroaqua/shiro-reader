@@ -17,7 +17,7 @@ import {
 } from "@/features/tags/tag-dialog-parts"
 import { TagManageDialog } from "@/features/tags/tag-manage-dialog"
 import { TagValueInput } from "@/features/tags/tag-value-input"
-import { useTranslation } from "@/lib/i18n"
+import { translateTagName, useTranslation } from "@/lib/i18n"
 import { bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { isValueValid } from "@/lib/tag-value-patterns"
@@ -310,9 +310,10 @@ function BindTreeRow({
   onRecolor: (node: TagTreeNode, color: string) => void
   renderChild: (child: TagTreeNode) => ReactNode
 }) {
-  const { t } = useTranslation()
+  const { locale, t } = useTranslation()
   const checked = selected.has(node.id)
   const value = selected.get(node.id) ?? ""
+  const displayName = translateTagName(node.name, locale)
 
   return (
     <TagTreeItem
@@ -329,14 +330,14 @@ function BindTreeRow({
           className="relative shrink-0 before:absolute before:-inset-1 before:content-['']"
           checked={checked}
           disabled={disabled}
-          aria-label={t("local.tag.select").replace("{name}", node.name)}
+          aria-label={t("local.tag.select").replace("{name}", displayName)}
           onCheckedChange={(next) => onToggleSelect(node, next === true)}
         />
         <TagColorName
           name={node.name}
           color={node.color}
           disabled={disabled}
-          label={t("local.tag.color.change").replace("{name}", node.name)}
+          label={t("local.tag.color.change").replace("{name}", displayName)}
           onSelect={(color) => onRecolor(node, color)}
         />
       </div>

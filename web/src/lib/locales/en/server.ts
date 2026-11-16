@@ -14,7 +14,7 @@ export const enServer: Record<keyof typeof zhServer, string> = {
   "library.tag.invalid_id": "Invalid tag ID.",
   "library.tag.missing_name": "Please enter a tag name.",
   "library.tag.invalid_name_format":
-    "Tag names can only contain letters and numbers.",
+    "Tag names can only contain letters, numbers, and periods.",
   "library.tag.name_unchanged": "The tag name has not changed.",
   "library.tag.invalid_value_regex": "Invalid tag value pattern.",
   "library.tag.value_regex_not_allowed":

@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { useTranslation } from "@/lib/i18n"
+import { translateTagName, useTranslation } from "@/lib/i18n"
 import type { TagTreeNode, UndefineTagStrategy } from "@/lib/types"
 
 export function ManageTreeRow({
@@ -67,10 +67,11 @@ export function ManageTreeRow({
   onDelete: (node: TagTreeNode) => void
   renderChild: (child: TagTreeNode) => ReactNode
 }) {
-  const { t } = useTranslation()
+  const { locale, t } = useTranslation()
   const [renaming, setRenaming] = useState(false)
   const checked = selected.has(node.id)
   const isPendingDeletion = pendingDelete || coveredByCascade
+  const displayName = translateTagName(pendingRename ?? node.name, locale)
 
   return (
     <TagTreeItem
@@ -97,7 +98,10 @@ export function ManageTreeRow({
               className="relative before:absolute before:-inset-1 before:content-['']"
               checked={checked}
               disabled={disabled || coveredByCascade}
-              aria-label={t("local.tag.select").replace("{name}", node.name)}
+              aria-label={t("local.tag.select").replace(
+                "{name}",
+                displayName
+              )}
               onCheckedChange={(next) => onToggleSelect(node, next === true)}
             />
             <TagColorName
@@ -106,7 +110,7 @@ export function ManageTreeRow({
               disabled={disabled || isPendingDeletion}
               label={t("local.tag.color.change").replace(
                 "{name}",
-                pendingRename ?? node.name
+                displayName
               )}
               className={isPendingDeletion ? "line-through opacity-60" : ""}
               onSelect={(color) => onStageRecolor(node.id, color)}
@@ -262,7 +266,7 @@ export function DeleteTagDialog({
   onConfirm: (strategy: UndefineTagStrategy) => void
   onClose: () => void
 }) {
-  const { t } = useTranslation()
+  const { locale, t } = useTranslation()
   const hasChildren = tag.children.length > 0
   // Promoting children is the non-destructive default.
   const [strategy, setStrategy] = useState<UndefineTagStrategy>("PROMOTE")
@@ -295,7 +299,7 @@ export function DeleteTagDialog({
           <AlertDialogDescription>
             {t("local.tag.delete_confirm_description").replace(
               "{name}",
-              tag.name
+              translateTagName(tag.name, locale)
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>

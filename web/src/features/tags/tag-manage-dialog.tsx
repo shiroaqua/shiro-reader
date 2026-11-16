@@ -77,7 +77,7 @@ function TagManageForm({
   onClose: () => void
   onSavingChange: (isSaving: boolean) => void
 }) {
-  const { t } = useTranslation()
+  const { locale, t } = useTranslation()
   const view = useTagTreeView()
   const { tagsQuery, expanded, toggleExpand, expand } = view
   const [active, setActive] = useState<ActiveDialog | null>(null)
@@ -106,8 +106,8 @@ function TagManageForm({
     [view.tree, pendingCreates, pendingMoves]
   )
   const visibleTree = useMemo(
-    () => filterTagTree(tree, view.query),
-    [tree, view.query]
+    () => filterTagTree(tree, view.query, locale),
+    [tree, view.query, locale]
   )
   // Tags that no longer exist (deleted here or elsewhere) drop out of the selection.
   const selectedTags = useMemo(

@@ -50,13 +50,17 @@ const SELECT_CLASS_NAME =
 
 /** Tag tree query plus the search and expand state shared by the bind and manage dialogs. */
 export function useTagTreeView() {
+  const { locale } = useTranslation()
   const tagsQuery = useQuery({
     queryKey: tagsQueryKey,
     queryFn: () => library.tag.list(),
   })
   const tree = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data])
   const [query, setQueryState] = useState("")
-  const visibleTree = useMemo(() => filterTagTree(tree, query), [tree, query])
+  const visibleTree = useMemo(
+    () => filterTagTree(tree, query, locale),
+    [tree, query, locale]
+  )
   const branchIds = useMemo(() => collectBranchIds(visibleTree), [visibleTree])
   const [expandedIds, setExpanded] = useState<ReadonlySet<string> | null>(null)
   const expanded = useMemo(

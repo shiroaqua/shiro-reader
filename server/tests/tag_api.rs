@@ -22,6 +22,20 @@ async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name()
     assert_eq!(app.tag_tree(&reader).await, tree);
 }
 
+// 验证标签名可以包含点号并作为翻译 key 原样保存和重命名。
+#[tokio::test]
+async fn dotted_tag_names_are_preserved_as_translation_keys() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let tag = app.add_tag(&reader, "tag.genre.fiction", None, false, None).await;
+    assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
+
+    app.rename_tag(&reader, &tag.id, "tag.genre.nonfiction").await.assert_empty(204);
+    let tree = app.tag_tree(&reader).await;
+    let renamed = TagDefinitionData::find(&tree, &tag.id).unwrap();
+    assert_eq!(renamed.name, "tag.genre.nonfiction");
+}
+
 // 验证创建和重命名标签时拒绝非法名称，重命名为原名称也报错且标签树不变。
 #[tokio::test]
 async fn invalid_names_are_rejected_on_creation_and_rename_without_changing_the_tree() {

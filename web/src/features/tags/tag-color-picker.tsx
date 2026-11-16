@@ -2,7 +2,7 @@ import { useState, type ReactElement, type ReactNode } from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useTranslation } from "@/lib/i18n"
+import { translateTagName, useTranslation } from "@/lib/i18n"
 import { cn } from "cn"
 
 /** The color a tag gets when none is chosen, matching the server default. */
@@ -177,6 +177,8 @@ export function TagColorName({
   className?: string
   onSelect: (color: string) => void
 }) {
+  const { locale } = useTranslation()
+  const displayName = translateTagName(name, locale)
   return (
     <TagColorPopover
       color={color}
@@ -186,7 +188,7 @@ export function TagColorName({
         <button
           type="button"
           aria-label={label}
-          title={name}
+          title={displayName}
           disabled={disabled}
           style={{ color: tagNameColor(color) }}
           className={cn(
@@ -194,7 +196,7 @@ export function TagColorName({
             className
           )}
         >
-          {name}
+          {displayName}
         </button>
       }
     />

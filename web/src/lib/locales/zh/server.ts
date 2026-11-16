@@ -9,7 +9,7 @@ export const zhServer = {
   "library.book.version_conflict": "书籍数据已被修改，请查看最新数据后重试。",
   "library.tag.invalid_id": "标签 ID 无效。",
   "library.tag.missing_name": "请输入标签名称。",
-  "library.tag.invalid_name_format": "标签名称只能包含文字和数字。",
+  "library.tag.invalid_name_format": "标签名称只能包含文字、数字和点号。",
   "library.tag.name_unchanged": "标签名称未发生变化。",
   "library.tag.invalid_value_regex": "标签值的正则表达式无效。",
   "library.tag.value_regex_not_allowed":

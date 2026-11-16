@@ -1,8 +1,10 @@
 import { useSyncExternalStore } from "react"
 import { enLocal } from "./locales/en/local"
 import { enServer } from "./locales/en/server"
+import { enTagNames } from "./locales/en/tags"
 import { zhLocal } from "./locales/zh/local"
 import { zhServer } from "./locales/zh/server"
+import { zhTagNames } from "./locales/zh/tags"
 
 export type Locale = "zh" | "en"
 export type LocalTranslationKey = keyof typeof zhLocal
@@ -44,6 +46,15 @@ export function translateServerMessage(
   return Object.hasOwn(messages, key)
     ? messages[key as keyof typeof zhServer]
     : translateLocal("local.common.error.unknown", locale)
+}
+
+export function translateTagName(
+  name: string,
+  locale: Locale = getLocale()
+): string {
+  if (!name.includes(".")) return name
+  const messages = locale === "zh" ? zhTagNames : enTagNames
+  return Object.hasOwn(messages, name) ? messages[name] : name
 }
 
 export function translateMessage(

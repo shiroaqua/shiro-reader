@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import { tagNameColor } from "@/features/tags/tag-color-picker"
+import { translateTagName } from "@/lib/i18n"
 import { collectSubtreeIds } from "@/lib/tag-tree"
 import type { TagTreeNode } from "@/lib/types"
 import type { PendingDelete } from "@/features/tags/tag-manage-model"
@@ -50,7 +51,9 @@ export function useTagTreeDrag({
     const preview = document.createElement("div")
     const checkbox = source.querySelector("[role='checkbox']")?.cloneNode(true)
     const name = document.createElement("span")
-    name.textContent = pendingRenames.get(node.id) ?? node.name
+    name.textContent = translateTagName(
+      pendingRenames.get(node.id) ?? node.name
+    )
     name.className = "min-w-0 truncate text-sm"
     const nameColor = tagNameColor(pendingRecolors.get(node.id) ?? node.color)
     if (nameColor) name.style.color = nameColor

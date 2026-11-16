@@ -33,14 +33,14 @@ pub struct TagName(String);
 impl TagName {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
         static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"\A[\p{L}\p{N}]+\z").expect("valid tag name regex")
+            Regex::new(r"\A[\p{L}\p{N}.]+\z").expect("valid tag name regex")
         });
 
         let value = value.as_ref();
         if value.is_empty() {
             return Err(TagDomainError::MissingName);
         }
-        // 不修剪空白；符号、标点、控制字符和空白均不属于允许的字符。
+        // 不修剪空白；除用于翻译 key 分段的点号外，符号、标点和空白均不允许。
         if !NAME_REGEX.is_match(value) {
             return Err(TagDomainError::InvalidNameFormat);
         }
