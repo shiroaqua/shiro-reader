@@ -7,7 +7,10 @@ use super::dto::{BookTagResponse, DeleteTagStrategy, TagResponse, TagTreeNodeRes
 
 impl From<BookTagOutput> for BookTagResponse {
     fn from(output: BookTagOutput) -> Self {
-        Self { tag_id: output.tag_id, value: output.value }
+        Self {
+            tag_id: output.tag_id,
+            value: output.value,
+        }
     }
 }
 

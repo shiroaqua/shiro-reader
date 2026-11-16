@@ -20,7 +20,12 @@ pub fn crypto() -> CryptoService {
 pub fn crypto_with(secret: &[u8], leeway: u64) -> CryptoService {
     CryptoService::new(
         Params::new(1024, 1, 1, Some(32)).unwrap(),
-        secret, ISSUER.into(), AUDIENCE.into(), ACCESS_TTL, REFRESH_TTL, leeway,
+        secret,
+        ISSUER.into(),
+        AUDIENCE.into(),
+        ACCESS_TTL,
+        REFRESH_TTL,
+        leeway,
     )
 }
 
@@ -36,7 +41,12 @@ pub fn claims(user_id: &str) -> Value {
 pub fn sign(claims: &Value, typ: Option<&str>, algorithm: Algorithm, secret: &[u8]) -> String {
     let mut header = Header::new(algorithm);
     header.typ = typ.map(str::to_owned);
-    encode(&header, claims, &EncodingKey::from_secret(secret).expect("Invalid jwt secret key format.")).unwrap()
+    encode(
+        &header,
+        claims,
+        &EncodingKey::from_secret(secret).expect("Invalid jwt secret key format."),
+    )
+    .unwrap()
 }
 
 pub fn access_token(claims: &Value) -> String {
@@ -49,14 +59,29 @@ pub fn verified_claims(token: &str) -> Value {
     validation.validate_nbf = true;
     validation.set_issuer(&[ISSUER]);
     validation.set_audience(&[AUDIENCE]);
-    decode::<Value>(token, &DecodingKey::from_secret(SECRET).expect("Invalid jwt secret key format."), &validation).unwrap().claims
+    decode::<Value>(
+        token,
+        &DecodingKey::from_secret(SECRET).expect("Invalid jwt secret key format."),
+        &validation,
+    )
+    .unwrap()
+    .claims
 }
 
 #[path = "crypto_checks.rs"]
 pub mod checks;
 
 #[derive(Clone, Copy, Debug)]
-pub enum InvalidToken { Malformed, Expired, Future, WrongIssuer, WrongAudience, MissingExpiry, WrongSignature, WrongAlgorithm }
+pub enum InvalidToken {
+    Malformed,
+    Expired,
+    Future,
+    WrongIssuer,
+    WrongAudience,
+    MissingExpiry,
+    WrongSignature,
+    WrongAlgorithm,
+}
 
 pub fn invalid_token(case: InvalidToken, refresh: bool) -> String {
     let mut payload = claims("user");
@@ -68,11 +93,18 @@ pub fn invalid_token(case: InvalidToken, refresh: bool) -> String {
         InvalidToken::Future => payload["nbf"] = json!(now_sec() + 3600),
         InvalidToken::WrongIssuer => payload["iss"] = json!("another-issuer"),
         InvalidToken::WrongAudience => payload["aud"] = json!("another-api"),
-        InvalidToken::MissingExpiry => { payload.as_object_mut().unwrap().remove("exp"); }
+        InvalidToken::MissingExpiry => {
+            payload.as_object_mut().unwrap().remove("exp");
+        }
         InvalidToken::WrongSignature => key = b"different-public-test-key-at-least-32-bytes",
         InvalidToken::WrongAlgorithm => algorithm = Algorithm::HS384,
     }
-    sign(&payload, Some(if refresh { "refresh+jwt" } else { "at+jwt" }), algorithm, key)
+    sign(
+        &payload,
+        Some(if refresh { "refresh+jwt" } else { "at+jwt" }),
+        algorithm,
+        key,
+    )
 }
 
 fn now_sec() -> u64 {

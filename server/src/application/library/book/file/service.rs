@@ -70,7 +70,8 @@ impl BookFileService {
     pub async fn download_book_cover_file(
         &self,
         hash: Hash,
-    ) -> Result<(impl Stream<Item = io::Result<Bytes>> + 'static, String), LibraryApplicationError> {
+    ) -> Result<(impl Stream<Item = io::Result<Bytes>> + 'static, String), LibraryApplicationError>
+    {
         self.storage.open_cover(hash).await.map_err(|e| {
             LibraryApplicationError::BookFile(BookFileApplicationError::Storage(
                 anyhow::Error::new(e),

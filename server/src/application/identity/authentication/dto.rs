@@ -8,5 +8,5 @@ pub struct RefreshAccessTokenOutput {
 }
 
 pub struct VerifyAcessToeknOutput {
-    pub user_id: String
+    pub user_id: String,
 }

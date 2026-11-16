@@ -10,8 +10,8 @@ use crate::{
             errors::LibraryApplicationError,
             tag::{
                 commands::{
-                    BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand,
-                    MoveTagCommand, RenameTagCommand, ChangeTagColorCommand, UnbindBookTagCommand,
+                    BindBookTagCommand, ChangeTagColorCommand, CreateTagDefinitionCommand,
+                    MoveTagCommand, RenameTagCommand, UnbindBookTagCommand, UndefineTagCommand,
                 },
                 dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
                 errors::TagApplicationError,

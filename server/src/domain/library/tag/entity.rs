@@ -2,8 +2,8 @@ use jiff::Timestamp;
 
 use entity_derive::Entity;
 
-use crate::domain::library::book::value_objects::BookId;
 use crate::domain::RequiresVerificationEntity;
+use crate::domain::library::book::value_objects::BookId;
 
 use super::{
     errors::TagDomainError,
@@ -67,15 +67,12 @@ impl TagDefinition {
         self.updated_at
     }
 
-    pub fn rename(
-        &mut self,
-        name: TagName,
-    ) -> Result<TagDefinitionChange<'_>, TagDomainError> {
+    pub fn rename(&mut self, name: TagName) -> Result<TagDefinitionChange<'_>, TagDomainError> {
         if self.name == name {
             return Err(TagDomainError::NameUnchanged);
         }
         self.name = name;
-        self.updated_at =  Timestamp::now();
+        self.updated_at = Timestamp::now();
         Ok(TagDefinitionChange {
             entity: self,
             fields: TagDefinitionFields::NAME | TagDefinitionFields::UPDATED_AT,

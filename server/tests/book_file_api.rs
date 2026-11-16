@@ -1,7 +1,7 @@
 mod support;
-use support::*;
 use HttpError::*;
 use SampleFile::*;
+use support::*;
 
 // 验证 PDF 和 EPUB 文件可上传、查询和原样下载，且重复上传被拒绝。
 #[tokio::test]
@@ -12,7 +12,9 @@ async fn upload_lookup_download_and_deduplication() {
         app.upload(&reader, file).await;
         app.find_file(&reader, &file.hash()).await.assert_empty(204);
         app.download(&reader, &file.hash()).await.assert_file(&file);
-        app.upload_again(&reader, file).await.assert_error(DuplicateFile);
+        app.upload_again(&reader, file)
+            .await
+            .assert_error(DuplicateFile);
     }
 }
 
@@ -21,10 +23,18 @@ async fn upload_lookup_download_and_deduplication() {
 async fn upload_rejects_missing_and_duplicate_fields() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    app.upload_parts(Some(&reader), &[], Some(b"file")).await.assert_error(MissingHash);
-    app.upload_parts(Some(&reader), &[UNKNOWN_HASH], None).await.assert_error(MissingFile);
-    app.upload_parts(Some(&reader), &[UNKNOWN_HASH, UNKNOWN_HASH], Some(b"file")).await.assert_error(DuplicateHash);
-    app.upload_parts(Some(&reader), &[INVALID_HASH], Some(b"file")).await.assert_error(InvalidHash);
+    app.upload_parts(Some(&reader), &[], Some(b"file"))
+        .await
+        .assert_error(MissingHash);
+    app.upload_parts(Some(&reader), &[UNKNOWN_HASH], None)
+        .await
+        .assert_error(MissingFile);
+    app.upload_parts(Some(&reader), &[UNKNOWN_HASH, UNKNOWN_HASH], Some(b"file"))
+        .await
+        .assert_error(DuplicateHash);
+    app.upload_parts(Some(&reader), &[INVALID_HASH], Some(b"file"))
+        .await
+        .assert_error(InvalidHash);
 }
 
 // 验证哈希不匹配的上传失败后不留下可查询文件，且可重新上传正确内容。
@@ -32,8 +42,12 @@ async fn upload_rejects_missing_and_duplicate_fields() {
 async fn failed_upload_allows_valid_retry() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    app.upload_parts(Some(&reader), &[&Epub.hash()], Some(b"wrong bytes")).await.assert_error(HashMismatch);
-    app.find_file(&reader, &Epub.hash()).await.assert_error(FileNotFound);
+    app.upload_parts(Some(&reader), &[&Epub.hash()], Some(b"wrong bytes"))
+        .await
+        .assert_error(HashMismatch);
+    app.find_file(&reader, &Epub.hash())
+        .await
+        .assert_error(FileNotFound);
     app.upload(&reader, Epub).await;
     app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
 }
@@ -44,7 +58,9 @@ async fn unsupported_file_is_rejected() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     let file = UnsupportedSample::new();
-    app.upload_parts(Some(&reader), &[&file.hash], Some(&file.bytes)).await.assert_error(UnsupportedFile);
+    app.upload_parts(Some(&reader), &[&file.hash], Some(&file.bytes))
+        .await
+        .assert_error(UnsupportedFile);
 }
 
 // 验证查询和下载文件时拒绝非法哈希或不存在的文件。
@@ -72,10 +88,16 @@ async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
         app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
         drop(app);
 
-        let path = directory.path().join("books").join(format!("{}.book", Epub.hash()));
+        let path = directory
+            .path()
+            .join("books")
+            .join(format!("{}.book", Epub.hash()));
         let mut stored = std::fs::read(&path).unwrap();
         assert_eq!(stored[0], 1);
-        assert_eq!(u64::from_be_bytes(stored[34..42].try_into().unwrap()), Epub.bytes().len() as u64);
+        assert_eq!(
+            u64::from_be_bytes(stored[34..42].try_into().unwrap()),
+            Epub.bytes().len() as u64
+        );
         if corrupt_size {
             stored[41] ^= 1;
         } else {
@@ -84,7 +106,11 @@ async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
         std::fs::write(&path, stored).unwrap();
 
         let app = TestApp::at(directory.path()).await;
-        app.find_file(&reader, &Epub.hash()).await.assert_error(FileNotFound);
-        app.download(&reader, &Epub.hash()).await.assert_error(FileNotFound);
+        app.find_file(&reader, &Epub.hash())
+            .await
+            .assert_error(FileNotFound);
+        app.download(&reader, &Epub.hash())
+            .await
+            .assert_error(FileNotFound);
     }
 }

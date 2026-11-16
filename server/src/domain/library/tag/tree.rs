@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::domain::EntityId;
+use std::collections::HashMap;
 
 use super::{
     entity::TagDefinition,

@@ -63,35 +63,29 @@ impl UserName {
 pub struct UserPasswordHash(String);
 
 impl UserPasswordHash {
-    
     pub fn parse(value: impl AsRef<str>) -> Result<Self, UserDomainError> {
         let raw = value.as_ref();
-   
+
         // 解析 PHC 字符串，校验编码格式。
-        let phc = PasswordHash::new(raw)
-            .map_err(|_| UserDomainError::InvalidPasswordHash)?;
-   
+        let phc = PasswordHash::new(raw).map_err(|_| UserDomainError::InvalidPasswordHash)?;
+
         // 只接受 Argon2id。
         if phc.algorithm.as_str() != "argon2id" {
             return Err(UserDomainError::InvalidPasswordHash);
         }
-   
+
         // 要求显式提供受支持的版本。
         if !matches!(phc.version, Some(16) | Some(19)) {
             return Err(UserDomainError::InvalidPasswordHash);
         }
-   
+
         // 必须显式包含内存成本、时间成本、并行度参数。
         for required in ["m", "t", "p"] {
-            if !phc
-                .params
-                .iter()
-                .any(|(name, _)| name.as_str() == required)
-            {
+            if !phc.params.iter().any(|(name, _)| name.as_str() == required) {
                 return Err(UserDomainError::InvalidPasswordHash);
             }
         }
-   
+
         // 必须包含盐值
         let salt = phc
             .salt
@@ -106,11 +100,10 @@ impl UserPasswordHash {
         if phc.hash.is_none() {
             return Err(UserDomainError::InvalidPasswordHash);
         }
-        
+
         // 校验 Argon2 参数的合法性，包括参数名、数值范围、
         // 内存成本与并行度之间的约束，以及哈希输出长度。
-        Params::try_from(&phc)
-            .map_err(|_| UserDomainError::InvalidPasswordHash)?;
+        Params::try_from(&phc).map_err(|_| UserDomainError::InvalidPasswordHash)?;
         Ok(Self(raw.to_owned()))
     }
 

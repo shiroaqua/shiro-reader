@@ -14,7 +14,7 @@ pub enum UserDomainError {
 
     #[error("Unchanged user name")]
     NameUnchanged,
-    
+
     #[error("Unchanged password hash")]
     PasswordHashUnchanged,
 

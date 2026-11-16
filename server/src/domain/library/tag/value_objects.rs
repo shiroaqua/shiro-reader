@@ -32,9 +32,8 @@ pub struct TagName(String);
 
 impl TagName {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
-        static NAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"\A[\p{L}\p{N}.]+\z").expect("valid tag name regex")
-        });
+        static NAME_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"\A[\p{L}\p{N}.]+\z").expect("valid tag name regex"));
 
         let value = value.as_ref();
         if value.is_empty() {
@@ -55,10 +54,7 @@ impl TagColor {
     pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
         let value = value.as_ref();
         let bytes = value.as_bytes();
-        if bytes.len() != 7
-            || bytes[0] != b'#'
-            || !bytes[1..].iter().all(u8::is_ascii_hexdigit)
-        {
+        if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
             return Err(TagDomainError::InvalidColor);
         }
         Ok(Self(value.to_owned()))
@@ -73,10 +69,7 @@ pub struct TagValueRule {
 }
 
 impl TagValueRule {
-    pub fn new(
-        allows_value: bool,
-        value_regex: Option<String>,
-    ) -> Result<Self, TagDomainError> {
+    pub fn new(allows_value: bool, value_regex: Option<String>) -> Result<Self, TagDomainError> {
         if !allows_value && value_regex.is_some() {
             return Err(TagDomainError::ValueRegexNotAllowed);
         }
@@ -96,7 +89,11 @@ impl TagValueRule {
             .transpose()
             .map_err(|_| TagDomainError::InvalidValueRegex)?;
 
-        Ok(Self { allows_value, value_regex, compiled_regex })
+        Ok(Self {
+            allows_value,
+            value_regex,
+            compiled_regex,
+        })
     }
 
     pub fn allows_value(&self) -> bool {
@@ -116,9 +113,14 @@ impl TagValueRule {
             };
         }
 
-        let value = value.filter(|value| !value.is_empty())
+        let value = value
+            .filter(|value| !value.is_empty())
             .ok_or(TagDomainError::ValueRequired)?;
-        if self.compiled_regex.as_ref().is_some_and(|regex| !regex.is_match(value)) {
+        if self
+            .compiled_regex
+            .as_ref()
+            .is_some_and(|regex| !regex.is_match(value))
+        {
             return Err(TagDomainError::ValueRegexMismatch);
         }
         Ok(())

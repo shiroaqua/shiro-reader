@@ -1,6 +1,5 @@
 use std::io::{self, ErrorKind};
 
-use thiserror::Error;
 use crate::application::errors::MapToastyError;
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
@@ -10,6 +9,7 @@ use crate::domain::library::book::errors::BookDomainError;
 use crate::domain::library::tag::entity::{BookTag, TagDefinition};
 use crate::domain::library::tag::errors::TagDomainError;
 use crate::infrastructure::db::sqlite::sqlite_error;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LibraryApplicationError {
@@ -58,7 +58,6 @@ impl From<TagDomainError> for LibraryApplicationError {
         Self::Tag(error.into())
     }
 }
-
 
 impl MapToastyError<LibraryApplicationError> for Book {
     fn map_db_err(error: toasty::Error) -> LibraryApplicationError {

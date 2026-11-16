@@ -3,10 +3,7 @@ use toasty::{
     stmt::{self, Assign, Assignment, Expr, IntoExpr, List, Path, Value},
 };
 
-use crate::domain::library::{
-    book::value_objects::BookHash,
-    tag::value_objects::TagValueRule,
-};
+use crate::domain::library::{book::value_objects::BookHash, tag::value_objects::TagValueRule};
 
 impl Load for BookHash {
     type Output = Self;
@@ -19,7 +16,8 @@ impl Load for BookHash {
         let Value::Bytes(bytes) = value else {
             return Err(toasty::Error::invalid_result("book hash is not a blob"));
         };
-        let bytes: [u8; 32] = bytes.try_into()
+        let bytes: [u8; 32] = bytes
+            .try_into()
             .map_err(|_| toasty::Error::invalid_result("book hash must have 32 bytes"))?;
         Ok(Self(blake3::Hash::from_bytes(bytes)))
     }
@@ -61,7 +59,11 @@ impl Field for BookHash {
         path
     }
 
-    fn new_update<'a>(_: &'a mut toasty_core::stmt::Assignments, _: stmt::Projection) -> Self::Update<'a> {}
+    fn new_update<'a>(
+        _: &'a mut toasty_core::stmt::Assignments,
+        _: stmt::Projection,
+    ) -> Self::Update<'a> {
+    }
 
     fn key_constraint<Origin>(&self, target: Path<Origin, Self::Inner>) -> Expr<bool> {
         target.eq(self.clone())
@@ -124,7 +126,11 @@ impl Field for TagValueRule {
         path
     }
 
-    fn new_update<'a>(_: &'a mut toasty_core::stmt::Assignments, _: stmt::Projection) -> Self::Update<'a> {}
+    fn new_update<'a>(
+        _: &'a mut toasty_core::stmt::Assignments,
+        _: stmt::Projection,
+    ) -> Self::Update<'a> {
+    }
 
     fn key_constraint<Origin>(&self, target: Path<Origin, Self::Inner>) -> Expr<bool> {
         target.eq(self.clone())

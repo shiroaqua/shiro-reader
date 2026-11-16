@@ -1,7 +1,6 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateBookRequest {
@@ -9,13 +8,11 @@ pub struct CreateBookRequest {
     pub hash: String,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RenameBookRequest {
     pub title: String,
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

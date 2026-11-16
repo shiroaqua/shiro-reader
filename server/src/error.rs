@@ -12,8 +12,7 @@ use crate::{
     application::{
         identity::{
             authentication::errors::AuthenticationApplicationError,
-            crypto::errors::CryptoApplicationError,
-            errors::IdentityApplicationError,
+            crypto::errors::CryptoApplicationError, errors::IdentityApplicationError,
             user::errors::UserApplicationError,
         },
         library::{
@@ -142,7 +141,7 @@ impl From<IdentityApplicationError> for AppError {
 
                     // JWT errors are shared by token verification and issuance.
                     // Only invalid client tokens should be reported as unauthorized.
-                    
+
                     match error.kind() {
                         ErrorKind::InvalidToken
                         | ErrorKind::InvalidSignature
@@ -220,7 +219,6 @@ impl From<LibraryApplicationError> for AppError {
                     message: "library.book.file.unsupported",
                 },
                 BookFileApplicationError::Storage(error) => AppError::Internal(error),
-
             },
         }
     }

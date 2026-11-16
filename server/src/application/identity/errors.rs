@@ -13,7 +13,7 @@ pub enum IdentityApplicationError {
 
     #[error("Authentication error: {0}")]
     Authentication(#[from] AuthenticationApplicationError),
-    
+
     #[error("Crypto error: {0}")]
     Crypto(#[from] CryptoApplicationError),
 }

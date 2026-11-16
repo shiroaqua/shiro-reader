@@ -9,9 +9,9 @@ pub struct UserUnregisterCommand {
 
 pub struct UserReanmeCommand {
     pub id: String,
-    pub name: String
+    pub name: String,
 }
 pub struct UserChangePasswordCommand {
     pub id: String,
-    pub password: String
+    pub password: String,
 }

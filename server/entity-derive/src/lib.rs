@@ -27,12 +27,9 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         .filter(|field| field.attrs.iter().any(|attr| attr.path().is_ident("key")))
         .collect();
     if keys.is_empty() {
-        return syn::Error::new_spanned(
-            &input.ident,
-            "Entity requires at least one #[key] field",
-        )
-        .to_compile_error()
-        .into();
+        return syn::Error::new_spanned(&input.ident, "Entity requires at least one #[key] field")
+            .to_compile_error()
+            .into();
     }
 
     let flags_name = format_ident!("{}Fields", input.ident);
@@ -51,25 +48,29 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         .iter()
         .map(|field| field.ident.as_ref().expect("named field"))
         .collect();
-    let create_setters = create_field_names.iter().map(|name| quote! { .#name(#name) });
+    let create_setters = create_field_names
+        .iter()
+        .map(|name| quote! { .#name(#name) });
     let constants = fields.named.iter().enumerate().map(|(index, field)| {
         let field_name = field.ident.as_ref().expect("named field");
         let name = format_ident!("{}", field_name.to_string().to_ascii_uppercase());
         let value = 1_u64 << index;
         quote! { const #name = #value; }
     });
-    let setters = fields.named.iter().filter(|field| {
-        !field.attrs.iter().any(|attr| attr.path().is_ident("key"))
-    }).map(|field| {
-        let field_name = field.ident.as_ref().expect("named field");
-        let flag_name = format_ident!("{}", field_name.to_string().to_ascii_uppercase());
-        let setter_name = format_ident!("set_{}", field_name);
-        quote! {
-            if fields.contains(#flags_name::#flag_name) {
-                update.#setter_name(entity.#field_name.clone());
+    let setters = fields
+        .named
+        .iter()
+        .filter(|field| !field.attrs.iter().any(|attr| attr.path().is_ident("key")))
+        .map(|field| {
+            let field_name = field.ident.as_ref().expect("named field");
+            let flag_name = format_ident!("{}", field_name.to_string().to_ascii_uppercase());
+            let setter_name = format_ident!("set_{}", field_name);
+            quote! {
+                if fields.contains(#flags_name::#flag_name) {
+                    update.#setter_name(entity.#field_name.clone());
+                }
             }
-        }
-    });
+        });
 
     quote! {
         impl crate::domain::EntityCreate for #model_name {

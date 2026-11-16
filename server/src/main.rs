@@ -17,7 +17,13 @@ async fn main() -> anyhow::Result<()> {
 
     let state = AppState::build(&config).await?;
 
-    if state.user_service.get_users(GetUsersQuery { user_ids: vec![] }).await?.len() == 0 {
+    if state
+        .user_service
+        .get_users(GetUsersQuery { user_ids: vec![] })
+        .await?
+        .len()
+        == 0
+    {
         if cfg!(debug_assertions) {
             state
                 .user_service

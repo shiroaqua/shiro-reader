@@ -6,17 +6,24 @@ use futures_util::Stream;
 use toasty::Db;
 
 use crate::{
-    application::{MapDbResult, errors::MapToastyError, library::{
-        book::{
-            commands::{
-                CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand,
+    application::{
+        MapDbResult,
+        errors::MapToastyError,
+        library::{
+            book::{
+                commands::{
+                    CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand,
+                },
+                dto::{CreateBookOutput, GetBookOutput},
+                file::{errors::BookFileApplicationError, service::BookFileService},
+                queries::GetBooksQuery,
             },
-            dto::{CreateBookOutput, GetBookOutput},
-            file::{errors::BookFileApplicationError, service::BookFileService},
-            queries::GetBooksQuery,
-        }, errors::LibraryApplicationError,
-    }}, domain::{
-        EntityCreate, EntityId, RequiresVerificationEntity, library::book::{
+            errors::LibraryApplicationError,
+        },
+    },
+    domain::{
+        EntityCreate, EntityId, RequiresVerificationEntity,
+        library::book::{
             entity::Book,
             value_objects::{BookId, BookTitle},
         },
@@ -61,7 +68,10 @@ impl BookService {
     ) -> Result<(), LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
         let book = Book::get_by_id(&mut self.db, &id).await.map_result()?;
-        book.delete().exec(&mut self.db).await.map_err(Book::map_db_err)
+        book.delete()
+            .exec(&mut self.db)
+            .await
+            .map_err(Book::map_db_err)
     }
 
     pub async fn rename_book(
@@ -73,7 +83,10 @@ impl BookService {
 
         let mut tx = self.db.transaction().await.map_err(Book::map_db_err)?;
         let mut book = Book::get_by_id(&mut tx, &id).await.map_result()?;
-        book.rename(new_title)?.exec(&mut tx).await.map_err(Book::map_db_err)?;
+        book.rename(new_title)?
+            .exec(&mut tx)
+            .await
+            .map_err(Book::map_db_err)?;
         tx.commit().await.map_err(Book::map_db_err)
     }
 

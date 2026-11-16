@@ -1,12 +1,17 @@
 use crate::{
-    api::{extractors::auth::RoutedState, v1::library::book::file::{dto::BookQuery, errors::BookFileAPIError}}, error::AppError, state::AppState,
+    api::{
+        extractors::auth::RoutedState,
+        v1::library::book::file::{dto::BookQuery, errors::BookFileAPIError},
+    },
+    error::AppError,
+    state::AppState,
 };
 use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
     http::{
-        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderValue, Response, StatusCode,
+        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
     },
 };
 use futures_util::TryStreamExt;
@@ -31,11 +36,7 @@ pub async fn upload_book(
                             return Err(BookFileAPIError::DuplicateHashField.into());
                         }
 
-                        hash = Some(
-                            field
-                                .text()
-                                .await?,
-                        );
+                        hash = Some(field.text().await?);
                     }
                     "file" => {
                         if field.file_name().is_none() {
@@ -66,7 +67,8 @@ pub async fn upload_book(
 
 pub async fn download_book(
     State(state): State<AppState>,
-    Path(book_hash): Path<String>, _ : RoutedState
+    Path(book_hash): Path<String>,
+    _: RoutedState,
 ) -> Result<Response<Body>, AppError> {
     let file = state
         .bookfile_service
@@ -93,7 +95,8 @@ pub async fn download_book(
 
 pub async fn get_book(
     State(state): State<AppState>,
-    Query(query): Query<BookQuery>, _ : RoutedState
+    Query(query): Query<BookQuery>,
+    _: RoutedState,
 ) -> Result<StatusCode, AppError> {
     let _ = state.bookfile_service.parse_existing_hash(&query.hash)?;
     Ok(StatusCode::NO_CONTENT)

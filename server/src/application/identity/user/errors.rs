@@ -23,8 +23,7 @@ pub enum UserApplicationError {
 
     #[error("Unchanged password hash")]
     PasswordHashUnchanged,
-    
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }
-

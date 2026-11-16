@@ -25,7 +25,9 @@ use crate::{
 static PDFIUM: Mutex<Option<Arc<Mutex<Pdfium>>>> = Mutex::new(None);
 
 fn shared_pdfium() -> anyhow::Result<Arc<Mutex<Pdfium>>> {
-    let mut shared = PDFIUM.lock().map_err(|_| anyhow::anyhow!("Pdfium initialization lock poisoned"))?;
+    let mut shared = PDFIUM
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Pdfium initialization lock poisoned"))?;
     if let Some(pdfium) = shared.as_ref() {
         return Ok(pdfium.clone());
     }
@@ -69,12 +71,15 @@ impl AppState {
         ));
         let pdfium = shared_pdfium()?;
 
-        let identity_db = db::pool::connect_identity(&config.root_directory.join("user.db")).await?;
+        let identity_db =
+            db::pool::connect_identity(&config.root_directory.join("user.db")).await?;
 
         let user_database_provider = Arc::new(UserDatabaseProvider::new(&config));
         let users = User::all().exec(&mut identity_db.clone()).await?;
         for user in users {
-            user_database_provider.append(&user.id().to_string()).await?;
+            user_database_provider
+                .append(&user.id().to_string())
+                .await?;
         }
 
         let mut book_file_storage = BookFileStorage::new(
@@ -99,8 +104,6 @@ impl AppState {
         })
     }
 }
-
-
 
 pub struct UserDatabaseProvider {
     root_directory: PathBuf,
@@ -144,9 +147,8 @@ impl UserDatabaseProvider {
         }
     }
 
-    pub fn clear(&self, user_id: &str) -> anyhow::Result<()> {     
+    pub fn clear(&self, user_id: &str) -> anyhow::Result<()> {
         std::fs::remove_dir_all(self.root_directory.join("users").join(&user_id))?;
         Ok(())
     }
-
 }

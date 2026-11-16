@@ -1,5 +1,5 @@
-pub mod library;
 pub mod identity;
+pub mod library;
 
 pub trait EntityId {
     type Id;

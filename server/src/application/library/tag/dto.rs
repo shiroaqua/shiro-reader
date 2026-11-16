@@ -1,5 +1,5 @@
-use crate::domain::library::tag::entity::TagDefinition;
 use crate::domain::EntityId;
+use crate::domain::library::tag::entity::TagDefinition;
 use jiff::Timestamp;
 
 #[derive(Debug)]

@@ -2,17 +2,21 @@
 
 pub mod crypto;
 mod identity;
-mod lifecycle;
 mod library;
+mod lifecycle;
 mod runtime;
 mod tag;
 
 pub use identity::*;
-pub use lifecycle::Restart;
 pub use library::*;
+pub use lifecycle::Restart;
 pub use tag::*;
 
-use axum::{Router, body::{Body, Bytes, to_bytes}, http::{Method, Request, StatusCode, HeaderMap}};
+use axum::{
+    Router,
+    body::{Body, Bytes, to_bytes},
+    http::{HeaderMap, Method, Request, StatusCode},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shiro_reader_server::{app::build_router, state::AppState};
@@ -45,26 +49,61 @@ impl TestApp {
     }
 
     pub async fn at(root: &std::path::Path) -> Self {
-        let state = AppState::build(&runtime::config(root)).await.expect("build application");
-        Self { router: build_router(state.clone()), state, _directory: None }
+        let state = AppState::build(&runtime::config(root))
+            .await
+            .expect("build application");
+        Self {
+            router: build_router(state.clone()),
+            state,
+            _directory: None,
+        }
     }
 
-    async fn request(&self, method: Method, uri: &str, body: Body,
-        content_type: Option<&str>, authorization: Option<&str>) -> HttpResponse {
+    async fn request(
+        &self,
+        method: Method,
+        uri: &str,
+        body: Body,
+        content_type: Option<&str>,
+        authorization: Option<&str>,
+    ) -> HttpResponse {
         let mut request = Request::builder().method(method).uri(uri);
-        if let Some(value) = content_type { request = request.header("content-type", value); }
-        if let Some(value) = authorization { request = request.header("authorization", value); }
-        let response = self.router.clone().oneshot(request.body(body).unwrap()).await.unwrap();
+        if let Some(value) = content_type {
+            request = request.header("content-type", value);
+        }
+        if let Some(value) = authorization {
+            request = request.header("authorization", value);
+        }
+        let response = self
+            .router
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
         let (parts, body) = response.into_parts();
-        HttpResponse { status: parts.status, headers: parts.headers,
-            bytes: to_bytes(body, 16 * 1024 * 1024).await.expect("read response") }
+        HttpResponse {
+            status: parts.status,
+            headers: parts.headers,
+            bytes: to_bytes(body, 16 * 1024 * 1024)
+                .await
+                .expect("read response"),
+        }
     }
 
-    async fn send(&self, method: Method, uri: &str, json: Option<Value>, session: Option<&Session>) -> HttpResponse {
+    async fn send(
+        &self,
+        method: Method,
+        uri: &str,
+        json: Option<Value>,
+        session: Option<&Session>,
+    ) -> HttpResponse {
         let authorization = session.map(|session| format!("Bearer {}", session.access_token));
         let content_type = json.as_ref().map(|_| "application/json");
-        let body = json.map(|value| Body::from(serde_json::to_vec(&value).unwrap())).unwrap_or_else(Body::empty);
-        self.request(method, uri, body, content_type, authorization.as_deref()).await
+        let body = json
+            .map(|value| Body::from(serde_json::to_vec(&value).unwrap()))
+            .unwrap_or_else(Body::empty);
+        self.request(method, uri, body, content_type, authorization.as_deref())
+            .await
     }
 }
 
@@ -76,7 +115,12 @@ pub struct HttpResponse {
 
 impl HttpResponse {
     fn json(&self) -> Value {
-        assert!(self.headers["content-type"].to_str().unwrap().starts_with("application/json"));
+        assert!(
+            self.headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
         serde_json::from_slice(&self.bytes).expect("valid JSON response")
     }
 
@@ -122,16 +166,38 @@ impl HttpResponse {
         self.assert_status(200);
         assert_eq!(self.headers["content-type"], "application/octet-stream");
         assert_eq!(self.headers["x-book-hash"], file.hash());
-        assert_eq!(self.headers["content-disposition"], format!("attachment; filename=\"{}.book\"", file.hash()));
+        assert_eq!(
+            self.headers["content-disposition"],
+            format!("attachment; filename=\"{}.book\"", file.hash())
+        );
         assert_eq!(self.bytes.as_ref(), file.bytes());
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum HttpError {
-    MissingTitle, InvalidTitle, UnchangedTitle, TitleConflict, InvalidBookId, BookNotFound,
-    InvalidHash, FileNotFound, DuplicateFile, MissingHash, MissingFile, DuplicateHash, HashMismatch, UnsupportedFile,
-    InvalidCredentials, InvalidUsername, MissingUsername, MissingBearer, InvalidToken, WrongTokenType, UserNotFound, AccountNotFound,
+    MissingTitle,
+    InvalidTitle,
+    UnchangedTitle,
+    TitleConflict,
+    InvalidBookId,
+    BookNotFound,
+    InvalidHash,
+    FileNotFound,
+    DuplicateFile,
+    MissingHash,
+    MissingFile,
+    DuplicateHash,
+    HashMismatch,
+    UnsupportedFile,
+    InvalidCredentials,
+    InvalidUsername,
+    MissingUsername,
+    MissingBearer,
+    InvalidToken,
+    WrongTokenType,
+    UserNotFound,
+    AccountNotFound,
 }
 
 impl HttpError {
@@ -165,7 +231,9 @@ impl HttpError {
 }
 
 fn text(value: &Value, field: &str) -> String {
-    let text = value[field].as_str().unwrap_or_else(|| panic!("missing string field: {field}"));
+    let text = value[field]
+        .as_str()
+        .unwrap_or_else(|| panic!("missing string field: {field}"));
     assert!(!text.is_empty(), "empty field: {field}");
     text.into()
 }

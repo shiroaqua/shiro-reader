@@ -1,7 +1,7 @@
 mod support;
-use support::*;
 use HttpError::*;
 use SampleFile::*;
+use support::*;
 
 // 验证用户无法查询、重命名、删除其他用户的私有书籍或获取其封面。
 #[tokio::test]
@@ -13,9 +13,15 @@ async fn another_user_cannot_read_or_change_private_books() {
     let book = app.add_book(&owner, "PrivateBook", Epub).await;
     assert!(app.books(&other).await.is_empty());
     assert!(app.books_by_ids(&other, &[&book.data.id]).await.is_empty());
-    app.rename_book(&other, &book.data.id, "Hacked").await.assert_error(BookNotFound);
-    app.delete_book(&other, &book.data.id).await.assert_error(BookNotFound);
-    app.cover(&other, &book.data.id).await.assert_error(BookNotFound);
+    app.rename_book(&other, &book.data.id, "Hacked")
+        .await
+        .assert_error(BookNotFound);
+    app.delete_book(&other, &book.data.id)
+        .await
+        .assert_error(BookNotFound);
+    app.cover(&other, &book.data.id)
+        .await
+        .assert_error(BookNotFound);
     book.assert_unchanged().await;
 }
 
@@ -34,6 +40,8 @@ async fn users_share_files_but_keep_independent_bookshelves() {
     first.delete().await.assert_empty(204);
     assert!(app.books(&alice).await.is_empty());
     second.assert_unchanged().await;
-    app.upload_again(&bob, Epub).await.assert_error(DuplicateFile);
+    app.upload_again(&bob, Epub)
+        .await
+        .assert_error(DuplicateFile);
     app.download(&bob, &Epub.hash()).await.assert_file(&Epub);
 }

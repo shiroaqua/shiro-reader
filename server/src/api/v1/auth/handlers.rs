@@ -2,9 +2,12 @@ use axum::{Json, extract::State, http::StatusCode};
 
 use crate::{
     api::v1::auth::dto::{
-        LogoutRequest, LoginRequest, LoginResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse,
+        LoginRequest, LoginResponse, LogoutRequest, RefreshAccessTokenRequest,
+        RefreshAccessTokenResponse,
     },
-    application::identity::authentication::commands::{LogoutCommand, LoginCommand, RefreshAccessTokenCommand},
+    application::identity::authentication::commands::{
+        LoginCommand, LogoutCommand, RefreshAccessTokenCommand,
+    },
     error::AppError,
     state::AppState,
 };
@@ -43,6 +46,11 @@ pub async fn logout(
     State(state): State<AppState>,
     Json(request): Json<LogoutRequest>,
 ) -> Result<StatusCode, AppError> {
-    state.auth_service.logout(LogoutCommand { token: request.token }).await?;
+    state
+        .auth_service
+        .logout(LogoutCommand {
+            token: request.token,
+        })
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

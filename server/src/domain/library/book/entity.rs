@@ -2,13 +2,11 @@ use blake3::Hash;
 use entity_derive::Entity;
 use jiff::Timestamp;
 
-use crate::{
-    domain::{
-        RequiresVerificationEntity,
-        library::book::{
-            errors::BookDomainError,
-            value_objects::{BookHash, BookId, BookTitle},
-        },
+use crate::domain::{
+    RequiresVerificationEntity,
+    library::book::{
+        errors::BookDomainError,
+        value_objects::{BookHash, BookId, BookTitle},
     },
 };
 
@@ -25,11 +23,7 @@ pub struct Book {
 }
 
 impl Book {
-    pub fn new(
-        id: BookId,
-        title: BookTitle,
-        hash: Hash,
-    ) -> Result<Self, BookDomainError> {
+    pub fn new(id: BookId, title: BookTitle, hash: Hash) -> Result<Self, BookDomainError> {
         let created_at = Timestamp::now();
         Ok(Self {
             id,
@@ -61,7 +55,7 @@ impl Book {
         }
 
         self.title = new_title;
-        self.updated_at =  Timestamp::now();
+        self.updated_at = Timestamp::now();
         Ok(BookChange {
             entity: self,
             fields: BookFields::TITLE | BookFields::UPDATED_AT,

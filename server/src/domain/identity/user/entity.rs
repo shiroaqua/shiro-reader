@@ -1,8 +1,8 @@
+use crate::domain::RequiresVerificationEntity;
 use crate::domain::identity::user::{
     errors::UserDomainError,
     value_objects::{UserId, UserName, UserPasswordHash},
 };
-use crate::domain::RequiresVerificationEntity;
 use entity_derive::Entity;
 use jiff::Timestamp;
 
@@ -18,11 +18,7 @@ pub struct User {
     updated_at: Timestamp,
 }
 impl User {
-    pub fn new(
-        id: UserId,
-        name: UserName,
-        password_hash: UserPasswordHash,
-    ) -> Self {
+    pub fn new(id: UserId, name: UserName, password_hash: UserPasswordHash) -> Self {
         let created_at = Timestamp::now();
         Self {
             id,

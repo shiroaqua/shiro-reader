@@ -1,8 +1,8 @@
 mod support;
-use support::*;
 use DeleteStrategy::*;
 use SampleFile::Epub;
 use TagError::*;
+use support::*;
 
 // 验证标签定义形成稳定的树形结构，且同名标签拥有不同 ID。
 #[tokio::test]
@@ -11,8 +11,12 @@ async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name()
     let reader = app.session("Reader").await;
     assert!(app.tag_tree(&reader).await.is_empty());
     let root = app.add_tag(&reader, "分类2026", None, false, None).await;
-    let child = app.add_tag(&reader, "评分", Some(&root.id), true, Some("[0-9]+")).await;
-    let leaf = app.add_tag(&reader, "备注", Some(&child.id), true, None).await;
+    let child = app
+        .add_tag(&reader, "评分", Some(&root.id), true, Some("[0-9]+"))
+        .await;
+    let leaf = app
+        .add_tag(&reader, "备注", Some(&child.id), true, None)
+        .await;
     let duplicate = app.add_tag(&reader, "分类2026", None, false, None).await;
     assert_ne!(root.id, duplicate.id);
     let tree = app.tag_tree(&reader).await;
@@ -27,10 +31,14 @@ async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name()
 async fn dotted_tag_names_are_preserved_as_translation_keys() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    let tag = app.add_tag(&reader, "tag.genre.fiction", None, false, None).await;
+    let tag = app
+        .add_tag(&reader, "tag.genre.fiction", None, false, None)
+        .await;
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 
-    app.rename_tag(&reader, &tag.id, "tag.genre.nonfiction").await.assert_empty(204);
+    app.rename_tag(&reader, &tag.id, "tag.genre.nonfiction")
+        .await
+        .assert_empty(204);
     let tree = app.tag_tree(&reader).await;
     let renamed = TagDefinitionData::find(&tree, &tag.id).unwrap();
     assert_eq!(renamed.name, "tag.genre.nonfiction");
@@ -43,16 +51,31 @@ async fn invalid_names_are_rejected_on_creation_and_rename_without_changing_the_
     let reader = app.session("Reader").await;
     let tag = app.add_tag(&reader, "合法名称", None, false, None).await;
     for (name, error) in [
-        ("", MissingName), (" leading", InvalidName), ("trailing ", InvalidName),
-        ("two words", InvalidName), ("a\tb", InvalidName), ("a\nb", InvalidName),
-        ("a\u{a0}b", InvalidName), ("a\u{200b}b", InvalidName), ("a\0b", InvalidName),
-        ("under_score", InvalidName), ("with-dash", InvalidName), ("标点！", InvalidName),
-        ("emoji😀", InvalidName), ("a/b", InvalidName),
+        ("", MissingName),
+        (" leading", InvalidName),
+        ("trailing ", InvalidName),
+        ("two words", InvalidName),
+        ("a\tb", InvalidName),
+        ("a\nb", InvalidName),
+        ("a\u{a0}b", InvalidName),
+        ("a\u{200b}b", InvalidName),
+        ("a\0b", InvalidName),
+        ("under_score", InvalidName),
+        ("with-dash", InvalidName),
+        ("标点！", InvalidName),
+        ("emoji😀", InvalidName),
+        ("a/b", InvalidName),
     ] {
-        app.define_tag(&reader, name, None, false, None).await.assert_tag_error(error);
-        app.rename_tag(&reader, &tag.id, name).await.assert_tag_error(error);
+        app.define_tag(&reader, name, None, false, None)
+            .await
+            .assert_tag_error(error);
+        app.rename_tag(&reader, &tag.id, name)
+            .await
+            .assert_tag_error(error);
     }
-    app.rename_tag(&reader, &tag.id, &tag.name).await.assert_tag_error(UnchangedName);
+    app.rename_tag(&reader, &tag.id, &tag.name)
+        .await
+        .assert_tag_error(UnchangedName);
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
 
@@ -61,20 +84,33 @@ async fn invalid_names_are_rejected_on_creation_and_rename_without_changing_the_
 async fn creation_rejects_missing_parents_and_invalid_value_rules() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    app.define_tag(&reader, "Child", Some(UNKNOWN_ID), false, None).await.assert_tag_error(ParentNotFound);
-    app.define_tag(&reader, "Child", Some(INVALID_ID), false, None).await.assert_tag_error(InvalidId);
+    app.define_tag(&reader, "Child", Some(UNKNOWN_ID), false, None)
+        .await
+        .assert_tag_error(ParentNotFound);
+    app.define_tag(&reader, "Child", Some(INVALID_ID), false, None)
+        .await
+        .assert_tag_error(InvalidId);
     for regex in ["[", "(", "a)\\z|(?:b"] {
-        app.define_tag(&reader, "BadRegex", None, true, Some(regex)).await.assert_tag_error(InvalidRegex);
+        app.define_tag(&reader, "BadRegex", None, true, Some(regex))
+            .await
+            .assert_tag_error(InvalidRegex);
     }
     app.define_tag_with_color(&reader, "BadColor", None, false, None, Some("#12GG56"))
-        .await.assert_tag_error(InvalidColor);
+        .await
+        .assert_tag_error(InvalidColor);
     for regex in ["", "[0-9]+"] {
-        app.define_tag(&reader, "NoValues", None, false, Some(regex)).await.assert_tag_error(RegexNotAllowed);
+        app.define_tag(&reader, "NoValues", None, false, Some(regex))
+            .await
+            .assert_tag_error(RegexNotAllowed);
     }
     assert!(app.tag_tree(&reader).await.is_empty());
     let root = app.add_tag(&reader, "Root", None, false, None).await;
-    app.delete_tag(&reader, &root.id, Cascade).await.assert_empty(204);
-    app.define_tag(&reader, "Child", Some(&root.id), false, None).await.assert_tag_error(ParentNotFound);
+    app.delete_tag(&reader, &root.id, Cascade)
+        .await
+        .assert_empty(204);
+    app.define_tag(&reader, "Child", Some(&root.id), false, None)
+        .await
+        .assert_tag_error(ParentNotFound);
 }
 
 // 验证标签重命名保留 ID、父子关系和值规则。
@@ -83,14 +119,27 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     let root = app.add_tag(&reader, "Root", None, false, None).await;
-    let tag = app.add_tag(&reader, "Rating", Some(&root.id), true, Some("[0-9]+")).await;
-    let child = app.add_tag(&reader, "Child", Some(&tag.id), false, None).await;
-    app.rename_tag(&reader, &tag.id, "Score").await.assert_empty(204);
+    let tag = app
+        .add_tag(&reader, "Rating", Some(&root.id), true, Some("[0-9]+"))
+        .await;
+    let child = app
+        .add_tag(&reader, "Child", Some(&tag.id), false, None)
+        .await;
+    app.rename_tag(&reader, &tag.id, "Score")
+        .await
+        .assert_empty(204);
     let tree = app.tag_tree(&reader).await;
     let renamed = TagDefinitionData::find(&tree, &tag.id).unwrap();
     assert_eq!(renamed.created_at, tag.created_at);
     assert!(renamed.updated_at > tag.updated_at);
-    let expected = vec![root.node(vec![tag.renamed("Score").modified_at(renamed.updated_at).node(vec![child.node(vec![])])])];
+    let expected =
+        vec![
+            root.node(vec![
+                tag.renamed("Score")
+                    .modified_at(renamed.updated_at)
+                    .node(vec![child.node(vec![])]),
+            ]),
+        ];
     assert_eq!(tree, expected);
 }
 
@@ -100,29 +149,56 @@ async fn colors_are_required_and_can_be_changed_using_rgb_hex_values() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     app.define_tag_with_color(&reader, "MissingColor", None, false, None, None)
-        .await.assert_status(422);
-    let default_color = app.add_tag(&reader, "DefaultColor", None, false, None).await;
-    let explicit_color = app.add_tag_with_color(
-        &reader, "ExplicitColor", None, false, None, Some("#a1B2c3"),
-    ).await;
+        .await
+        .assert_status(422);
+    let default_color = app
+        .add_tag(&reader, "DefaultColor", None, false, None)
+        .await;
+    let explicit_color = app
+        .add_tag_with_color(&reader, "ExplicitColor", None, false, None, Some("#a1B2c3"))
+        .await;
     assert_eq!(default_color.color, "#6f6862");
     assert_eq!(explicit_color.color, "#a1B2c3");
 
-    for color in ["", "000000", "#12345", "#1234567", "#12345678", "#GG0000", " #FFFFFF", "#ＦＦＦＦＦＦ"] {
-        app.change_tag_color(&reader, &default_color.id, color).await.assert_tag_error(InvalidColor);
+    for color in [
+        "",
+        "000000",
+        "#12345",
+        "#1234567",
+        "#12345678",
+        "#GG0000",
+        " #FFFFFF",
+        "#ＦＦＦＦＦＦ",
+    ] {
+        app.change_tag_color(&reader, &default_color.id, color)
+            .await
+            .assert_tag_error(InvalidColor);
     }
-    assert_eq!(app.tag_tree(&reader).await, [default_color.node(vec![]), explicit_color.node(vec![])]);
+    assert_eq!(
+        app.tag_tree(&reader).await,
+        [default_color.node(vec![]), explicit_color.node(vec![])]
+    );
 
-    app.change_tag_color(&reader, &default_color.id, "#33FF00").await.assert_empty(204);
-    app.change_tag_color(&reader, &default_color.id, "#33FF00").await.assert_tag_error(UnchangedColor);
+    app.change_tag_color(&reader, &default_color.id, "#33FF00")
+        .await
+        .assert_empty(204);
+    app.change_tag_color(&reader, &default_color.id, "#33FF00")
+        .await
+        .assert_tag_error(UnchangedColor);
     let tree = app.tag_tree(&reader).await;
     let changed = TagDefinitionData::find(&tree, &default_color.id).unwrap();
     assert_eq!(changed.color, "#33FF00");
     assert!(changed.updated_at > default_color.updated_at);
-    assert_eq!(tree, [
-        default_color.colored("#33FF00").modified_at(changed.updated_at).node(vec![]),
-        explicit_color.node(vec![]),
-    ]);
+    assert_eq!(
+        tree,
+        [
+            default_color
+                .colored("#33FF00")
+                .modified_at(changed.updated_at)
+                .node(vec![]),
+            explicit_color.node(vec![]),
+        ]
+    );
 }
 
 // 验证移动标签可更换父级或移至根层，同时保留子树、值规则和书籍绑定。
@@ -134,32 +210,65 @@ async fn moving_a_tag_preserves_its_subtree_rules_and_book_bindings() {
     let book = app.add_book(&reader, "Book", Epub).await;
     let first_root = app.add_tag(&reader, "FirstRoot", None, false, None).await;
     let second_root = app.add_tag(&reader, "SecondRoot", None, false, None).await;
-    let category = app.add_tag(&reader, "Category", Some(&first_root.id), true, Some("[A-Z]+")).await;
-    let child = app.add_tag(&reader, "Child", Some(&category.id), false, None).await;
-    app.bind_tag(&reader, &book.data.id, &category.id, Some("FICTION")).await.assert_empty(204);
+    let category = app
+        .add_tag(
+            &reader,
+            "Category",
+            Some(&first_root.id),
+            true,
+            Some("[A-Z]+"),
+        )
+        .await;
+    let child = app
+        .add_tag(&reader, "Child", Some(&category.id), false, None)
+        .await;
+    app.bind_tag(&reader, &book.data.id, &category.id, Some("FICTION"))
+        .await
+        .assert_empty(204);
 
-    app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_empty(204);
-    app.move_tag(&reader, &category.id, Some(&second_root.id)).await.assert_tag_error(InvalidMove);
+    app.move_tag(&reader, &category.id, Some(&second_root.id))
+        .await
+        .assert_empty(204);
+    app.move_tag(&reader, &category.id, Some(&second_root.id))
+        .await
+        .assert_tag_error(InvalidMove);
     let moved_tree = app.tag_tree(&reader).await;
     let moved_category = TagDefinitionData::find(&moved_tree, &category.id).unwrap();
     assert_eq!(moved_category.created_at, category.created_at);
     assert!(moved_category.updated_at > category.updated_at);
-    assert_eq!(moved_tree, [
-        first_root.node(vec![]),
-        second_root.node(vec![category.under(Some(&second_root.id)).modified_at(moved_category.updated_at).node(vec![child.node(vec![])])]),
-    ]);
+    assert_eq!(
+        moved_tree,
+        [
+            first_root.node(vec![]),
+            second_root.node(vec![
+                category
+                    .under(Some(&second_root.id))
+                    .modified_at(moved_category.updated_at)
+                    .node(vec![child.node(vec![])])
+            ]),
+        ]
+    );
 
-    app.move_tag(&reader, &category.id, None).await.assert_empty(204);
+    app.move_tag(&reader, &category.id, None)
+        .await
+        .assert_empty(204);
     let root_tree = app.tag_tree(&reader).await;
     let moved_to_root = TagDefinitionData::find(&root_tree, &category.id).unwrap();
     assert_eq!(moved_to_root.created_at, category.created_at);
     assert!(moved_to_root.updated_at > moved_category.updated_at);
-    assert_eq!(root_tree, [
-        category.under(None).modified_at(moved_to_root.updated_at).node(vec![child.node(vec![])]),
-        first_root.node(vec![]),
-        second_root.node(vec![]),
-    ]);
-    app.assert_book_tags(&reader, &book.data.id, &[category.binding(Some("FICTION"))]).await;
+    assert_eq!(
+        root_tree,
+        [
+            category
+                .under(None)
+                .modified_at(moved_to_root.updated_at)
+                .node(vec![child.node(vec![])]),
+            first_root.node(vec![]),
+            second_root.node(vec![]),
+        ]
+    );
+    app.assert_book_tags(&reader, &book.data.id, &[category.binding(Some("FICTION"))])
+        .await;
 }
 
 // 验证移动拒绝不存在的目标、自挂载和移入后代，并且失败时不改变标签树。
@@ -168,17 +277,34 @@ async fn moving_a_tag_rejects_missing_targets_and_cyclic_hierarchies() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     let root = app.add_tag(&reader, "Root", None, false, None).await;
-    let branch = app.add_tag(&reader, "Branch", Some(&root.id), false, None).await;
-    let leaf = app.add_tag(&reader, "Leaf", Some(&branch.id), false, None).await;
+    let branch = app
+        .add_tag(&reader, "Branch", Some(&root.id), false, None)
+        .await;
+    let leaf = app
+        .add_tag(&reader, "Leaf", Some(&branch.id), false, None)
+        .await;
 
     for (id, error) in [(INVALID_ID, InvalidId), (UNKNOWN_ID, NotFound)] {
-        app.move_tag(&reader, id, None).await.assert_tag_error(error);
+        app.move_tag(&reader, id, None)
+            .await
+            .assert_tag_error(error);
     }
-    app.move_tag(&reader, &branch.id, Some(INVALID_ID)).await.assert_tag_error(InvalidId);
-    app.move_tag(&reader, &branch.id, Some(UNKNOWN_ID)).await.assert_tag_error(ParentNotFound);
-    app.move_tag(&reader, &branch.id, Some(&branch.id)).await.assert_tag_error(InvalidMove);
-    app.move_tag(&reader, &root.id, Some(&leaf.id)).await.assert_tag_error(InvalidMove);
-    assert_eq!(app.tag_tree(&reader).await, [root.node(vec![branch.node(vec![leaf.node(vec![])])])]);
+    app.move_tag(&reader, &branch.id, Some(INVALID_ID))
+        .await
+        .assert_tag_error(InvalidId);
+    app.move_tag(&reader, &branch.id, Some(UNKNOWN_ID))
+        .await
+        .assert_tag_error(ParentNotFound);
+    app.move_tag(&reader, &branch.id, Some(&branch.id))
+        .await
+        .assert_tag_error(InvalidMove);
+    app.move_tag(&reader, &root.id, Some(&leaf.id))
+        .await
+        .assert_tag_error(InvalidMove);
+    assert_eq!(
+        app.tag_tree(&reader).await,
+        [root.node(vec![branch.node(vec![leaf.node(vec![])])])]
+    );
 }
 
 // 验证有值标签必须绑定完整匹配正则的非空字符串，无值标签拒绝任何值。
@@ -188,23 +314,45 @@ async fn bindings_require_a_nonempty_string_matching_the_entire_regex() {
     let reader = app.session("Reader").await;
     app.upload(&reader, Epub).await;
     let book = app.add_book(&reader, "Book", Epub).await;
-    let tag = app.add_tag(&reader, "Rating", None, true, Some("[0-9]+")).await;
+    let tag = app
+        .add_tag(&reader, "Rating", None, true, Some("[0-9]+"))
+        .await;
     for value in [None, Some("")] {
-        app.bind_tag(&reader, &book.data.id, &tag.id, value).await.assert_tag_error(ValueRequired);
+        app.bind_tag(&reader, &book.data.id, &tag.id, value)
+            .await
+            .assert_tag_error(ValueRequired);
     }
     for value in ["abc", "12x", "x12", "12\n", " 12", " "] {
-        app.bind_tag(&reader, &book.data.id, &tag.id, Some(value)).await.assert_tag_error(RegexMismatch);
+        app.bind_tag(&reader, &book.data.id, &tag.id, Some(value))
+            .await
+            .assert_tag_error(RegexMismatch);
     }
-    app.bind_tag(&reader, &book.data.id, &tag.id, Some("12")).await.assert_empty(204);
+    app.bind_tag(&reader, &book.data.id, &tag.id, Some("12"))
+        .await
+        .assert_empty(204);
     let plain = app.add_tag(&reader, "Favorite", None, false, None).await;
     for value in ["", "anything"] {
-        app.bind_tag(&reader, &book.data.id, &plain.id, Some(value)).await.assert_tag_error(ValueNotAllowed);
+        app.bind_tag(&reader, &book.data.id, &plain.id, Some(value))
+            .await
+            .assert_tag_error(ValueNotAllowed);
     }
-    app.bind_tag(&reader, &book.data.id, &plain.id, None).await.assert_empty(204);
-    app.bind_tag(&reader, &book.data.id, &tag.id, Some("invalid")).await.assert_tag_error(RegexMismatch);
-    app.assert_book_tags(&reader, &book.data.id, &[tag.binding(Some("12")), plain.binding(None)]).await;
-    app.unbind_tag(&reader, &book.data.id, &plain.id).await.assert_empty(204);
-    app.assert_book_tags(&reader, &book.data.id, &[tag.binding(Some("12"))]).await;
+    app.bind_tag(&reader, &book.data.id, &plain.id, None)
+        .await
+        .assert_empty(204);
+    app.bind_tag(&reader, &book.data.id, &tag.id, Some("invalid"))
+        .await
+        .assert_tag_error(RegexMismatch);
+    app.assert_book_tags(
+        &reader,
+        &book.data.id,
+        &[tag.binding(Some("12")), plain.binding(None)],
+    )
+    .await;
+    app.unbind_tag(&reader, &book.data.id, &plain.id)
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(&reader, &book.data.id, &[tag.binding(Some("12"))])
+        .await;
 }
 
 // 验证加载标签定义后，无正则或空正则允许任意非空值，扩展模式和分支正则仍要求完整匹配。
@@ -216,13 +364,23 @@ async fn optional_and_extended_regexes_work_after_loading_the_definition() {
     let book = app.add_book(&reader, "Book", Epub).await;
     for regex in [None, Some("")] {
         let tag = app.add_tag(&reader, "自由值", None, true, regex).await;
-        app.bind_tag(&reader, &book.data.id, &tag.id, Some("任意内容 !\n")).await.assert_empty(204);
-        app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_tag_error(ValueRequired);
+        app.bind_tag(&reader, &book.data.id, &tag.id, Some("任意内容 !\n"))
+            .await
+            .assert_empty(204);
+        app.bind_tag(&reader, &book.data.id, &tag.id, None)
+            .await
+            .assert_tag_error(ValueRequired);
     }
     for regex in ["(?x)[0-9]+ # trailing comment", "1|22"] {
-        let tag = app.add_tag(&reader, "限定值", None, true, Some(regex)).await;
-        app.bind_tag(&reader, &book.data.id, &tag.id, Some("22")).await.assert_empty(204);
-        app.bind_tag(&reader, &book.data.id, &tag.id, Some("22x")).await.assert_tag_error(RegexMismatch);
+        let tag = app
+            .add_tag(&reader, "限定值", None, true, Some(regex))
+            .await;
+        app.bind_tag(&reader, &book.data.id, &tag.id, Some("22"))
+            .await
+            .assert_empty(204);
+        app.bind_tag(&reader, &book.data.id, &tag.id, Some("22x"))
+            .await
+            .assert_tag_error(RegexMismatch);
     }
 }
 
@@ -234,21 +392,39 @@ async fn a_tag_can_be_bound_to_multiple_books_and_unbinding_is_idempotent() {
     app.upload(&reader, Epub).await;
     let first = app.add_book(&reader, "First", Epub).await;
     let second = app.add_book(&reader, "Second", Epub).await;
-    let tag = app.add_tag(&reader, "Rating", None, true, Some("[0-9]+")).await;
+    let tag = app
+        .add_tag(&reader, "Rating", None, true, Some("[0-9]+"))
+        .await;
     app.assert_book_tags(&reader, &first.data.id, &[]).await;
-    app.bind_tag(&reader, &first.data.id, &tag.id, Some("1")).await.assert_empty(204);
-    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("1"))]).await;
-    app.bind_tag(&reader, &first.data.id, &tag.id, Some("2")).await.assert_empty(204);
-    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("2"))]).await;
-    app.bind_tag(&reader, &second.data.id, &tag.id, Some("3")).await.assert_empty(204);
-    app.unbind_tag(&reader, &first.data.id, &tag.id).await.assert_empty(204);
+    app.bind_tag(&reader, &first.data.id, &tag.id, Some("1"))
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("1"))])
+        .await;
+    app.bind_tag(&reader, &first.data.id, &tag.id, Some("2"))
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("2"))])
+        .await;
+    app.bind_tag(&reader, &second.data.id, &tag.id, Some("3"))
+        .await
+        .assert_empty(204);
+    app.unbind_tag(&reader, &first.data.id, &tag.id)
+        .await
+        .assert_empty(204);
     app.assert_book_tags(&reader, &first.data.id, &[]).await;
-    app.unbind_tag(&reader, &first.data.id, &tag.id).await.assert_empty(204);
+    app.unbind_tag(&reader, &first.data.id, &tag.id)
+        .await
+        .assert_empty(204);
     app.assert_book_tags(&reader, &first.data.id, &[]).await;
-    app.bind_tag(&reader, &first.data.id, &tag.id, Some("4")).await.assert_empty(204);
+    app.bind_tag(&reader, &first.data.id, &tag.id, Some("4"))
+        .await
+        .assert_empty(204);
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
-    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("4"))]).await;
-    app.assert_book_tags(&reader, &second.data.id, &[tag.binding(Some("3"))]).await;
+    app.assert_book_tags(&reader, &first.data.id, &[tag.binding(Some("4"))])
+        .await;
+    app.assert_book_tags(&reader, &second.data.id, &[tag.binding(Some("3"))])
+        .await;
 }
 
 // 验证标签及绑定相关操作对非法或不存在的标签、书籍 ID 返回对应错误。
@@ -260,18 +436,35 @@ async fn missing_or_invalid_targets_are_reported_for_all_mutations() {
     let book = app.add_book(&reader, "Book", Epub).await;
     let tag = app.add_tag(&reader, "Tag", None, false, None).await;
     for (id, error) in [(INVALID_ID, InvalidId), (UNKNOWN_ID, NotFound)] {
-        app.rename_tag(&reader, id, "Renamed").await.assert_tag_error(error);
-        app.change_tag_color(&reader, id, "#FFFFFF").await.assert_tag_error(error);
+        app.rename_tag(&reader, id, "Renamed")
+            .await
+            .assert_tag_error(error);
+        app.change_tag_color(&reader, id, "#FFFFFF")
+            .await
+            .assert_tag_error(error);
         for strategy in [Cascade, Promote] {
-            app.delete_tag(&reader, id, strategy).await.assert_tag_error(error);
+            app.delete_tag(&reader, id, strategy)
+                .await
+                .assert_tag_error(error);
         }
-        app.bind_tag(&reader, &book.data.id, id, None).await.assert_tag_error(error);
-        app.unbind_tag(&reader, &book.data.id, id).await.assert_tag_error(error);
+        app.bind_tag(&reader, &book.data.id, id, None)
+            .await
+            .assert_tag_error(error);
+        app.unbind_tag(&reader, &book.data.id, id)
+            .await
+            .assert_tag_error(error);
     }
-    for (id, error) in [(INVALID_ID, HttpError::InvalidBookId), (UNKNOWN_ID, HttpError::BookNotFound)] {
+    for (id, error) in [
+        (INVALID_ID, HttpError::InvalidBookId),
+        (UNKNOWN_ID, HttpError::BookNotFound),
+    ] {
         app.query_book_tags(&reader, id).await.assert_error(error);
-        app.bind_tag(&reader, id, &tag.id, None).await.assert_error(error);
-        app.unbind_tag(&reader, id, &tag.id).await.assert_error(error);
+        app.bind_tag(&reader, id, &tag.id, None)
+            .await
+            .assert_error(error);
+        app.unbind_tag(&reader, id, &tag.id)
+            .await
+            .assert_error(error);
     }
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
@@ -284,20 +477,40 @@ async fn cascade_removes_only_the_selected_subtree_and_all_its_descendants() {
     app.upload(&reader, Epub).await;
     let book = app.add_book(&reader, "Book", Epub).await;
     let root = app.add_tag(&reader, "Root", None, false, None).await;
-    let branch = app.add_tag(&reader, "Branch", Some(&root.id), false, None).await;
-    let child = app.add_tag(&reader, "Child", Some(&branch.id), false, None).await;
-    let leaf = app.add_tag(&reader, "Leaf", Some(&child.id), false, None).await;
-    let sibling = app.add_tag(&reader, "Sibling", Some(&root.id), false, None).await;
+    let branch = app
+        .add_tag(&reader, "Branch", Some(&root.id), false, None)
+        .await;
+    let child = app
+        .add_tag(&reader, "Child", Some(&branch.id), false, None)
+        .await;
+    let leaf = app
+        .add_tag(&reader, "Leaf", Some(&child.id), false, None)
+        .await;
+    let sibling = app
+        .add_tag(&reader, "Sibling", Some(&root.id), false, None)
+        .await;
     for tag in [&branch, &child, &leaf, &sibling] {
-        app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_empty(204);
+        app.bind_tag(&reader, &book.data.id, &tag.id, None)
+            .await
+            .assert_empty(204);
     }
-    app.delete_tag(&reader, &branch.id, Cascade).await.assert_empty(204);
-    app.assert_book_tags(&reader, &book.data.id, &[sibling.binding(None)]).await;
-    assert_eq!(app.tag_tree(&reader).await, [root.node(vec![sibling.node(vec![])])]);
+    app.delete_tag(&reader, &branch.id, Cascade)
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(&reader, &book.data.id, &[sibling.binding(None)])
+        .await;
+    assert_eq!(
+        app.tag_tree(&reader).await,
+        [root.node(vec![sibling.node(vec![])])]
+    );
     for tag in [&branch, &child, &leaf] {
-        app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_tag_error(NotFound);
+        app.bind_tag(&reader, &book.data.id, &tag.id, None)
+            .await
+            .assert_tag_error(NotFound);
     }
-    app.delete_tag(&reader, &root.id, Cascade).await.assert_empty(204);
+    app.delete_tag(&reader, &root.id, Cascade)
+        .await
+        .assert_empty(204);
     assert!(app.tag_tree(&reader).await.is_empty());
     assert_eq!(app.books(&reader).await, [book.data.clone()]);
     app.assert_book_tags(&reader, &book.data.id, &[]).await;
@@ -311,20 +524,44 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
     app.upload(&reader, Epub).await;
     let book = app.add_book(&reader, "Book", Epub).await;
     let root = app.add_tag(&reader, "Root", None, false, None).await;
-    let branch = app.add_tag(&reader, "Branch", Some(&root.id), false, None).await;
-    let first = app.add_tag(&reader, "Achild", Some(&branch.id), true, Some("[0-9]+")).await;
-    let second = app.add_tag(&reader, "Bchild", Some(&branch.id), false, None).await;
-    let leaf = app.add_tag(&reader, "Leaf", Some(&first.id), false, None).await;
-    let sibling = app.add_tag(&reader, "Sibling", Some(&root.id), false, None).await;
+    let branch = app
+        .add_tag(&reader, "Branch", Some(&root.id), false, None)
+        .await;
+    let first = app
+        .add_tag(&reader, "Achild", Some(&branch.id), true, Some("[0-9]+"))
+        .await;
+    let second = app
+        .add_tag(&reader, "Bchild", Some(&branch.id), false, None)
+        .await;
+    let leaf = app
+        .add_tag(&reader, "Leaf", Some(&first.id), false, None)
+        .await;
+    let sibling = app
+        .add_tag(&reader, "Sibling", Some(&root.id), false, None)
+        .await;
     for tag in [&root, &branch, &second, &leaf, &sibling] {
-        app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_empty(204);
+        app.bind_tag(&reader, &book.data.id, &tag.id, None)
+            .await
+            .assert_empty(204);
     }
-    app.bind_tag(&reader, &book.data.id, &first.id, Some("7")).await.assert_empty(204);
-    app.delete_tag(&reader, &branch.id, Promote).await.assert_empty(204);
-    app.assert_book_tags(&reader, &book.data.id, &[
-        root.binding(None), first.binding(Some("7")), second.binding(None),
-        leaf.binding(None), sibling.binding(None),
-    ]).await;
+    app.bind_tag(&reader, &book.data.id, &first.id, Some("7"))
+        .await
+        .assert_empty(204);
+    app.delete_tag(&reader, &branch.id, Promote)
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(
+        &reader,
+        &book.data.id,
+        &[
+            root.binding(None),
+            first.binding(Some("7")),
+            second.binding(None),
+            leaf.binding(None),
+            sibling.binding(None),
+        ],
+    )
+    .await;
     let promoted_tree = app.tag_tree(&reader).await;
     let promoted_first = TagDefinitionData::find(&promoted_tree, &first.id).unwrap();
     let promoted_second = TagDefinitionData::find(&promoted_tree, &second.id).unwrap();
@@ -332,11 +569,23 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
     assert_eq!(promoted_second.created_at, second.created_at);
     assert!(promoted_first.updated_at > first.updated_at);
     assert!(promoted_second.updated_at > second.updated_at);
-    assert_eq!(promoted_tree, [root.node(vec![
-        first.under(Some(&root.id)).modified_at(promoted_first.updated_at).node(vec![leaf.node(vec![])]) ,
-        second.under(Some(&root.id)).modified_at(promoted_second.updated_at).node(vec![]), sibling.node(vec![]),
-    ])]);
-    app.delete_tag(&reader, &root.id, Promote).await.assert_empty(204);
+    assert_eq!(
+        promoted_tree,
+        [root.node(vec![
+            first
+                .under(Some(&root.id))
+                .modified_at(promoted_first.updated_at)
+                .node(vec![leaf.node(vec![])]),
+            second
+                .under(Some(&root.id))
+                .modified_at(promoted_second.updated_at)
+                .node(vec![]),
+            sibling.node(vec![]),
+        ])]
+    );
+    app.delete_tag(&reader, &root.id, Promote)
+        .await
+        .assert_empty(204);
     let rootless_tree = app.tag_tree(&reader).await;
     let rootless_first = TagDefinitionData::find(&rootless_tree, &first.id).unwrap();
     let rootless_second = TagDefinitionData::find(&rootless_tree, &second.id).unwrap();
@@ -344,15 +593,37 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
     assert!(rootless_first.updated_at > promoted_first.updated_at);
     assert!(rootless_second.updated_at > promoted_second.updated_at);
     assert!(rootless_sibling.updated_at > sibling.updated_at);
-    assert_eq!(rootless_tree, [
-        first.under(None).modified_at(rootless_first.updated_at).node(vec![leaf.node(vec![])]),
-        second.under(None).modified_at(rootless_second.updated_at).node(vec![]),
-        sibling.under(None).modified_at(rootless_sibling.updated_at).node(vec![]),
-    ]);
-    app.rename_tag(&reader, &first.id, "Arenamed").await.assert_empty(204);
-    app.assert_book_tags(&reader, &book.data.id, &[
-        first.binding(Some("7")), second.binding(None), leaf.binding(None), sibling.binding(None),
-    ]).await;
+    assert_eq!(
+        rootless_tree,
+        [
+            first
+                .under(None)
+                .modified_at(rootless_first.updated_at)
+                .node(vec![leaf.node(vec![])]),
+            second
+                .under(None)
+                .modified_at(rootless_second.updated_at)
+                .node(vec![]),
+            sibling
+                .under(None)
+                .modified_at(rootless_sibling.updated_at)
+                .node(vec![]),
+        ]
+    );
+    app.rename_tag(&reader, &first.id, "Arenamed")
+        .await
+        .assert_empty(204);
+    app.assert_book_tags(
+        &reader,
+        &book.data.id,
+        &[
+            first.binding(Some("7")),
+            second.binding(None),
+            leaf.binding(None),
+            sibling.binding(None),
+        ],
+    )
+    .await;
 }
 
 // 验证级联和提升两种策略均可删除叶子标签，且重复删除报错。
@@ -362,8 +633,12 @@ async fn both_strategies_can_delete_a_leaf_and_reject_repeated_deletion() {
     let reader = app.session("Reader").await;
     for strategy in [Cascade, Promote] {
         let leaf = app.add_tag(&reader, "Leaf", None, false, None).await;
-        app.delete_tag(&reader, &leaf.id, strategy).await.assert_empty(204);
-        app.delete_tag(&reader, &leaf.id, strategy).await.assert_tag_error(NotFound);
+        app.delete_tag(&reader, &leaf.id, strategy)
+            .await
+            .assert_empty(204);
+        app.delete_tag(&reader, &leaf.id, strategy)
+            .await
+            .assert_tag_error(NotFound);
         assert!(app.tag_tree(&reader).await.is_empty());
     }
 }
@@ -377,15 +652,26 @@ async fn deleting_a_bound_book_preserves_the_tag_definition_and_other_books() {
     let first = app.add_book(&reader, "First", Epub).await;
     let second = app.add_book(&reader, "Second", Epub).await;
     let tag = app.add_tag(&reader, "Tag", None, false, None).await;
-    app.bind_tag(&reader, &first.data.id, &tag.id, None).await.assert_empty(204);
-    app.bind_tag(&reader, &second.data.id, &tag.id, None).await.assert_empty(204);
+    app.bind_tag(&reader, &first.data.id, &tag.id, None)
+        .await
+        .assert_empty(204);
+    app.bind_tag(&reader, &second.data.id, &tag.id, None)
+        .await
+        .assert_empty(204);
     first.delete().await.assert_empty(204);
-    app.query_book_tags(&reader, &first.data.id).await.assert_error(HttpError::BookNotFound);
-    app.assert_book_tags(&reader, &second.data.id, &[tag.binding(None)]).await;
-    app.unbind_tag(&reader, &first.data.id, &tag.id).await.assert_error(HttpError::BookNotFound);
+    app.query_book_tags(&reader, &first.data.id)
+        .await
+        .assert_error(HttpError::BookNotFound);
+    app.assert_book_tags(&reader, &second.data.id, &[tag.binding(None)])
+        .await;
+    app.unbind_tag(&reader, &first.data.id, &tag.id)
+        .await
+        .assert_error(HttpError::BookNotFound);
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
     assert_eq!(app.books(&reader).await, [second.data.clone()]);
-    app.unbind_tag(&reader, &second.data.id, &tag.id).await.assert_empty(204);
+    app.unbind_tag(&reader, &second.data.id, &tag.id)
+        .await
+        .assert_empty(204);
     app.assert_book_tags(&reader, &second.data.id, &[]).await;
 }
 

@@ -1,7 +1,7 @@
 mod support;
-use support::*;
-use support::crypto::{invalid_token, InvalidToken::*};
 use HttpError::*;
+use support::crypto::{InvalidToken::*, invalid_token};
+use support::*;
 
 // 验证用户名登录区分大小写，并支持 Unicode 用户名。
 #[tokio::test]
@@ -14,7 +14,9 @@ async fn username_login_is_exact_and_supports_unicode() {
     assert_eq!(app.login("Reader", PASSWORD).await.user_id, upper.user_id);
     assert_eq!(app.login("reader", PASSWORD).await.user_id, lower.user_id);
     app.access_books(&unicode).await.assert_status(200);
-    app.attempt_login("READER", PASSWORD).await.assert_error(InvalidCredentials);
+    app.attempt_login("READER", PASSWORD)
+        .await
+        .assert_error(InvalidCredentials);
 }
 
 // 验证错误的登录凭据和非法用户名返回对应的错误。
@@ -22,10 +24,18 @@ async fn username_login_is_exact_and_supports_unicode() {
 async fn bad_credentials_and_invalid_names_have_expected_errors() {
     let app = TestApp::new().await;
     app.register("Reader").await.assert_ok();
-    app.attempt_login("Reader", "wrong").await.assert_error(InvalidCredentials);
-    app.attempt_login("Unknown", PASSWORD).await.assert_error(InvalidCredentials);
-    app.attempt_login("Bad Name", PASSWORD).await.assert_error(InvalidUsername);
-    app.attempt_login("", PASSWORD).await.assert_error(MissingUsername);
+    app.attempt_login("Reader", "wrong")
+        .await
+        .assert_error(InvalidCredentials);
+    app.attempt_login("Unknown", PASSWORD)
+        .await
+        .assert_error(InvalidCredentials);
+    app.attempt_login("Bad Name", PASSWORD)
+        .await
+        .assert_error(InvalidUsername);
+    app.attempt_login("", PASSWORD)
+        .await
+        .assert_error(MissingUsername);
 }
 
 // 验证刷新令牌可重复使用，且刷新后保留用户身份和书籍访问权限。
@@ -47,8 +57,12 @@ async fn refresh_preserves_identity_and_book_access_and_can_be_reused() {
 async fn access_and_refresh_cannot_be_interchanged() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    app.refresh_with_access(&reader).await.assert_error(WrongTokenType);
-    app.access_with_refresh(&reader).await.assert_error(WrongTokenType);
+    app.refresh_with_access(&reader)
+        .await
+        .assert_error(WrongTokenType);
+    app.access_with_refresh(&reader)
+        .await
+        .assert_error(WrongTokenType);
 }
 
 // 验证所有书库操作都要求身份认证。
@@ -65,19 +79,42 @@ async fn every_library_operation_requires_authentication() {
 async fn bearer_scheme_is_case_insensitive_but_required() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    for header in [None, Some("Bearer"), Some("Bearer "), Some("Basic abc"), Some("Token abc")] {
-        app.access_with_header(header).await.assert_error(MissingBearer);
+    for header in [
+        None,
+        Some("Bearer"),
+        Some("Bearer "),
+        Some("Basic abc"),
+        Some("Token abc"),
+    ] {
+        app.access_with_header(header)
+            .await
+            .assert_error(MissingBearer);
     }
-    app.access_with_mixed_case_bearer(&reader).await.assert_status(200);
+    app.access_with_mixed_case_bearer(&reader)
+        .await
+        .assert_status(200);
 }
 
 // 验证各类无效令牌统一返回不暴露校验细节的 HTTP 错误。
 #[tokio::test]
 async fn invalid_tokens_have_sanitized_http_errors() {
     let app = TestApp::new().await;
-    for case in [Malformed, Expired, Future, WrongIssuer, WrongAudience, MissingExpiry, WrongSignature, WrongAlgorithm] {
-        app.access_with_token(&invalid_token(case, false)).await.assert_error(HttpError::InvalidToken);
-        app.refresh_token(&invalid_token(case, true)).await.assert_error(HttpError::InvalidToken);
+    for case in [
+        Malformed,
+        Expired,
+        Future,
+        WrongIssuer,
+        WrongAudience,
+        MissingExpiry,
+        WrongSignature,
+        WrongAlgorithm,
+    ] {
+        app.access_with_token(&invalid_token(case, false))
+            .await
+            .assert_error(HttpError::InvalidToken);
+        app.refresh_token(&invalid_token(case, true))
+            .await
+            .assert_error(HttpError::InvalidToken);
     }
 }
 
@@ -101,9 +138,15 @@ async fn logout_revokes_the_whole_session_but_preserves_other_logins() {
 
     app.logout(&reader).await.assert_empty(204);
     app.logout(&reader).await.assert_empty(204);
-    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
-    app.access_books(&refreshed).await.assert_error(HttpError::InvalidToken);
-    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
+    app.access_books(&reader)
+        .await
+        .assert_error(HttpError::InvalidToken);
+    app.access_books(&refreshed)
+        .await
+        .assert_error(HttpError::InvalidToken);
+    app.attempt_refresh(&reader)
+        .await
+        .assert_error(HttpError::InvalidToken);
     app.access_books(&other_device).await.assert_status(200);
     app.attempt_refresh(&other_device).await.assert_status(200);
     app.access_books(&other_user).await.assert_status(200);
@@ -114,9 +157,22 @@ async fn logout_revokes_the_whole_session_but_preserves_other_logins() {
 async fn invalid_logout_credentials_cannot_revoke_a_session() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    app.logout_with_access(&reader).await.assert_error(WrongTokenType);
-    for case in [Malformed, Expired, Future, WrongIssuer, WrongAudience, MissingExpiry, WrongSignature, WrongAlgorithm] {
-        app.logout_token(&invalid_token(case, true)).await.assert_error(HttpError::InvalidToken);
+    app.logout_with_access(&reader)
+        .await
+        .assert_error(WrongTokenType);
+    for case in [
+        Malformed,
+        Expired,
+        Future,
+        WrongIssuer,
+        WrongAudience,
+        MissingExpiry,
+        WrongSignature,
+        WrongAlgorithm,
+    ] {
+        app.logout_token(&invalid_token(case, true))
+            .await
+            .assert_error(HttpError::InvalidToken);
     }
     app.access_books(&reader).await.assert_status(200);
     app.attempt_refresh(&reader).await.assert_status(200);
@@ -125,13 +181,22 @@ async fn invalid_logout_credentials_cannot_revoke_a_session() {
 // 验证签名有效但未登记的令牌无法访问或刷新，登出它也不影响现有会话。
 #[tokio::test]
 async fn signed_but_unregistered_tokens_are_not_accepted() {
-    use support::crypto::{access_token, claims, sign, SECRET};
+    use support::crypto::{SECRET, access_token, claims, sign};
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     let claims = claims(&reader.user_id);
-    app.access_with_token(&access_token(&claims)).await.assert_error(HttpError::InvalidToken);
-    let refresh = sign(&claims, Some("refresh+jwt"), jsonwebtoken::Algorithm::HS256, SECRET);
-    app.refresh_token(&refresh).await.assert_error(HttpError::InvalidToken);
+    app.access_with_token(&access_token(&claims))
+        .await
+        .assert_error(HttpError::InvalidToken);
+    let refresh = sign(
+        &claims,
+        Some("refresh+jwt"),
+        jsonwebtoken::Algorithm::HS256,
+        SECRET,
+    );
+    app.refresh_token(&refresh)
+        .await
+        .assert_error(HttpError::InvalidToken);
     app.logout_token(&refresh).await.assert_empty(204);
     app.access_books(&reader).await.assert_status(200);
 }
@@ -146,7 +211,11 @@ async fn logout_persists_across_application_rebuilds() {
     app.logout(&reader).await.assert_empty(204);
     drop(app);
     let app = TestApp::at(root.path()).await;
-    app.access_books(&reader).await.assert_error(HttpError::InvalidToken);
-    app.attempt_refresh(&reader).await.assert_error(HttpError::InvalidToken);
+    app.access_books(&reader)
+        .await
+        .assert_error(HttpError::InvalidToken);
+    app.attempt_refresh(&reader)
+        .await
+        .assert_error(HttpError::InvalidToken);
     app.access_books(&other).await.assert_status(200);
 }

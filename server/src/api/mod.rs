@@ -4,7 +4,6 @@ use crate::state::AppState;
 pub mod extractors;
 pub mod v1;
 
-
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/healthz", axum::routing::get(healthz))

@@ -40,7 +40,6 @@ impl CryptoService {
             panic!("HS256 keys must contain at least 32 bytes")
         }
 
-
         let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.leeway = jwt_vaildation_leeway;
         validation.validate_exp = true;
@@ -52,8 +51,10 @@ impl CryptoService {
         Self {
             argon2_params: argon2_params,
             jwt_parms: JwtParms {
-                encoding_key: EncodingKey::from_secret(jwt_secret).expect("Invalid jwt secret key format."),
-                decoding_key: DecodingKey::from_secret(jwt_secret).expect("Invalid jwt secret key format."),
+                encoding_key: EncodingKey::from_secret(jwt_secret)
+                    .expect("Invalid jwt secret key format."),
+                decoding_key: DecodingKey::from_secret(jwt_secret)
+                    .expect("Invalid jwt secret key format."),
                 issuer: jwt_issuer,
                 audience: jwt_audience,
                 validation: validation,
@@ -164,13 +165,13 @@ impl CryptoService {
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
     // JWT 标准 Claims
-    iss: String, // Issuer：签发者，通常是认证服务器
-    sub: String, // Subject：主题，通常是用户 ID
+    iss: String,   // Issuer：签发者，通常是认证服务器
+    sub: String,   // Subject：主题，通常是用户 ID
     aud: Audience, // Audience：接收方/受众，比如某个服务或 API
-    exp: u64,    // Expiration Time：过期时间戳，超过后 token 无效
-    nbf: u64,    // Not Before：生效时间戳，在此之前 token 无效
-    iat: u64,    // Issued At：签发时间戳
-    jti: String, // JWT ID：JWT 唯一标识，常用于防重放
+    exp: u64,      // Expiration Time：过期时间戳，超过后 token 无效
+    nbf: u64,      // Not Before：生效时间戳，在此之前 token 无效
+    iat: u64,      // Issued At：签发时间戳
+    jti: String,   // JWT ID：JWT 唯一标识，常用于防重放
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -179,4 +180,3 @@ enum Audience {
     Single(String),
     Multiple(Vec<String>),
 }
-

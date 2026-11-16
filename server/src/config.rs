@@ -44,7 +44,6 @@ pub struct CryptoConfig {
     pub jwt_validation_leeway_secs: u64,
 }
 
-
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
@@ -54,7 +53,11 @@ impl Config {
         let server = ServerConfig {
             host: env_var("HOST", "127.0.0.1"),
             port: env_var("PORT", "80").parse()?,
-            max_upload_size: env_var("MAX_UPLOAD_SIZE", &(256 * 1024 * 1024 /* 256MB */).to_string()).parse::<usize>()?,
+            max_upload_size: env_var(
+                "MAX_UPLOAD_SIZE",
+                &(256 * 1024 * 1024/* 256MB */).to_string(),
+            )
+            .parse::<usize>()?,
         };
 
         let telemetry = TelemetryConfig {
@@ -97,4 +100,3 @@ impl ServerConfig {
 fn env_var(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
-

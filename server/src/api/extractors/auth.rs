@@ -2,10 +2,16 @@ use axum::{extract::FromRequestParts, http::header::AUTHORIZATION};
 
 use crate::{
     application::{
-        identity::{authentication::{
-            commands::VerifyAccessToeknCommand, errors::AuthenticationApplicationError,
-        }, errors::IdentityApplicationError}, library::{book::service::BookService, tag::service::TagService},
-    }, error::AppError, state::AppState,
+        identity::{
+            authentication::{
+                commands::VerifyAccessToeknCommand, errors::AuthenticationApplicationError,
+            },
+            errors::IdentityApplicationError,
+        },
+        library::{book::service::BookService, tag::service::TagService},
+    },
+    error::AppError,
+    state::AppState,
 };
 
 pub struct User {
@@ -47,8 +53,9 @@ impl FromRequestParts<AppState> for RoutedState {
             .await?
             .user_id;
 
-        let db = state.user_database_provider.route(&user_id).map_err(|_| IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken))?;
-
+        let db = state.user_database_provider.route(&user_id).map_err(|_| {
+            IdentityApplicationError::Authentication(AuthenticationApplicationError::InvalidToken)
+        })?;
 
         Ok(RoutedState {
             book_service: BookService::new(db.clone(), state.bookfile_service.clone()),

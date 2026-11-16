@@ -5,7 +5,9 @@ use futures_util::{Stream, StreamExt, stream};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use std::{
-    io::{Cursor, Read, Seek, SeekFrom, Write}, path::PathBuf, sync::{Arc, Mutex},
+    io::{Cursor, Read, Seek, SeekFrom, Write},
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
 use tokio_util::io::ReaderStream;
 
@@ -214,7 +216,10 @@ impl BookFileStorage {
         let _ = temp_file.close(); // 提早清除文件（报错无所谓）
 
         let hash = file_hash.to_hex().to_string();
-        let cover_path = self.dir.join("covers").join(&hash)
+        let cover_path = self
+            .dir
+            .join("covers")
+            .join(&hash)
             .with_extension(cover_format.extensions_str()[0]);
         let mut temp_cover_file = tempfile::NamedTempFile::new_in(&path)?;
         temp_cover_file.write_all(&cover)?;
@@ -240,7 +245,10 @@ impl BookFileStorage {
         if let Some((path, format)) = cover {
             match File::open(path).await {
                 Ok(file) => {
-                    return Ok((ReaderStream::new(file).boxed(), format.to_mime_type().to_owned()));
+                    return Ok((
+                        ReaderStream::new(file).boxed(),
+                        format.to_mime_type().to_owned(),
+                    ));
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => { /*跳入下面*/ }
                 Err(error) => return Err(error),
@@ -260,7 +268,8 @@ impl BookFileStorage {
                     .with_extension(&self.ext),
             )
             .await?;
-            file.seek(std::io::SeekFrom::Start(BOOK_FILE_HEADER_SIZE)).await?;
+            file.seek(std::io::SeekFrom::Start(BOOK_FILE_HEADER_SIZE))
+                .await?;
             Ok(file)
         } else {
             Err(io::Error::from(io::ErrorKind::NotFound))
@@ -274,9 +283,7 @@ fn read_file_hash_from_book_file(file: &mut std::fs::File) -> io::Result<Hash> {
     Ok(Hash::from_bytes(buf))
 }
 
-fn read_file_type_from_book_file(
-    file: &mut std::fs::File,
-) -> io::Result<BookFileType> {
+fn read_file_type_from_book_file(file: &mut std::fs::File) -> io::Result<BookFileType> {
     let mut buf = [0u8; 1];
     file.read_exact(&mut buf)?;
     match buf[0] {
@@ -298,7 +305,7 @@ fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Mutex<Pdfium>) -> anyhow
 
     let bitmap = page.render_with_config(&render_config)?;
     let image = bitmap.as_image()?;
-    
+
     let mut png_bytes = Vec::new();
     image.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)?;
 

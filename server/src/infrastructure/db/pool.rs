@@ -4,8 +4,14 @@ use toasty::{Db, sql};
 use toasty_driver_sqlite::Sqlite;
 
 use crate::domain::{
-    identity::{session::{AuthAccessToken, AuthSession}, user::entity::User},
-    library::{book::entity::Book, tag::entity::{BookTag, TagDefinition}},
+    identity::{
+        session::{AuthAccessToken, AuthSession},
+        user::entity::User,
+    },
+    library::{
+        book::entity::Book,
+        tag::entity::{BookTag, TagDefinition},
+    },
 };
 
 pub async fn connect_identity(path: &Path) -> anyhow::Result<Db> {
@@ -15,10 +21,14 @@ pub async fn connect_identity(path: &Path) -> anyhow::Result<Db> {
         .max_pool_size(1)
         .build(Sqlite::open(path))
         .await?;
-    migrate(&mut db, &[
-        include_str!("../../../migrations/identity/01_create_users.sql"),
-        include_str!("../../../migrations/identity/02_create_auth_sessions.sql"),
-    ]).await?;
+    migrate(
+        &mut db,
+        &[
+            include_str!("../../../migrations/identity/01_create_users.sql"),
+            include_str!("../../../migrations/identity/02_create_auth_sessions.sql"),
+        ],
+    )
+    .await?;
     Ok(db)
 }
 
@@ -29,10 +39,14 @@ pub async fn connect_library(path: &Path) -> anyhow::Result<Db> {
         .max_pool_size(1)
         .build(Sqlite::open(path))
         .await?;
-    migrate(&mut db, &[
-        include_str!("../../../migrations/library/01_create_books.sql"),
-        include_str!("../../../migrations/library/02_create_tags.sql"),
-    ]).await?;
+    migrate(
+        &mut db,
+        &[
+            include_str!("../../../migrations/library/01_create_books.sql"),
+            include_str!("../../../migrations/library/02_create_tags.sql"),
+        ],
+    )
+    .await?;
     Ok(db)
 }
 

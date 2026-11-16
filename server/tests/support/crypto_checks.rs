@@ -1,10 +1,7 @@
 use super::*;
 use jsonwebtoken::{Algorithm, decode_header};
 use serde_json::{Value, json};
-use shiro_reader_server::{
-    application::identity::crypto::errors::CryptoApplicationError,
-
-};
+use shiro_reader_server::application::identity::crypto::errors::CryptoApplicationError;
 use uuid::Uuid;
 
 pub fn password_hashes_use_random_salts_and_verify_real_passwords() {
@@ -29,7 +26,8 @@ pub fn issued_tokens_have_valid_signatures_types_claims_and_distinct_ids() {
     let after = now_sec();
     let mut jtis = std::collections::HashSet::new();
     for (token, typ, ttl) in [
-        (&access, "at+jwt", ACCESS_TTL), (&second, "at+jwt", ACCESS_TTL),
+        (&access, "at+jwt", ACCESS_TTL),
+        (&second, "at+jwt", ACCESS_TTL),
         (&refresh, "refresh+jwt", REFRESH_TTL),
     ] {
         let header = decode_header(token).unwrap();
@@ -56,11 +54,23 @@ pub fn token_types_cannot_be_interchanged_or_omitted() {
     let claims = claims("user");
     for typ in [None, Some("JWT"), Some("refresh+jwt")] {
         let token = sign(&claims, typ, Algorithm::HS256, SECRET);
-        assert!(matches!(crypto.verify_access_token(&token), Err(CryptoApplicationError::InvalidTokenType)), "typ={typ:?}");
+        assert!(
+            matches!(
+                crypto.verify_access_token(&token),
+                Err(CryptoApplicationError::InvalidTokenType)
+            ),
+            "typ={typ:?}"
+        );
     }
     for typ in [None, Some("JWT"), Some("at+jwt")] {
         let token = sign(&claims, typ, Algorithm::HS256, SECRET);
-        assert!(matches!(crypto.verify_refresh_token(&token), Err(CryptoApplicationError::InvalidTokenType)), "typ={typ:?}");
+        assert!(
+            matches!(
+                crypto.verify_refresh_token(&token),
+                Err(CryptoApplicationError::InvalidTokenType)
+            ),
+            "typ={typ:?}"
+        );
     }
 }
 
@@ -84,7 +94,12 @@ pub fn signatures_and_algorithms_are_verified() {
     let crypto = crypto();
     let claims = claims("user");
     for token in [
-        sign(&claims, Some("at+jwt"), Algorithm::HS256, b"another-test-key-at-least-32-bytes"),
+        sign(
+            &claims,
+            Some("at+jwt"),
+            Algorithm::HS256,
+            b"another-test-key-at-least-32-bytes",
+        ),
         sign(&claims, Some("at+jwt"), Algorithm::HS384, SECRET),
         sign(&claims, Some("at+jwt"), Algorithm::HS512, SECRET),
     ] {
@@ -93,8 +108,12 @@ pub fn signatures_and_algorithms_are_verified() {
 }
 
 pub fn incorrect_issuer_and_audience_are_rejected_for_both_token_types() {
-    for (field, value) in [("iss", json!("other")), ("aud", json!("other")),
-        ("aud", json!(["other", "also-other"])), ("aud", json!([]))] {
+    for (field, value) in [
+        ("iss", json!("other")),
+        ("aud", json!("other")),
+        ("aud", json!(["other", "also-other"])),
+        ("aud", json!([])),
+    ] {
         let mut claims = claims("user");
         claims[field] = value;
         assert_rejected_for_both(&claims);
@@ -131,12 +150,18 @@ pub fn expired_and_not_yet_valid_tokens_are_rejected_without_sleep() {
 pub fn configured_clock_leeway_is_applied_to_exp_and_nbf() {
     let crypto = crypto_with(SECRET, 300);
     for (field, time, expected) in [
-        ("exp", now_sec() - 30, true), ("exp", now_sec() - 3600, false),
-        ("nbf", now_sec() + 30, true), ("nbf", now_sec() + 3600, false),
+        ("exp", now_sec() - 30, true),
+        ("exp", now_sec() - 3600, false),
+        ("nbf", now_sec() + 30, true),
+        ("nbf", now_sec() + 3600, false),
     ] {
         let mut claims = claims("user");
         claims[field] = json!(time);
-        assert_eq!(crypto.verify_access_token(&access_token(&claims)).is_ok(), expected, "{field}={time}");
+        assert_eq!(
+            crypto.verify_access_token(&access_token(&claims)).is_ok(),
+            expected,
+            "{field}={time}"
+        );
     }
 }
 
@@ -148,7 +173,12 @@ pub fn jwt_audience_can_be_an_array_containing_the_recipient() {
         claims["aud"] = audience;
         let crypto = crypto();
         let access = access_token(&claims);
-        assert_eq!(crypto.verify_access_token(&access).expect("RFC 7519 audience array must be accepted"), "user");
+        assert_eq!(
+            crypto
+                .verify_access_token(&access)
+                .expect("RFC 7519 audience array must be accepted"),
+            "user"
+        );
         let refresh = sign(&claims, Some("refresh+jwt"), Algorithm::HS256, SECRET);
         assert_eq!(crypto.verify_refresh_token(&refresh).unwrap(), "user");
     }
@@ -166,9 +196,15 @@ pub fn hs256_does_not_issue_tokens_with_keys_shorter_than_256_bits() {
 
 pub fn assert_rejected_for_both(claims: &Value) {
     let crypto = crypto();
-    assert!(crypto.verify_access_token(&access_token(claims)).is_err(), "accepted access claims: {claims}");
+    assert!(
+        crypto.verify_access_token(&access_token(claims)).is_err(),
+        "accepted access claims: {claims}"
+    );
     let refresh = sign(claims, Some("refresh+jwt"), Algorithm::HS256, SECRET);
-    assert!(crypto.verify_refresh_token(&refresh).is_err(), "accepted refresh claims: {claims}");
+    assert!(
+        crypto.verify_refresh_token(&refresh).is_err(),
+        "accepted refresh claims: {claims}"
+    );
 }
 
 pub fn hs256_accepts_a_256_bit_key() {
@@ -190,7 +226,11 @@ pub fn hs256_does_not_verify_tokens_with_keys_shorter_than_256_bits() {
 }
 
 pub fn audience_arrays_require_only_string_members() {
-    for audience in [json!([AUDIENCE, 42]), json!([AUDIENCE, null]), json!([AUDIENCE, {}])] {
+    for audience in [
+        json!([AUDIENCE, 42]),
+        json!([AUDIENCE, null]),
+        json!([AUDIENCE, {}]),
+    ] {
         let mut claims = claims("user");
         claims["aud"] = audience;
         assert_rejected_for_both(&claims);

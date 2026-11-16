@@ -7,10 +7,12 @@ use axum::{
 use axum_extra::extract::Query;
 
 use crate::{
-    api::{extractors::auth::RoutedState, v1::library::book::dto::*}, application::library::book::{
+    api::{extractors::auth::RoutedState, v1::library::book::dto::*},
+    application::library::book::{
         commands::{CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand},
         queries::GetBooksQuery,
-    }, error::AppError,
+    },
+    error::AppError,
 };
 
 pub async fn create_book(
@@ -79,9 +81,7 @@ pub async fn get_books(
 ) -> Result<(StatusCode, Json<Vec<BookResponse>>), AppError> {
     let response_data: Vec<BookResponse> = state
         .book_service
-        .get_books(GetBooksQuery {
-            book_ids: query.id,
-        })
+        .get_books(GetBooksQuery { book_ids: query.id })
         .await?
         .into_iter()
         .map(Into::into)

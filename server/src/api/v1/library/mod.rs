@@ -27,7 +27,9 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/bookshelf/books/{book_id}/tags",
-            get(tag::handlers::get_book_tags).post(tag::handlers::bind_tag).delete(tag::handlers::unbind_tag),
+            get(tag::handlers::get_book_tags)
+                .post(tag::handlers::bind_tag)
+                .delete(tag::handlers::unbind_tag),
         )
         .route(
             "/bookshelf/books",
@@ -37,11 +39,11 @@ pub fn router() -> Router<AppState> {
             "/tags",
             get(tag::handlers::get_tree).post(tag::handlers::create_tag),
         )
-        .route(
-            "/tags/{tag_id}",
-            delete(tag::handlers::delete_tag),
-        )
+        .route("/tags/{tag_id}", delete(tag::handlers::delete_tag))
         .route("/tags/{tag_id}/name", patch(tag::handlers::rename_tag))
-        .route("/tags/{tag_id}/color", patch(tag::handlers::change_tag_color))
+        .route(
+            "/tags/{tag_id}/color",
+            patch(tag::handlers::change_tag_color),
+        )
         .route("/tags/{tag_id}/parent", patch(tag::handlers::move_tag))
 }

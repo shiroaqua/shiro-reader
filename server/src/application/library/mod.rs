@@ -10,7 +10,6 @@ pub mod book;
 pub mod errors;
 pub mod tag;
 
-
 impl<T> MapDbResult<T, LibraryApplicationError> for Result<T, toasty::Error>
 where
     T: RequiresVerificationEntity<BookDomainError> + MapToastyError<LibraryApplicationError>,

@@ -1,4 +1,4 @@
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::{LogFormat, TelemetryConfig};
 
@@ -16,7 +16,12 @@ pub fn init(config: &TelemetryConfig) -> anyhow::Result<()> {
         LogFormat::Pretty => {
             tracing_subscriber::registry()
                 .with(env_filter)
-                .with(tracing_subscriber::fmt::layer().pretty().with_file(false).with_line_number(false)) 
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .pretty()
+                        .with_file(false)
+                        .with_line_number(false),
+                )
                 .init();
         }
     }
