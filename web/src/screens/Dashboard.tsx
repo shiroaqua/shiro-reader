@@ -31,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { BookshelfBooks } from "@/components/bookshelf-books"
+import { BookshelfBooks } from "@/features/books/bookshelf-books"
 import { useTranslation } from "@/lib/i18n"
 import { useAuth } from "@/context/auth-context"
 import { notifyError } from "@/lib/error-notifications"

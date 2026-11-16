@@ -8,8 +8,6 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --import ./tests/register.mjs --test tests/*.test.mjs",
-    "test:all": "bash scripts/test-all.sh",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"

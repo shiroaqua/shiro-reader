@@ -1,0 +1,376 @@
+import {
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react"
+import { Pencil, Plus, Trash2, Undo2 } from "lucide-react"
+import { TagColorName } from "@/features/tags/tag-color-picker"
+import { TagTreeItem } from "@/features/tags/tag-dialog-parts"
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { useTranslation } from "@/lib/i18n"
+import type { TagTreeNode, UndefineTagStrategy } from "@/lib/types"
+
+export function ManageTreeRow({
+  node,
+  depth,
+  expanded,
+  selected,
+  pendingRename,
+  pendingRecolor,
+  pendingMove,
+  pendingDelete,
+  pendingCreate,
+  coveredByCascade,
+  disabled,
+  dragging,
+  onToggleExpand,
+  onToggleSelect,
+  onStageRename,
+  onStageRecolor,
+  onPointerDown,
+  onRestoreDelete,
+  onAddChild,
+  onDelete,
+  renderChild,
+}: {
+  node: TagTreeNode
+  depth: number
+  expanded: ReadonlySet<string>
+  selected: ReadonlySet<string>
+  pendingRename: string | undefined
+  pendingRecolor: string | undefined
+  pendingMove: boolean
+  pendingDelete: boolean
+  pendingCreate: boolean
+  coveredByCascade: boolean
+  disabled: boolean
+  dragging: boolean
+  onToggleExpand: (id: string) => void
+  onToggleSelect: (node: TagTreeNode, checked: boolean) => void
+  onStageRename: (id: string, name: string) => void
+  onStageRecolor: (id: string, color: string) => void
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onRestoreDelete: (id: string) => void
+  onAddChild: (node: TagTreeNode) => void
+  onDelete: (node: TagTreeNode) => void
+  renderChild: (child: TagTreeNode) => ReactNode
+}) {
+  const { t } = useTranslation()
+  const [renaming, setRenaming] = useState(false)
+  const checked = selected.has(node.id)
+  const isPendingDeletion = pendingDelete || coveredByCascade
+
+  return (
+    <TagTreeItem
+      node={node}
+      depth={depth}
+      expanded={expanded}
+      disabled={disabled || coveredByCascade}
+      selected={checked}
+      onToggleExpand={onToggleExpand}
+      onPointerDown={onPointerDown}
+      renderChild={renderChild}
+    >
+      {renaming ? (
+        <RenameTagInput
+          initialName={pendingRename ?? node.name}
+          disabled={disabled}
+          onStage={(name) => onStageRename(node.id, name)}
+          onDone={() => setRenaming(false)}
+        />
+      ) : (
+        <>
+          <div className="flex min-w-0 flex-1 cursor-grab items-center gap-2 py-1.5 text-sm">
+            <Checkbox
+              className="relative before:absolute before:-inset-1 before:content-['']"
+              checked={checked}
+              disabled={disabled || coveredByCascade}
+              aria-label={t("tag.select").replace("{name}", node.name)}
+              onCheckedChange={(next) => onToggleSelect(node, next === true)}
+            />
+            <TagColorName
+              name={pendingRename ?? node.name}
+              color={pendingRecolor ?? node.color}
+              disabled={disabled || isPendingDeletion}
+              label={t("tag.color.change").replace(
+                "{name}",
+                pendingRename ?? node.name
+              )}
+              className={isPendingDeletion ? "line-through opacity-60" : ""}
+              onSelect={(color) => onStageRecolor(node.id, color)}
+            />
+            {pendingCreate && !isPendingDeletion && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("tag.pending_create")}
+              </span>
+            )}
+            {pendingRename !== undefined &&
+              !isPendingDeletion &&
+              !pendingCreate && (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {t("tag.pending")}
+                </span>
+              )}
+            {pendingRecolor !== undefined &&
+              !isPendingDeletion &&
+              !pendingCreate &&
+              pendingRename === undefined && (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {t("tag.pending")}
+                </span>
+              )}
+            {pendingMove && !isPendingDeletion && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("tag.pending_move")}
+              </span>
+            )}
+            {isPendingDeletion && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {t("tag.pending_delete")}
+              </span>
+            )}
+          </div>
+          <div
+            className={`flex shrink-0 items-center gap-0.5 ${dragging ? "invisible" : ""}`}
+          >
+            {pendingDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("tag.undo_pending_delete")}
+                title={t("tag.undo_pending_delete")}
+                disabled={disabled}
+                onClick={() => onRestoreDelete(node.id)}
+              >
+                <Undo2 aria-hidden="true" />
+              </Button>
+            ) : coveredByCascade ? null : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t("tag.new_child")}
+                  title={t("tag.new_child")}
+                  disabled={disabled}
+                  onClick={() => onAddChild(node)}
+                >
+                  <Plus aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t("tag.rename")}
+                  title={t("tag.rename")}
+                  disabled={disabled}
+                  onClick={() => setRenaming(true)}
+                >
+                  <Pencil aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t("tag.delete")}
+                  title={t("tag.delete")}
+                  className="text-destructive hover:text-destructive"
+                  disabled={disabled}
+                  onClick={() => onDelete(node)}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </TagTreeItem>
+  )
+}
+
+function RenameTagInput({
+  initialName,
+  disabled,
+  onStage,
+  onDone,
+}: {
+  initialName: string
+  disabled: boolean
+  onStage: (name: string) => void
+  onDone: () => void
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState(initialName)
+  const finished = useRef(false)
+
+  // Enter or leaving the field stages the name; Done sends it to the server.
+  const finish = (shouldStage: boolean) => {
+    if (finished.current || disabled) return
+    finished.current = true
+    const name = draft.trim()
+    if (shouldStage && name !== "" && name !== initialName) onStage(name)
+    onDone()
+  }
+
+  return (
+    <Input
+      autoFocus
+      value={draft}
+      aria-label={t("tag.rename")}
+      aria-busy={disabled}
+      disabled={disabled}
+      className="h-7 min-w-0 flex-1 text-sm"
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => setDraft(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === "Enter") {
+          event.preventDefault()
+          finish(true)
+        } else if (event.key === "Escape") {
+          // Only leave edit mode; the dialog itself stays open.
+          event.preventDefault()
+          event.stopPropagation()
+          finish(false)
+        }
+      }}
+      onBlur={() => finish(true)}
+    />
+  )
+}
+
+export function DeleteTagDialog({
+  tag,
+  onConfirm,
+  onClose,
+}: {
+  tag: TagTreeNode
+  onConfirm: (strategy: UndefineTagStrategy) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const hasChildren = tag.children.length > 0
+  // Promoting children is the non-destructive default.
+  const [strategy, setStrategy] = useState<UndefineTagStrategy>("PROMOTE")
+  const options: { value: UndefineTagStrategy; label: string; hint: string }[] =
+    [
+      {
+        value: "PROMOTE",
+        label: t("tag.delete_strategy.promote"),
+        hint: t("tag.delete_strategy.promote_hint"),
+      },
+      {
+        value: "CASCADE",
+        label: t("tag.delete_strategy.cascade"),
+        hint: t("tag.delete_strategy.cascade_hint"),
+      },
+    ]
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("tag.delete_confirm_title")}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("tag.delete_confirm_description").replace("{name}", tag.name)}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {hasChildren && (
+          <div role="radiogroup" className="grid gap-2">
+            {options.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors has-checked:border-primary has-checked:bg-primary/5"
+              >
+                <input
+                  type="radio"
+                  name="delete-strategy"
+                  value={option.value}
+                  checked={strategy === option.value}
+                  onChange={() => setStrategy(option.value)}
+                  className="mt-0.5 accent-primary"
+                />
+                <span className="grid gap-0.5">
+                  <span className="text-sm font-medium">{option.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {option.hint}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            {t("common.cancel")}
+          </AlertDialogClose>
+          <Button variant="destructive" onClick={() => onConfirm(strategy)}>
+            {t("tag.delete")}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+export function BatchDeleteTagDialog({
+  count,
+  onConfirm,
+  onClose,
+}: {
+  count: number
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("tag.batch_delete_confirm_title")}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("tag.batch_delete_confirm_description").replace(
+              "{count}",
+              String(count)
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button variant="outline" />}>
+            {t("common.cancel")}
+          </AlertDialogClose>
+          <Button variant="destructive" onClick={onConfirm}>
+            {t("tag.delete")}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}

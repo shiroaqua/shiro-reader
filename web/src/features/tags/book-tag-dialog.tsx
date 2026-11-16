@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Settings2 } from "lucide-react"
-import { TagColorName } from "@/components/tag-color-picker"
+import { TagColorName } from "@/features/tags/tag-color-picker"
 import { library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -14,9 +14,9 @@ import {
   TagTreeBox,
   TagTreeItem,
   useTagTreeView,
-} from "@/components/tag-dialog-parts"
-import { TagManageDialog } from "@/components/tag-manage-dialog"
-import { TagValueInput } from "@/components/tag-value-input"
+} from "@/features/tags/tag-dialog-parts"
+import { TagManageDialog } from "@/features/tags/tag-manage-dialog"
+import { TagValueInput } from "@/features/tags/tag-value-input"
 import { useTranslation } from "@/lib/i18n"
 import { bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
@@ -178,8 +178,9 @@ function BookTagForm({
     onMutate: async ({ id, color }) => {
       await queryClient.cancelQueries({ queryKey: tagsQueryKey })
       const previous = queryClient.getQueryData<TagTreeNode[]>(tagsQueryKey)
-      queryClient.setQueryData<TagTreeNode[]>(tagsQueryKey, (current) =>
-        current && recolorNode(current, id, color)
+      queryClient.setQueryData<TagTreeNode[]>(
+        tagsQueryKey,
+        (current) => current && recolorNode(current, id, color)
       )
       return { previous }
     },
@@ -276,10 +277,7 @@ function BookTagForm({
       </div>
 
       {creating && (
-        <CreateTagDialog
-          parentId={null}
-          onClose={() => setCreating(false)}
-        />
+        <CreateTagDialog parentId={null} onClose={() => setCreating(false)} />
       )}
       <TagManageDialog open={managing} onOpenChange={setManaging} />
     </>

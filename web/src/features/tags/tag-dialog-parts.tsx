@@ -1,6 +1,18 @@
-import { useMemo, useState, type PointerEventHandler, type ReactNode } from "react"
+import {
+  useMemo,
+  useState,
+  type PointerEventHandler,
+  type ReactNode,
+} from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRight, Hash, LoaderCircle, Plus, Search, Tags } from "lucide-react"
+import {
+  ChevronRight,
+  Hash,
+  LoaderCircle,
+  Plus,
+  Search,
+  Tags,
+} from "lucide-react"
 import { library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,7 +39,7 @@ import { cn } from "cn"
 import {
   DEFAULT_TAG_COLOR,
   TagColorPopover,
-} from "@/components/tag-color-picker"
+} from "@/features/tags/tag-color-picker"
 
 /** The dialog grows with the tag list up to a cap; past that the list, not the dialog, scrolls. */
 export const TAG_DIALOG_CONTENT_CLASS_NAME =
@@ -391,9 +403,13 @@ export function CreateTagDialog({
                   type="button"
                   aria-label={t("tag.color.choose")}
                   disabled={createMutation.isPending}
-                  className="flex h-9 items-center gap-2 rounded-lg border border-input px-2 text-sm font-normal outline-none transition-colors hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                  className="flex h-9 items-center gap-2 rounded-lg border border-input px-2 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                 >
-                  <Hash aria-hidden="true" className="size-4" style={{ color }} />
+                  <Hash
+                    aria-hidden="true"
+                    className="size-4"
+                    style={{ color }}
+                  />
                   <span className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
                     {color}
                   </span>

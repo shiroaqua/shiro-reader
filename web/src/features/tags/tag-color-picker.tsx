@@ -42,7 +42,9 @@ export function readableTextColor(color: string): "#000000" | "#ffffff" {
   const green = Number.parseInt(color.slice(3, 5), 16)
   const blue = Number.parseInt(color.slice(5, 7), 16)
   // Perceived brightness; the threshold keeps mid-tones on the lighter side.
-  return red * 0.299 + green * 0.587 + blue * 0.114 > 150 ? "#000000" : "#ffffff"
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 150
+    ? "#000000"
+    : "#ffffff"
 }
 
 /** A round swatch filled with the color, ringed when it is the current choice. */
@@ -69,7 +71,7 @@ export function TagColorSwatch({
       onClick={() => onSelect(color)}
       style={{ backgroundColor: color }}
       className={cn(
-        "flex size-7 items-center justify-center rounded-full ring-1 ring-foreground/15 ring-inset transition-transform outline-none hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+        "flex size-7 items-center justify-center rounded-full ring-1 ring-foreground/15 transition-transform outline-none ring-inset hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
         selected && "ring-2 ring-ring ring-offset-2 ring-offset-popover"
       )}
     >
@@ -229,7 +231,11 @@ export function TagColorPopover({
             <p className="mb-2 text-xs font-medium text-muted-foreground">
               {t("tag.color")}
             </p>
-            <TagColorPalette color={color} disabled={disabled} onSelect={onSelect} />
+            <TagColorPalette
+              color={color}
+              disabled={disabled}
+              onSelect={onSelect}
+            />
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>
