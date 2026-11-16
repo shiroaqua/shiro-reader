@@ -128,7 +128,7 @@ export function BookCard({ book }: { book: Book }) {
           <Input
             autoFocus
             defaultValue={book.title}
-            aria-label={t("book.title")}
+            aria-label={t("local.book.title")}
             disabled={renameMutation.isPending}
             className="mt-1 h-7 text-center"
             onFocus={(event) => event.currentTarget.select()}
@@ -164,18 +164,18 @@ export function BookCard({ book }: { book: Book }) {
       <ContextMenuContent finalFocus={false}>
         <ContextMenuItem onClick={() => setRenaming(true)}>
           <Pencil aria-hidden="true" />
-          {t("book.rename")}
+          {t("local.book.rename")}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => setTagsOpen(true)}>
           <Tag aria-hidden="true" />
-          {t("book.tags")}
+          {t("local.book.tags")}
         </ContextMenuItem>
         <ContextMenuItem
           variant="destructive"
           onClick={() => setDeleteOpen(true)}
         >
           <Trash2 aria-hidden="true" />
-          {t("book.delete")}
+          {t("local.book.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
       <AlertDialog
@@ -187,10 +187,10 @@ export function BookCard({ book }: { book: Book }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("book.delete_confirm_title")}
+              {t("local.book.delete_confirm_title")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("book.delete_confirm_description").replace(
+              {t("local.book.delete_confirm_description").replace(
                 "{title}",
                 book.title
               )}
@@ -201,7 +201,7 @@ export function BookCard({ book }: { book: Book }) {
               disabled={deleteMutation.isPending}
               render={<Button variant="outline" />}
             >
-              {t("common.cancel")}
+              {t("local.common.cancel")}
             </AlertDialogClose>
             <Button
               variant="destructive"
@@ -212,7 +212,7 @@ export function BookCard({ book }: { book: Book }) {
               {deleteMutation.isPending && (
                 <LoaderCircle aria-hidden="true" className="animate-spin" />
               )}
-              {t("book.delete")}
+              {t("local.book.delete")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,10 @@
-export type ErrorNotification = { id: number; message: string; createdAt: number }
+import type { TranslationMessage } from "@/lib/i18n"
+
+export type ErrorNotification = {
+  id: number
+  translation: TranslationMessage
+  createdAt: number
+}
 
 let notifications: ErrorNotification[] = []
 let nextId = 0
@@ -18,9 +24,9 @@ function scheduleOldestError() {
   }
 }
 
-export function notifyError(message: string) {
+export function notifyError(translation: TranslationMessage) {
   const id = ++nextId
-  notifications = [...notifications, { id, message, createdAt: Date.now() }]
+  notifications = [...notifications, { id, translation, createdAt: Date.now() }]
     .sort((a, b) => a.createdAt - b.createdAt || a.id - b.id)
   scheduleOldestError()
   listeners.forEach((listener) => listener())

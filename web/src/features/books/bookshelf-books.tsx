@@ -65,7 +65,7 @@ export function BookshelfBooks() {
       {isPending ? (
         <div
           aria-busy="true"
-          aria-label={t("book.loading")}
+          aria-label={t("local.book.loading")}
           className={GRID_CLASS_NAME}
         >
           {Array.from({ length: 8 }, (_, index) => (
@@ -78,7 +78,7 @@ export function BookshelfBooks() {
         </div>
       ) : isError ? (
         <p role="status" className="text-sm text-muted-foreground">
-          {t("book.load_failed")}
+          {t("local.book.load_failed")}
         </p>
       ) : books.length === 0 ? (
         <div
@@ -89,11 +89,11 @@ export function BookshelfBooks() {
             <LibraryBig aria-hidden="true" className="size-10" />
           </div>
           <p className="text-sm font-medium text-foreground">
-            {t("book.empty")}
+            {t("local.book.empty")}
           </p>
         </div>
       ) : (
-        <ul aria-label={t("book.list")} className={GRID_CLASS_NAME}>
+        <ul aria-label={t("local.book.list")} className={GRID_CLASS_NAME}>
           {sortedBooks.map((book) => (
             <BookCard key={book.id} book={book} />
           ))}
@@ -119,11 +119,15 @@ function SortBooksMenu({
         render={<Button type="button" variant="outline" size="sm" />}
       >
         <Icon aria-hidden="true" />
-        {t(sort.field === "title" ? "book.sort.title" : "book.sort.date")}
+        {t(
+          sort.field === "title"
+            ? "local.book.sort.title"
+            : "local.book.sort.date"
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent aria-label={t("book.sort")}>
+      <DropdownMenuContent aria-label={t("local.book.sort")}>
         <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("book.sort.by")}</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("local.book.sort.by")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={sort.field}
             onValueChange={(field: BookSortField) =>
@@ -131,16 +135,16 @@ function SortBooksMenu({
             }
           >
             <DropdownMenuRadioItem value="title">
-              {t("book.sort.title")}
+              {t("local.book.sort.title")}
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="date">
-              {t("book.sort.date")}
+              {t("local.book.sort.date")}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("book.sort.order")}</DropdownMenuLabel>
+          <DropdownMenuLabel>{t("local.book.sort.order")}</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={sort.order}
             onValueChange={(order: BookSortOrder) =>
@@ -148,10 +152,10 @@ function SortBooksMenu({
             }
           >
             <DropdownMenuRadioItem value="asc">
-              {t("book.sort.asc")}
+              {t("local.book.sort.asc")}
             </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="desc">
-              {t("book.sort.desc")}
+              {t("local.book.sort.desc")}
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>

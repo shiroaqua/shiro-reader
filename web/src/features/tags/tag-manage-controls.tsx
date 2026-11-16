@@ -97,14 +97,14 @@ export function ManageTreeRow({
               className="relative before:absolute before:-inset-1 before:content-['']"
               checked={checked}
               disabled={disabled || coveredByCascade}
-              aria-label={t("tag.select").replace("{name}", node.name)}
+              aria-label={t("local.tag.select").replace("{name}", node.name)}
               onCheckedChange={(next) => onToggleSelect(node, next === true)}
             />
             <TagColorName
               name={pendingRename ?? node.name}
               color={pendingRecolor ?? node.color}
               disabled={disabled || isPendingDeletion}
-              label={t("tag.color.change").replace(
+              label={t("local.tag.color.change").replace(
                 "{name}",
                 pendingRename ?? node.name
               )}
@@ -113,14 +113,14 @@ export function ManageTreeRow({
             />
             {pendingCreate && !isPendingDeletion && (
               <span className="shrink-0 text-xs text-muted-foreground">
-                {t("tag.pending_create")}
+                {t("local.tag.pending_create")}
               </span>
             )}
             {pendingRename !== undefined &&
               !isPendingDeletion &&
               !pendingCreate && (
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {t("tag.pending")}
+                  {t("local.tag.pending")}
                 </span>
               )}
             {pendingRecolor !== undefined &&
@@ -128,17 +128,17 @@ export function ManageTreeRow({
               !pendingCreate &&
               pendingRename === undefined && (
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {t("tag.pending")}
+                  {t("local.tag.pending")}
                 </span>
               )}
             {pendingMove && !isPendingDeletion && (
               <span className="shrink-0 text-xs text-muted-foreground">
-                {t("tag.pending_move")}
+                {t("local.tag.pending_move")}
               </span>
             )}
             {isPendingDeletion && (
               <span className="shrink-0 text-xs text-muted-foreground">
-                {t("tag.pending_delete")}
+                {t("local.tag.pending_delete")}
               </span>
             )}
           </div>
@@ -150,8 +150,8 @@ export function ManageTreeRow({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                aria-label={t("tag.undo_pending_delete")}
-                title={t("tag.undo_pending_delete")}
+                aria-label={t("local.tag.undo_pending_delete")}
+                title={t("local.tag.undo_pending_delete")}
                 disabled={disabled}
                 onClick={() => onRestoreDelete(node.id)}
               >
@@ -163,8 +163,8 @@ export function ManageTreeRow({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label={t("tag.new_child")}
-                  title={t("tag.new_child")}
+                  aria-label={t("local.tag.new_child")}
+                  title={t("local.tag.new_child")}
                   disabled={disabled}
                   onClick={() => onAddChild(node)}
                 >
@@ -174,8 +174,8 @@ export function ManageTreeRow({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label={t("tag.rename")}
-                  title={t("tag.rename")}
+                  aria-label={t("local.tag.rename")}
+                  title={t("local.tag.rename")}
                   disabled={disabled}
                   onClick={() => setRenaming(true)}
                 >
@@ -185,8 +185,8 @@ export function ManageTreeRow({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label={t("tag.delete")}
-                  title={t("tag.delete")}
+                  aria-label={t("local.tag.delete")}
+                  title={t("local.tag.delete")}
                   className="text-destructive hover:text-destructive"
                   disabled={disabled}
                   onClick={() => onDelete(node)}
@@ -230,7 +230,7 @@ function RenameTagInput({
     <Input
       autoFocus
       value={draft}
-      aria-label={t("tag.rename")}
+      aria-label={t("local.tag.rename")}
       aria-busy={disabled}
       disabled={disabled}
       className="h-7 min-w-0 flex-1 text-sm"
@@ -270,13 +270,13 @@ export function DeleteTagDialog({
     [
       {
         value: "PROMOTE",
-        label: t("tag.delete_strategy.promote"),
-        hint: t("tag.delete_strategy.promote_hint"),
+        label: t("local.tag.delete_strategy.promote"),
+        hint: t("local.tag.delete_strategy.promote_hint"),
       },
       {
         value: "CASCADE",
-        label: t("tag.delete_strategy.cascade"),
-        hint: t("tag.delete_strategy.cascade_hint"),
+        label: t("local.tag.delete_strategy.cascade"),
+        hint: t("local.tag.delete_strategy.cascade_hint"),
       },
     ]
 
@@ -289,9 +289,14 @@ export function DeleteTagDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t("tag.delete_confirm_title")}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("local.tag.delete_confirm_title")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {t("tag.delete_confirm_description").replace("{name}", tag.name)}
+            {t("local.tag.delete_confirm_description").replace(
+              "{name}",
+              tag.name
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {hasChildren && (
@@ -321,10 +326,10 @@ export function DeleteTagDialog({
         )}
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" />}>
-            {t("common.cancel")}
+            {t("local.common.cancel")}
           </AlertDialogClose>
           <Button variant="destructive" onClick={() => onConfirm(strategy)}>
-            {t("tag.delete")}
+            {t("local.tag.delete")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -353,10 +358,10 @@ export function BatchDeleteTagDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {t("tag.batch_delete_confirm_title")}
+            {t("local.tag.batch_delete_confirm_title")}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {t("tag.batch_delete_confirm_description").replace(
+            {t("local.tag.batch_delete_confirm_description").replace(
               "{count}",
               String(count)
             )}
@@ -364,10 +369,10 @@ export function BatchDeleteTagDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" />}>
-            {t("common.cancel")}
+            {t("local.common.cancel")}
           </AlertDialogClose>
           <Button variant="destructive" onClick={onConfirm}>
-            {t("tag.delete")}
+            {t("local.tag.delete")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

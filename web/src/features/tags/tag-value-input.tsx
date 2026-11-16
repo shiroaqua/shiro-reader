@@ -28,9 +28,9 @@ export function TagValueInput({
       value={value}
       disabled={disabled}
       required
-      aria-label={t("tag.value")}
+      aria-label={t("local.tag.value")}
       aria-invalid={!isValueValid(tag, value)}
-      placeholder={isDate ? undefined : t("tag.value_placeholder")}
+      placeholder={isDate ? undefined : t("local.tag.value_placeholder")}
       className={cn("h-7 shrink-0", isDate ? "w-40" : "w-32")}
       onChange={(event) => onChange(event.target.value)}
     />

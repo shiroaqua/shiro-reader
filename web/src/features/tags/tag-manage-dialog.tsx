@@ -391,13 +391,13 @@ function TagManageForm({
   return (
     <>
       <TagDialogHeader
-        title={t("tag.manage")}
+        title={t("local.tag.manage")}
         start={
           <DialogClose
             disabled={saveMutation.isPending}
             render={<Button variant="ghost" size="sm" />}
           >
-            {t("common.cancel")}
+            {t("local.common.cancel")}
           </DialogClose>
         }
         end={
@@ -410,7 +410,7 @@ function TagManageForm({
             {saveMutation.isPending && (
               <LoaderCircle aria-hidden="true" className="animate-spin" />
             )}
-            {t("common.done")}
+            {t("local.common.done")}
           </Button>
         }
       />
@@ -427,7 +427,7 @@ function TagManageForm({
         visibleTree={visibleTree}
         isLoading={tagsQuery.isPending}
         isError={tagsQuery.isError}
-        errorMessage={t("tag.load_failed")}
+        errorMessage={t("local.tag.load_failed")}
         isRetrying={tagsQuery.isFetching}
         onRetry={() => void tagsQuery.refetch()}
         multiselectable
@@ -436,10 +436,13 @@ function TagManageForm({
 
       <div className="flex items-center gap-2">
         <span className="mr-auto text-xs text-muted-foreground">
-          {t("tag.selected_count").replace("{count}", String(selected.size))}
+          {t("local.tag.selected_count").replace(
+            "{count}",
+            String(selected.size)
+          )}
           {pendingCount > 0 && (
             <span className="ml-2">
-              {t("tag.pending_changes").replace(
+              {t("local.tag.pending_changes").replace(
                 "{count}",
                 String(pendingCount)
               )}
@@ -460,7 +463,7 @@ function TagManageForm({
           }
         >
           <Trash2 aria-hidden="true" />
-          {t("tag.batch_delete")}
+          {t("local.tag.batch_delete")}
         </Button>
       </div>
 

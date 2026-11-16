@@ -45,12 +45,12 @@ export function DashboardScreen() {
     {
       id: "search",
       icon: <Search />,
-      name: t("dashboard.search"),
+      name: t("local.dashboard.search"),
     },
     {
       id: "bookshelf",
       icon: <LibraryBig />,
-      name: t("dashboard.bookshelf"),
+      name: t("local.dashboard.bookshelf"),
       isActive: isRootBookshelfSelected,
       onSelect: () => {
         setIsRootBookshelfSelected(true)
@@ -59,22 +59,22 @@ export function DashboardScreen() {
     {
       id: "recent",
       icon: <Clock />,
-      name: t("dashboard.recent"),
+      name: t("local.dashboard.recent"),
     },
     {
       id: "notes",
       icon: <NotebookPen />,
-      name: t("dashboard.notes"),
+      name: t("local.dashboard.notes"),
     },
     {
       id: "statistics",
       icon: <ChartNoAxesCombined />,
-      name: t("dashboard.statistics"),
+      name: t("local.dashboard.statistics"),
     },
     {
       id: "trash",
       icon: <Trash />,
-      name: t("dashboard.trash"),
+      name: t("local.dashboard.trash"),
     },
   ]
 
@@ -103,7 +103,7 @@ export function DashboardScreen() {
         <header className="flex h-12 items-center gap-2 border-b border-border/50 px-4">
           <SidebarTrigger />
           <div className="h-4 w-px bg-border/60" />
-          <h1 className="text-sm font-medium text-foreground">{t("dashboard.bookshelf")}</h1>
+          <h1 className="text-sm font-medium text-foreground">{t("local.dashboard.bookshelf")}</h1>
         </header>
         <div className="flex-1 overflow-y-auto">
           {isRootBookshelfSelected && <BookshelfBooks />}
@@ -164,7 +164,7 @@ function UserProfileMenu({
     try {
       await onLogout()
     } catch {
-      notifyError("auth.logout_failed")
+      notifyError({ source: "local", key: "local.auth.logout_failed" })
     } finally {
       submitting.current = false
       setIsLoggingOut(false)
@@ -191,7 +191,7 @@ function UserProfileMenu({
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">
-                {username || t("common.user")}
+                {username || t("local.common.user")}
               </span>
             </div>
             <ChevronsUpDown className="ml-auto size-4" />
@@ -209,7 +209,7 @@ function UserProfileMenu({
                 className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
               >
                 <LogOut />
-                <span>{t("dashboard.profile.logout")}</span>
+                <span>{t("local.dashboard.profile.logout")}</span>
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>

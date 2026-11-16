@@ -51,7 +51,10 @@ function expired(token: string): boolean {
 }
 
 function authError() {
-  return new ApiError(401, "identity.authentication.invalid_token")
+  return new ApiError(401, {
+    source: "local",
+    key: "local.auth.session_expired",
+  })
 }
 
 export function clearSession() {
@@ -76,7 +79,12 @@ export async function logout(): Promise<void> {
       body: { token: session.refresh_token },
     })
     if (generation !== attempt) throw authError()
-    if (response.status !== 204) throw new ApiError(response.status, "auth.logout_failed")
+    if (response.status !== 204) {
+      throw new ApiError(response.status, {
+        source: "local",
+        key: "local.auth.logout_failed",
+      })
+    }
 
     // Bypass automatic refresh and invalidation: failed verification must keep the UI open.
     const [refreshResponse, accessResponse] = await Promise.all([
@@ -88,7 +96,10 @@ export async function logout(): Promise<void> {
     ])
     if (generation !== attempt) throw authError()
     if (refreshResponse.status !== 401 || accessResponse.status !== 401) {
-      throw new ApiError(0, "auth.logout_failed")
+      throw new ApiError(0, {
+        source: "local",
+        key: "local.auth.logout_failed",
+      })
     }
     clearSession()
   })()

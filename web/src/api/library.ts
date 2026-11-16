@@ -65,7 +65,7 @@ export const files = {
         return true
       } catch (error) {
         if (error instanceof ApiError && error.httpStatus === 404) return false
-        if (error instanceof ApiError) notifyError(error.message)
+        if (error instanceof ApiError) notifyError(error.translation)
         throw error
       }
     },
@@ -86,7 +86,7 @@ export const files = {
           error.message === "library.book.file.already_exists"
         )
           return
-        if (error instanceof ApiError) notifyError(error.message)
+        if (error instanceof ApiError) notifyError(error.translation)
         throw error
       }
     },
@@ -140,7 +140,7 @@ async function request<T>(
   try {
     return await performRequest<T>(path, options)
   } catch (error) {
-    if (error instanceof ApiError) notifyError(error.message)
+    if (error instanceof ApiError) notifyError(error.translation)
     throw error
   }
 }

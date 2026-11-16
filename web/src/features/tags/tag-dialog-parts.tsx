@@ -135,8 +135,8 @@ export function TagSearchBar({
           type="search"
           value={query}
           disabled={disabled}
-          aria-label={t("tag.filter")}
-          placeholder={t("tag.filter")}
+          aria-label={t("local.tag.filter")}
+          placeholder={t("local.tag.filter")}
           className="pl-8"
           onChange={(event) => onQueryChange(event.target.value)}
         />
@@ -149,7 +149,7 @@ export function TagSearchBar({
         onClick={onDefine}
       >
         <Plus aria-hidden="true" />
-        {t("tag.new")}
+        {t("local.tag.new")}
       </Button>
     </div>
   )
@@ -195,7 +195,7 @@ export function TagTreeBox({
         )}
       >
         <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-        {t("tag.loading")}
+        {t("local.tag.loading")}
       </div>
     )
 
@@ -215,7 +215,7 @@ export function TagTreeBox({
           disabled={isRetrying}
           onClick={onRetry}
         >
-          {t("common.retry")}
+          {t("local.common.retry")}
         </Button>
       </div>
     )
@@ -230,8 +230,10 @@ export function TagTreeBox({
         )}
       >
         <Tags aria-hidden="true" className="size-10" />
-        <p className="text-sm font-medium text-foreground">{t("tag.empty")}</p>
-        <p className="text-sm">{t("tag.empty_hint")}</p>
+        <p className="text-sm font-medium text-foreground">
+          {t("local.tag.empty")}
+        </p>
+        <p className="text-sm">{t("local.tag.empty_hint")}</p>
       </div>
     )
 
@@ -242,13 +244,13 @@ export function TagTreeBox({
           role="status"
           className="py-6 text-center text-sm text-muted-foreground"
         >
-          {t("tag.no_match")}
+          {t("local.tag.no_match")}
         </p>
       )}
       <ul
         role="tree"
         aria-multiselectable={multiselectable || undefined}
-        aria-label={t("tag.list")}
+        aria-label={t("local.tag.list")}
       >
         {visibleTree.map(renderRow)}
       </ul>
@@ -299,7 +301,7 @@ export function TagTreeItem({
             type="button"
             variant="ghost"
             size="icon-xs"
-            aria-label={t(isOpen ? "tag.collapse" : "tag.expand")}
+            aria-label={t(isOpen ? "local.tag.collapse" : "local.tag.expand")}
             disabled={disabled}
             onClick={() => onToggleExpand(node.id)}
           >
@@ -372,16 +374,18 @@ export function CreateTagDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t(parentId ? "tag.new_child" : "tag.new")}</DialogTitle>
+          <DialogTitle>
+            {t(parentId ? "local.tag.new_child" : "local.tag.new")}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-4">
           <label className="grid gap-1.5 text-sm font-medium">
-            {t("tag.name")}
+            {t("local.tag.name")}
             <Input
               autoFocus
               value={name}
               disabled={createMutation.isPending}
-              placeholder={t("tag.name_placeholder")}
+              placeholder={t("local.tag.name_placeholder")}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return
@@ -393,7 +397,7 @@ export function CreateTagDialog({
             />
           </label>
           <div className="grid gap-1.5 text-sm font-medium">
-            <span>{t("tag.color")}</span>
+            <span>{t("local.tag.color")}</span>
             <TagColorPopover
               color={color}
               disabled={createMutation.isPending}
@@ -401,7 +405,7 @@ export function CreateTagDialog({
               trigger={
                 <button
                   type="button"
-                  aria-label={t("tag.color.choose")}
+                  aria-label={t("local.tag.color.choose")}
                   disabled={createMutation.isPending}
                   className="flex h-9 items-center gap-2 rounded-lg border border-input px-2 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                 >
@@ -418,11 +422,11 @@ export function CreateTagDialog({
             />
           </div>
           <div className="grid gap-1.5 text-sm font-medium">
-            <span>{t("tag.value_type")}</span>
+            <span>{t("local.tag.value_type")}</span>
             <select
               className={SELECT_CLASS_NAME}
               value={valueType}
-              aria-label={t("tag.value_type")}
+              aria-label={t("local.tag.value_type")}
               disabled={createMutation.isPending}
               onChange={(event) =>
                 setValueType(event.target.value as ValueType)
@@ -435,7 +439,7 @@ export function CreateTagDialog({
               ))}
             </select>
             <span className="text-xs font-normal text-muted-foreground">
-              {t("tag.allows_value_hint")}
+              {t("local.tag.allows_value_hint")}
             </span>
           </div>
         </div>
@@ -444,7 +448,7 @@ export function CreateTagDialog({
             disabled={createMutation.isPending}
             render={<Button variant="outline" />}
           >
-            {t("common.cancel")}
+            {t("local.common.cancel")}
           </DialogClose>
           <Button
             disabled={!canSubmit}
@@ -454,7 +458,7 @@ export function CreateTagDialog({
             {createMutation.isPending && (
               <LoaderCircle aria-hidden="true" className="animate-spin" />
             )}
-            {t("tag.create")}
+            {t("local.tag.create")}
           </Button>
         </DialogFooter>
       </DialogContent>

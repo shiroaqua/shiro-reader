@@ -3,7 +3,7 @@ import { AlertCircle, X } from "lucide-react"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { dismissError, getErrorNotifications, subscribeToErrors } from "@/lib/error-notifications"
-import { useTranslation } from "@/lib/i18n"
+import { translateMessage, useTranslation } from "@/lib/i18n"
 
 export function ApiErrorAlerts() {
   const notifications = useSyncExternalStore(subscribeToErrors, getErrorNotifications)
@@ -45,19 +45,19 @@ export function ApiErrorAlerts() {
       {notifications.toReversed().map((notification) => (
         <Alert key={notification.id} variant="destructive" className="shrink-0 pb-7 shadow-lg" style={{ paddingRight: "0.625rem" }}>
           <AlertCircle />
-          <AlertTitle className="pr-8">{t("common.error")}</AlertTitle>
+          <AlertTitle className="pr-8">{t("local.common.error")}</AlertTitle>
           <AlertDescription
             className="min-w-0"
             style={{ textWrap: "wrap", overflowWrap: "anywhere" }}
           >
-            {t(notification.message)}
+            {translateMessage(notification.translation, locale)}
           </AlertDescription>
           <AlertAction>
             <Button
               type="button"
               variant="ghost"
               size="icon-xs"
-              aria-label={t("common.close")}
+              aria-label={t("local.common.close")}
               onClick={() => dismissError(notification.id)}
             >
               <X />

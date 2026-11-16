@@ -1,4 +1,4 @@
-import type { TranslationKey } from "@/lib/i18n"
+import type { LocalTranslationKey } from "@/lib/i18n"
 import type { Tag } from "@/lib/types"
 
 /**
@@ -21,24 +21,24 @@ export const VALUE_TYPES: readonly ValueType[] = [
 const VALUE_TYPE_SPECS: Record<
   ValueType,
   {
-    labelKey: TranslationKey
+    labelKey: LocalTranslationKey
     /** `null` accepts any value. */
     regex: string | null
   }
 > = {
-  none: { labelKey: "tag.value_type.none", regex: null },
+  none: { labelKey: "local.tag.value_type.none", regex: null },
   number: {
-    labelKey: "tag.value_type.number",
+    labelKey: "local.tag.value_type.number",
     regex: "^-?[0-9]+([.][0-9]+)?$",
   },
-  text: { labelKey: "tag.value_type.text", regex: null },
+  text: { labelKey: "local.tag.value_type.text", regex: null },
   date: {
-    labelKey: "tag.value_type.date",
+    labelKey: "local.tag.value_type.date",
     regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
   },
 }
 
-export function valueTypeLabelKey(type: ValueType): TranslationKey {
+export function valueTypeLabelKey(type: ValueType): LocalTranslationKey {
   return VALUE_TYPE_SPECS[type].labelKey
 }
 

@@ -30,7 +30,9 @@ export function UploadBookButton() {
             hash
           )
         } catch (error) {
-          if (!(error instanceof ApiError)) notifyError("common.error.unknown")
+          if (!(error instanceof ApiError)) {
+            notifyError({ source: "local", key: "local.common.error.unknown" })
+          }
         }
       }
     },
@@ -43,7 +45,10 @@ export function UploadBookButton() {
     event.target.value = ""
     const bookFiles = files.filter((file) => BOOK_FILE_PATTERN.test(file.name))
     if (bookFiles.length < files.length)
-      notifyError("library.book.file.unsupported")
+      notifyError({
+        source: "local",
+        key: "local.library.book.file.unsupported",
+      })
     if (bookFiles.length > 0) uploadMutation.mutate(bookFiles)
   }
 
@@ -69,7 +74,9 @@ export function UploadBookButton() {
         ) : (
           <Upload aria-hidden="true" />
         )}
-        {uploadMutation.isPending ? t("book.uploading") : t("book.upload")}
+        {uploadMutation.isPending
+          ? t("local.book.uploading")
+          : t("local.book.upload")}
       </Button>
     </>
   )

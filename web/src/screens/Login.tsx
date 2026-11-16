@@ -22,7 +22,11 @@ export function LoginScreen() {
     try {
       await login(username, password)
     } catch (error) {
-      notifyError(error instanceof ApiError ? error.message : "common.error.unknown")
+      notifyError(
+        error instanceof ApiError
+          ? error.translation
+          : { source: "local", key: "local.common.error.unknown" }
+      )
     } finally {
       submitting.current = false
       setIsLoading(false)
@@ -46,7 +50,9 @@ export function LoginScreen() {
             </svg>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">ShiroReader</h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">{t("login.subtitle")}</p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {t("local.login.subtitle")}
+          </p>
         </div>
 
         {/* Card */}
@@ -54,11 +60,11 @@ export function LoginScreen() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-foreground">
-                {t("login.username")}
+                {t("local.login.username")}
               </label>
               <Input
                 type="text"
-                placeholder={t("login.username_placeholder")}
+                placeholder={t("local.login.username_placeholder")}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={isLoading}
@@ -68,11 +74,11 @@ export function LoginScreen() {
 
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-foreground">
-                {t("login.password")}
+                {t("local.login.password")}
               </label>
               <Input
                 type="password"
-                placeholder={t("login.password_placeholder")}
+                placeholder={t("local.login.password_placeholder")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
@@ -85,15 +91,15 @@ export function LoginScreen() {
               disabled={isLoading || !username || !password}
               className="h-10 w-full text-sm font-semibold"
             >
-              {isLoading ? t("login.loading") : t("login.submit")}
+              {isLoading ? t("local.login.loading") : t("local.login.submit")}
             </Button>
           </form>
 
           <div className="mt-6 border-t border-border/60 pt-5">
             <p className="text-center text-sm text-muted-foreground">
-              {t("login.no_account")}
+              {t("local.login.no_account")}
               <button className="ml-1 font-medium text-primary hover:underline">
-                {t("login.register")}
+                {t("local.login.register")}
               </button>
             </p>
           </div>

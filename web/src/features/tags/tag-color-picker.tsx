@@ -111,7 +111,7 @@ export function TagColorPalette({
             key={preset}
             color={preset}
             selected={preset.toLowerCase() === color.toLowerCase()}
-            label={t("tag.color.option").replace("{color}", preset)}
+            label={t("local.tag.color.option").replace("{color}", preset)}
             disabled={disabled}
             onSelect={onSelect}
           />
@@ -134,7 +134,7 @@ export function TagColorPalette({
           disabled={disabled}
           spellCheck={false}
           maxLength={7}
-          aria-label={t("tag.color.custom")}
+          aria-label={t("local.tag.color.custom")}
           placeholder={matchesPreset ? color : color.toUpperCase()}
           onChange={(event) => setDraft(event.target.value.trim())}
           className="h-7 w-24 rounded-md border border-input bg-transparent px-2 font-mono text-xs uppercase outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -146,7 +146,7 @@ export function TagColorPalette({
           disabled={disabled || custom === null}
           className="h-7 px-2"
         >
-          {t("tag.color.apply")}
+          {t("local.tag.color.apply")}
         </Button>
       </form>
     </div>
@@ -229,7 +229,7 @@ export function TagColorPopover({
         >
           <PopoverPrimitive.Popup className="origin-(--transform-origin) rounded-xl bg-popover p-3 text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none data-ending-style:opacity-0 data-starting-style:opacity-0">
             <p className="mb-2 text-xs font-medium text-muted-foreground">
-              {t("tag.color")}
+              {t("local.tag.color")}
             </p>
             <TagColorPalette
               color={color}

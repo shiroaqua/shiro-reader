@@ -215,13 +215,13 @@ function BookTagForm({
   return (
     <>
       <TagDialogHeader
-        title={t("book.tags")}
+        title={t("local.book.tags")}
         start={
           <DialogClose
             disabled={isSaving}
             render={<Button variant="ghost" size="sm" />}
           >
-            {t("common.cancel")}
+            {t("local.common.cancel")}
           </DialogClose>
         }
         end={
@@ -234,7 +234,7 @@ function BookTagForm({
             {isSaving && (
               <LoaderCircle aria-hidden="true" className="animate-spin" />
             )}
-            {t("common.done")}
+            {t("local.common.done")}
           </Button>
         }
       />
@@ -251,7 +251,7 @@ function BookTagForm({
         visibleTree={view.visibleTree}
         isLoading={isLoading}
         isError={isError}
-        errorMessage={t("tag.bind_load_failed")}
+        errorMessage={t("local.tag.bind_load_failed")}
         isRetrying={tagsQuery.isFetching || bindingsQuery.isFetching}
         onRetry={() => {
           void tagsQuery.refetch()
@@ -263,7 +263,10 @@ function BookTagForm({
 
       <div className="flex items-center gap-2">
         <span className="mr-auto text-xs text-muted-foreground">
-          {t("tag.selected_count").replace("{count}", String(selected.size))}
+          {t("local.tag.selected_count").replace(
+            "{count}",
+            String(selected.size)
+          )}
         </span>
         <Button
           type="button"
@@ -272,7 +275,7 @@ function BookTagForm({
           onClick={() => setManaging(true)}
         >
           <Settings2 aria-hidden="true" />
-          {t("tag.manage")}
+          {t("local.tag.manage")}
         </Button>
       </div>
 
@@ -326,14 +329,14 @@ function BindTreeRow({
           className="relative shrink-0 before:absolute before:-inset-1 before:content-['']"
           checked={checked}
           disabled={disabled}
-          aria-label={t("tag.select").replace("{name}", node.name)}
+          aria-label={t("local.tag.select").replace("{name}", node.name)}
           onCheckedChange={(next) => onToggleSelect(node, next === true)}
         />
         <TagColorName
           name={node.name}
           color={node.color}
           disabled={disabled}
-          label={t("tag.color.change").replace("{name}", node.name)}
+          label={t("local.tag.color.change").replace("{name}", node.name)}
           onSelect={(color) => onRecolor(node, color)}
         />
       </div>

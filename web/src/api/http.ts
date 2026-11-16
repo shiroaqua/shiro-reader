@@ -1,12 +1,16 @@
+import type { TranslationMessage } from "@/lib/i18n"
+
 export const API_BASE_URL = "http://localhost/api/v1"
 
 export class ApiError extends Error {
   httpStatus: number
+  translation: TranslationMessage
 
-  constructor(status: number, code: string) {
-    super(code)
+  constructor(status: number, translation: TranslationMessage) {
+    super(translation.key)
     this.name = "ApiError"
     this.httpStatus = status
+    this.translation = translation
   }
 }
 
@@ -38,7 +42,7 @@ export async function sendRequest(
   try {
     return await fetch(`${API_BASE_URL}/${path}`, init)
   } catch {
-    throw new ApiError(0, "network.error")
+    throw new ApiError(0, { source: "local", key: "local.network.error" })
   } finally {
     clearTimeout(timeout)
   }
@@ -46,10 +50,19 @@ export async function sendRequest(
 
 export async function parseError(response: Response): Promise<ApiError> {
   try {
-    const payload = await response.json() as { error?: { message?: string } }
-    return new ApiError(response.status, typeof payload?.error?.message === "string"
-      ? payload.error.message : "common.error.unknown")
+    const payload = (await response.json()) as { error?: { message?: string } }
+    const code = payload?.error?.message
+    if (typeof code === "string") {
+      return new ApiError(response.status, { source: "server", key: code })
+    }
+    return new ApiError(response.status, {
+      source: "local",
+      key: "local.common.error.unknown",
+    })
   } catch {
-    return new ApiError(response.status, "common.error.unknown")
+    return new ApiError(response.status, {
+      source: "local",
+      key: "local.common.error.unknown",
+    })
   }
 }
