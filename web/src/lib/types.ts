@@ -14,6 +14,7 @@ export interface Tag {
   id: UUID;
   name: string;
   parent_id: UUID | null;
+  color: string;
   allows_value: boolean;
   value_regex: string | null;
 }

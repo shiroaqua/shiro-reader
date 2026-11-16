@@ -1,13 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { LoaderCircle, Plus, Settings2 } from "lucide-react"
+import { LoaderCircle, Settings2 } from "lucide-react"
+import { TagColorName } from "@/components/tag-color-picker"
 import { library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
 import {
   CreateTagDialog,
-  ROW_ACTIONS_CLASS_NAME,
   TAG_DIALOG_CONTENT_CLASS_NAME,
   TagDialogHeader,
   TagSearchBar,
@@ -18,7 +18,7 @@ import {
 import { TagManageDialog } from "@/components/tag-manage-dialog"
 import { TagValueInput } from "@/components/tag-value-input"
 import { useTranslation } from "@/lib/i18n"
-import { bookTagsQueryKey } from "@/lib/query-keys"
+import { bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { isValueValid } from "@/lib/tag-value-patterns"
 import type { Book, BookTag, TagTreeNode } from "@/lib/types"
@@ -98,10 +98,7 @@ function BookTagForm({
     () => new Set(tree.flatMap(collectSubtreeIds)),
     [tree]
   )
-  // Parent of the tag being defined; null parentId defines a top-level tag.
-  const [creating, setCreating] = useState<{ parentId: string | null } | null>(
-    null
-  )
+  const [creating, setCreating] = useState(false)
   const [managing, setManaging] = useState(false)
   // tag id -> value (an empty string means the tag is bound without a value)
   const initialSelection = useMemo(
@@ -152,13 +149,12 @@ function BookTagForm({
     !bindingsQuery.isFetching &&
     !hasInvalidValue
 
+  // Each tag is bound on its own; checking a parent leaves its children alone.
   const toggleSelect = (node: TagTreeNode, checked: boolean) =>
     setSelected((current) => {
       const next = new Map(current ?? initialSelection)
-      for (const id of collectSubtreeIds(node)) {
-        if (checked) next.set(id, next.get(id) ?? "")
-        else next.delete(id)
-      }
+      if (checked) next.set(node.id, next.get(node.id) ?? "")
+      else next.delete(node.id)
       return next
     })
 
@@ -174,6 +170,31 @@ function BookTagForm({
     else onClose()
   }
 
+  // Unlike bindings, a color change is saved right away rather than on "Done".
+  const queryClient = useQueryClient()
+  const recolorMutation = useMutation({
+    mutationFn: ({ id, color }: { id: string; color: string }) =>
+      library.tag.recolor(id, color),
+    onMutate: async ({ id, color }) => {
+      await queryClient.cancelQueries({ queryKey: tagsQueryKey })
+      const previous = queryClient.getQueryData<TagTreeNode[]>(tagsQueryKey)
+      queryClient.setQueryData<TagTreeNode[]>(tagsQueryKey, (current) =>
+        current && recolorNode(current, id, color)
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous)
+        queryClient.setQueryData(tagsQueryKey, context.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: tagsQueryKey }),
+  })
+
+  const recolor = (node: TagTreeNode, color: string) => {
+    if (color.toLowerCase() === node.color.toLowerCase()) return
+    recolorMutation.mutate({ id: node.id, color })
+  }
+
   const renderRow = (node: TagTreeNode, depth: number): ReactNode => (
     <BindTreeRow
       key={node.id}
@@ -185,7 +206,7 @@ function BookTagForm({
       onToggleExpand={toggleExpand}
       onToggleSelect={toggleSelect}
       onChangeValue={changeValue}
-      onAddChild={(parent) => setCreating({ parentId: parent.id })}
+      onRecolor={recolor}
       renderChild={(child) => renderRow(child, depth + 1)}
     />
   )
@@ -221,7 +242,7 @@ function BookTagForm({
         query={view.query}
         disabled={isSaving}
         onQueryChange={view.setQuery}
-        onDefine={() => setCreating({ parentId: null })}
+        onDefine={() => setCreating(true)}
       />
 
       <TagTreeBox
@@ -256,8 +277,8 @@ function BookTagForm({
 
       {creating && (
         <CreateTagDialog
-          parentId={creating.parentId}
-          onClose={() => setCreating(null)}
+          parentId={null}
+          onClose={() => setCreating(false)}
         />
       )}
       <TagManageDialog open={managing} onOpenChange={setManaging} />
@@ -274,7 +295,7 @@ function BindTreeRow({
   onToggleExpand,
   onToggleSelect,
   onChangeValue,
-  onAddChild,
+  onRecolor,
   renderChild,
 }: {
   node: TagTreeNode
@@ -285,7 +306,7 @@ function BindTreeRow({
   onToggleExpand: (id: string) => void
   onToggleSelect: (node: TagTreeNode, checked: boolean) => void
   onChangeValue: (id: string, value: string) => void
-  onAddChild: (node: TagTreeNode) => void
+  onRecolor: (node: TagTreeNode, color: string) => void
   renderChild: (child: TagTreeNode) => ReactNode
 }) {
   const { t } = useTranslation()
@@ -302,16 +323,22 @@ function BindTreeRow({
       onToggleExpand={onToggleExpand}
       renderChild={renderChild}
     >
-      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 text-sm">
+      <div className="flex min-w-0 flex-1 items-center gap-2 py-1.5 text-sm">
         <Checkbox
+          className="relative shrink-0 before:absolute before:-inset-1 before:content-['']"
           checked={checked}
           disabled={disabled}
+          aria-label={t("tag.select").replace("{name}", node.name)}
           onCheckedChange={(next) => onToggleSelect(node, next === true)}
         />
-        <span title={node.name} className="min-w-0 truncate">
-          {node.name}
-        </span>
-      </label>
+        <TagColorName
+          name={node.name}
+          color={node.color}
+          disabled={disabled}
+          label={t("tag.color.change").replace("{name}", node.name)}
+          onSelect={(color) => onRecolor(node, color)}
+        />
+      </div>
       {checked && node.allows_value && (
         <TagValueInput
           tag={node}
@@ -320,19 +347,6 @@ function BindTreeRow({
           onChange={(next) => onChangeValue(node.id, next)}
         />
       )}
-      <div className={ROW_ACTIONS_CLASS_NAME}>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          disabled={disabled}
-          aria-label={t("tag.new_child")}
-          title={t("tag.new_child")}
-          onClick={() => onAddChild(node)}
-        >
-          <Plus aria-hidden="true" />
-        </Button>
-      </div>
     </TagTreeItem>
   )
 }
@@ -356,4 +370,17 @@ function diffBindings(
   }
   const unbind = [...before.keys()].filter((tagId) => !selected.has(tagId))
   return { bind, unbind }
+}
+
+/** A copy of the tree with one tag's color replaced. */
+function recolorNode(
+  nodes: TagTreeNode[],
+  id: string,
+  color: string
+): TagTreeNode[] {
+  return nodes.map((node) =>
+    node.id === id
+      ? { ...node, color }
+      : { ...node, children: recolorNode(node.children, id, color) }
+  )
 }

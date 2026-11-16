@@ -8,6 +8,7 @@ import {
 } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Pencil, Plus, Trash2, Undo2 } from "lucide-react"
+import { TagColorName, tagNameColor } from "@/components/tag-color-picker"
 import { library } from "@/api/library"
 import {
   AlertDialog,
@@ -24,7 +25,6 @@ import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   CreateTagDialog,
-  ROW_ACTIONS_CLASS_NAME,
   TAG_DIALOG_CONTENT_CLASS_NAME,
   TagDialogHeader,
   TagSearchBar,
@@ -51,6 +51,7 @@ type TagChanges = {
   creates: PendingCreate[]
   moves: [string, string | null][]
   renames: [string, string][]
+  recolors: [string, string][]
   deletes: [string, UndefineTagStrategy][]
 }
 
@@ -58,6 +59,7 @@ type CommitProgress = {
   createdIds: Map<string, string>
   movedIds: string[]
   renamedIds: string[]
+  recoloredIds: string[]
   deletedIds: string[]
 }
 
@@ -114,6 +116,9 @@ function TagManageForm({
   const [pendingRenames, setPendingRenames] = useState<
     ReadonlyMap<string, string>
   >(() => new Map())
+  const [pendingRecolors, setPendingRecolors] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map())
   const [pendingMoves, setPendingMoves] = useState<
     ReadonlyMap<string, string | null>
   >(() => new Map())
@@ -160,6 +165,7 @@ function TagManageForm({
     pendingCreates.length +
     pendingMoves.size +
     pendingRenames.size +
+    pendingRecolors.size +
     pendingDeletes.size
   const queryClient = useQueryClient()
   const saveMutation = useMutation({
@@ -168,6 +174,7 @@ function TagManageForm({
         createdIds: new Map(),
         movedIds: [],
         renamedIds: [],
+        recoloredIds: [],
         deletedIds: [],
       }
       try {
@@ -198,6 +205,10 @@ function TagManageForm({
           await library.tag.rename(id, name)
           progress.renamedIds.push(id)
         }
+        for (const [id, color] of changes.recolors) {
+          await library.tag.recolor(id, color)
+          progress.recoloredIds.push(id)
+        }
       } catch (error) {
         throw new TagManageCommitError(error, progress)
       }
@@ -208,6 +219,7 @@ function TagManageForm({
       const createdDraftIds = new Set(error.progress.createdIds.keys())
       const movedIds = new Set(error.progress.movedIds)
       const renamedIds = new Set(error.progress.renamedIds)
+      const recoloredIds = new Set(error.progress.recoloredIds)
       const deletedIds = new Set(error.progress.deletedIds)
       const removedIds = new Set<string>()
       for (const [id, strategy] of changes.deletes) {
@@ -226,6 +238,14 @@ function TagManageForm({
           new Map(
             [...current].filter(
               ([id]) => !renamedIds.has(id) && !removedIds.has(id)
+            )
+          )
+      )
+      setPendingRecolors(
+        (current) =>
+          new Map(
+            [...current].filter(
+              ([id]) => !recoloredIds.has(id) && !removedIds.has(id)
             )
           )
       )
@@ -305,6 +325,24 @@ function TagManageForm({
     })
   }
 
+  const stageRecolor = (id: string, color: string) => {
+    if (pendingCreates.some((create) => create.draftId === id)) {
+      setPendingCreates((current) =>
+        current.map((create) =>
+          create.draftId === id ? { ...create, color } : create
+        )
+      )
+      return
+    }
+    setPendingRecolors((current) => {
+      const next = new Map(current)
+      const originalColor = findTag(tree, id)?.color
+      if (color.toLowerCase() === originalColor?.toLowerCase()) next.delete(id)
+      else next.set(id, color)
+      return next
+    })
+  }
+
   const stageDelete = (id: string, strategy: UndefineTagStrategy) =>
     setPendingDeletes((current) => new Map(current).set(id, { strategy }))
 
@@ -345,6 +383,7 @@ function TagManageForm({
     }
   }
 
+  const [isDragging, setIsDragging] = useState(false)
   const dragCleanup = useRef<(() => void) | null>(null)
   useEffect(() => () => dragCleanup.current?.(), [])
 
@@ -371,6 +410,9 @@ function TagManageForm({
     const name = document.createElement("span")
     name.textContent = pendingRenames.get(node.id) ?? node.name
     name.className = "min-w-0 truncate text-sm"
+    const nameColor = tagNameColor(pendingRecolors.get(node.id) ?? node.color)
+    if (nameColor) name.style.color = nameColor
+    name.style.fontWeight = "500"
     if (checkbox) preview.append(checkbox)
     preview.append(name)
     const originalOpacity = source.style.opacity
@@ -400,6 +442,7 @@ function TagManageForm({
     preview.inert = true
     document.body.append(preview)
     source.style.opacity = "0.25"
+    setIsDragging(true)
 
     const descendants = new Set(collectSubtreeIds(node))
     const dropTargetAt = (x: number, y: number) => {
@@ -435,6 +478,7 @@ function TagManageForm({
       window.removeEventListener("blur", cancel)
       window.removeEventListener("keydown", onKeyDown)
       dragCleanup.current = null
+      setIsDragging(false)
     }
     const move = (pointer: PointerEvent) => {
       if (pointer.pointerId !== event.pointerId) return
@@ -469,12 +513,14 @@ function TagManageForm({
       pendingCreates,
       pendingMoves,
       pendingRenames,
+      pendingRecolors,
       pendingDeletes
     )
     if (
       changes.creates.length === 0 &&
       changes.moves.length === 0 &&
       changes.renames.length === 0 &&
+      changes.recolors.length === 0 &&
       changes.deletes.length === 0
     ) {
       onClose()
@@ -505,6 +551,7 @@ function TagManageForm({
       onToggleExpand={toggleExpand}
       onToggleSelect={toggleSelect}
       pendingRename={pendingRenames.get(node.id)}
+      pendingRecolor={pendingRecolors.get(node.id)}
       pendingMove={pendingMoves.has(node.id)}
       pendingDelete={pendingDeletes.has(node.id)}
       pendingCreate={pendingCreates.some(
@@ -514,7 +561,9 @@ function TagManageForm({
         cascadeDeletedIds.has(node.id) && !pendingDeletes.has(node.id)
       }
       disabled={saveMutation.isPending}
+      dragging={isDragging}
       onStageRename={stageRename}
+      onStageRecolor={stageRecolor}
       onPointerDown={(event) => startDrag(node, event)}
       onRestoreDelete={restoreDelete}
       onAddChild={(parent) =>
@@ -638,14 +687,17 @@ function ManageTreeRow({
   expanded,
   selected,
   pendingRename,
+  pendingRecolor,
   pendingMove,
   pendingDelete,
   pendingCreate,
   coveredByCascade,
   disabled,
+  dragging,
   onToggleExpand,
   onToggleSelect,
   onStageRename,
+  onStageRecolor,
   onPointerDown,
   onRestoreDelete,
   onAddChild,
@@ -657,14 +709,17 @@ function ManageTreeRow({
   expanded: ReadonlySet<string>
   selected: ReadonlySet<string>
   pendingRename: string | undefined
+  pendingRecolor: string | undefined
   pendingMove: boolean
   pendingDelete: boolean
   pendingCreate: boolean
   coveredByCascade: boolean
   disabled: boolean
+  dragging: boolean
   onToggleExpand: (id: string) => void
   onToggleSelect: (node: TagTreeNode, checked: boolean) => void
   onStageRename: (id: string, name: string) => void
+  onStageRecolor: (id: string, color: string) => void
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRestoreDelete: (id: string) => void
   onAddChild: (node: TagTreeNode) => void
@@ -704,12 +759,17 @@ function ManageTreeRow({
               aria-label={t("tag.select").replace("{name}", node.name)}
               onCheckedChange={(next) => onToggleSelect(node, next === true)}
             />
-            <span
-              title={pendingRename ?? node.name}
-              className={`min-w-0 truncate ${isPendingDeletion ? "line-through opacity-60" : ""}`}
-            >
-              {pendingRename ?? node.name}
-            </span>
+            <TagColorName
+              name={pendingRename ?? node.name}
+              color={pendingRecolor ?? node.color}
+              disabled={disabled || isPendingDeletion}
+              label={t("tag.color.change").replace(
+                "{name}",
+                pendingRename ?? node.name
+              )}
+              className={isPendingDeletion ? "line-through opacity-60" : ""}
+              onSelect={(color) => onStageRecolor(node.id, color)}
+            />
             {pendingCreate && !isPendingDeletion && (
               <span className="shrink-0 text-xs text-muted-foreground">
                 {t("tag.pending_create")}
@@ -718,6 +778,14 @@ function ManageTreeRow({
             {pendingRename !== undefined &&
               !isPendingDeletion &&
               !pendingCreate && (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {t("tag.pending")}
+                </span>
+              )}
+            {pendingRecolor !== undefined &&
+              !isPendingDeletion &&
+              !pendingCreate &&
+              pendingRename === undefined && (
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {t("tag.pending")}
                 </span>
@@ -733,7 +801,9 @@ function ManageTreeRow({
               </span>
             )}
           </div>
-          <div className={ROW_ACTIONS_CLASS_NAME}>
+          <div
+            className={`flex shrink-0 items-center gap-0.5 ${dragging ? "invisible" : ""}`}
+          >
             {pendingDelete ? (
               <Button
                 type="button"
@@ -1011,6 +1081,7 @@ function addPendingCreates(
       id: create.draftId,
       name: create.name,
       parent_id: create.parent_id,
+      color: create.color,
       allows_value: create.allows_value,
       value_regex: create.value_regex,
       children: [],
@@ -1097,6 +1168,7 @@ function prepareChanges(
   pendingCreates: PendingCreate[],
   pendingMoves: ReadonlyMap<string, string | null>,
   pendingRenames: ReadonlyMap<string, string>,
+  pendingRecolors: ReadonlyMap<string, string>,
   pendingDeletes: ReadonlyMap<string, PendingDelete>
 ): TagChanges {
   const cascadeDeletedIds = collectCascadeDeletedIds(tree, pendingDeletes)
@@ -1133,6 +1205,9 @@ function prepareChanges(
   const renames = [...pendingRenames].filter(
     ([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id)
   )
+  const recolors = [...pendingRecolors].filter(
+    ([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id)
+  )
   const moves = [...pendingMoves]
     .filter(([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id))
     .map(([id, parentId]) =>
@@ -1159,5 +1234,5 @@ function prepareChanges(
         (metadata.get(rightId)?.depth ?? 0) - (metadata.get(leftId)?.depth ?? 0)
     )
 
-  return { creates, moves, renames, deletes }
+  return { creates, moves, renames, recolors, deletes }
 }

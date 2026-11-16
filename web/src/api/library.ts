@@ -103,6 +103,12 @@ export const tag = {
       body: { name },
       expectBody: false,
     }),
+  recolor: (id: Tag["id"], color: string) =>
+    request<void>(`tags/${encodeURIComponent(id)}/color`, {
+      method: "PATCH",
+      body: { color },
+      expectBody: false,
+    }),
   move: (id: Tag["id"], parentId: Tag["parent_id"]) =>
     request<void>(`tags/${encodeURIComponent(id)}/parent`, {
       method: "PATCH",

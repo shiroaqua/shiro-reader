@@ -1,6 +1,6 @@
 import { useMemo, useState, type PointerEventHandler, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronRight, LoaderCircle, Plus, Search, Tags } from "lucide-react"
+import { ChevronRight, Hash, LoaderCircle, Plus, Search, Tags } from "lucide-react"
 import { library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,14 +24,14 @@ import {
 } from "@/lib/tag-value-patterns"
 import type { Tag, TagTreeNode } from "@/lib/types"
 import { cn } from "cn"
+import {
+  DEFAULT_TAG_COLOR,
+  TagColorPopover,
+} from "@/components/tag-color-picker"
 
 /** The dialog grows with the tag list up to a cap; past that the list, not the dialog, scrolls. */
 export const TAG_DIALOG_CONTENT_CLASS_NAME =
   "max-h-[min(32rem,calc(100dvh-2rem))] sm:max-w-lg"
-
-/** Row actions stay hidden until the row is hovered or focused; touch screens always show them. */
-export const ROW_ACTIONS_CLASS_NAME =
-  "flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
 
 const SELECT_CLASS_NAME =
   "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:[&>option]:bg-popover"
@@ -318,12 +318,14 @@ export function CreateTagDialog({
   const { t } = useTranslation()
   const [name, setName] = useState("")
   const [valueType, setValueType] = useState<ValueType>("none")
+  const [color, setColor] = useState(DEFAULT_TAG_COLOR)
   const queryClient = useQueryClient()
   const createMutation = useMutation({
     mutationFn: () =>
       library.tag.define({
         name: name.trim(),
         parent_id: parentId,
+        color,
         ...toValueRule(valueType),
       }),
     onSuccess: async () => {
@@ -338,6 +340,7 @@ export function CreateTagDialog({
     const definition = {
       name: name.trim(),
       parent_id: parentId,
+      color,
       ...toValueRule(valueType),
     }
     if (onStage) {
@@ -377,6 +380,27 @@ export function CreateTagDialog({
               }}
             />
           </label>
+          <div className="grid gap-1.5 text-sm font-medium">
+            <span>{t("tag.color")}</span>
+            <TagColorPopover
+              color={color}
+              disabled={createMutation.isPending}
+              onSelect={setColor}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={t("tag.color.choose")}
+                  disabled={createMutation.isPending}
+                  className="flex h-9 items-center gap-2 rounded-lg border border-input px-2 text-sm font-normal outline-none transition-colors hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                >
+                  <Hash aria-hidden="true" className="size-4" style={{ color }} />
+                  <span className="font-mono text-xs tracking-wide text-muted-foreground uppercase">
+                    {color}
+                  </span>
+                </button>
+              }
+            />
+          </div>
           <div className="grid gap-1.5 text-sm font-medium">
             <span>{t("tag.value_type")}</span>
             <select
