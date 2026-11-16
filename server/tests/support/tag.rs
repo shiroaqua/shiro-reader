@@ -9,6 +9,7 @@ pub struct TagDefinitionData {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,
+    pub color: String,
     pub allows_value: bool,
     pub value_regex: Option<String>,
     pub created_at: Timestamp,
@@ -21,6 +22,7 @@ pub struct TagNode {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,
+    pub color: String,
     pub allows_value: bool,
     pub value_regex: Option<String>,
     pub created_at: Timestamp,
@@ -43,6 +45,7 @@ impl TagDefinitionData {
     pub fn node(&self, children: Vec<TagNode>) -> TagNode {
         TagNode {
             id: self.id.clone(), name: self.name.clone(), parent_id: self.parent_id.clone(),
+            color: self.color.clone(),
             allows_value: self.allows_value, value_regex: self.value_regex.clone(), children,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -61,6 +64,10 @@ impl TagDefinitionData {
         Self { name: name.into(), ..self.clone() }
     }
 
+    pub fn colored(&self, color: &str) -> Self {
+        Self { color: color.into(), ..self.clone() }
+    }
+
     pub fn find<'a>(tree: &'a [TagNode], id: &str) -> Option<&'a TagNode> {
         tree.iter().find_map(|node| {
             if node.id == id {
@@ -77,6 +84,7 @@ pub enum TagError {
     InvalidId, MissingName, InvalidName, UnchangedName, InvalidRegex, RegexNotAllowed,
     ValueRequired, ValueNotAllowed, RegexMismatch, NotFound, ParentNotFound,
     InvalidMove, InvalidStrategy,
+    InvalidColor, UnchangedColor,
 }
 
 impl TagError {
@@ -96,6 +104,8 @@ impl TagError {
             ParentNotFound => (404, "library.tag.parent_not_found"),
             InvalidMove => (400, "library.tag.invalid_move"),
             InvalidStrategy => (400, "library.tag.invalid_delete_strategy"),
+            InvalidColor => (400, "library.tag.invalid_color"),
+            UnchangedColor => (400, "library.tag.color_unchanged"),
         }
     }
 }
@@ -139,19 +149,33 @@ impl TestApp {
 
     pub async fn define_tag(&self, session: &Session, name: &str, parent: Option<&str>,
         allows_value: bool, regex: Option<&str>) -> HttpResponse {
-        self.send(Method::POST, TAGS, Some(json!({
+        self.define_tag_with_color(session, name, parent, allows_value, regex, Some("#6f6862")).await
+    }
+
+    pub async fn define_tag_with_color(&self, session: &Session, name: &str, parent: Option<&str>,
+        allows_value: bool, regex: Option<&str>, color: Option<&str>) -> HttpResponse {
+        let mut body = json!({
             "name": name, "parent_id": parent, "allows_value": allows_value, "value_regex": regex,
-        })), Some(session)).await
+        });
+        if let Some(color) = color { body["color"] = json!(color); }
+        self.send(Method::POST, TAGS, Some(body), Some(session)).await
     }
 
     pub async fn add_tag(&self, session: &Session, name: &str, parent: Option<&str>,
         allows_value: bool, regex: Option<&str>) -> TagDefinitionData {
-        let response = self.define_tag(session, name, parent, allows_value, regex).await;
+        self.add_tag_with_color(session, name, parent, allows_value, regex, None).await
+    }
+
+    pub async fn add_tag_with_color(&self, session: &Session, name: &str, parent: Option<&str>,
+        allows_value: bool, regex: Option<&str>, color: Option<&str>) -> TagDefinitionData {
+        let color = color.unwrap_or("#000000");
+        let response = self.define_tag_with_color(session, name, parent, allows_value, regex, Some(color)).await;
         response.assert_status(201);
         let tag: TagDefinitionData = serde_json::from_value(response.json()).expect("tag definition fields");
         uuid::Uuid::parse_str(&tag.id).expect("tag definition ID");
         assert_eq!(tag.name, name);
         assert_eq!(tag.parent_id.as_deref(), parent);
+        assert_eq!(tag.color, color);
         assert_eq!(tag.allows_value, allows_value);
         assert_eq!(tag.value_regex.as_deref(), regex.filter(|pattern| !pattern.is_empty()));
         assert_eq!(tag.created_at, tag.updated_at);
@@ -166,6 +190,10 @@ impl TestApp {
 
     pub async fn rename_tag(&self, session: &Session, id: &str, name: &str) -> HttpResponse {
         self.send(Method::PATCH, &format!("{TAGS}/{id}/name"), Some(json!({"name": name})), Some(session)).await
+    }
+
+    pub async fn change_tag_color(&self, session: &Session, id: &str, color: &str) -> HttpResponse {
+        self.send(Method::PATCH, &format!("{TAGS}/{id}/color"), Some(json!({"color": color})), Some(session)).await
     }
 
     pub async fn move_tag(&self, session: &Session, id: &str, parent: Option<&str>) -> HttpResponse {
@@ -203,6 +231,7 @@ impl TestApp {
             (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/tags"), None),
             (Method::POST, TAGS.into(), Some(json!({"name": "Tag", "allows_value": false}))),
             (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}/name"), Some(json!({"name": "Renamed"}))),
+            (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}/color"), Some(json!({"color": "#FFFFFF"}))),
             (Method::PATCH, format!("{TAGS}/{UNKNOWN_ID}/parent"), Some(json!({"parent_id": null}))),
             (Method::DELETE, format!("{TAGS}/{UNKNOWN_ID}?strategy=CASCADE"), None),
             (Method::POST, format!("{BOOKS}/{UNKNOWN_ID}/tags"), Some(json!({"tag_id": UNKNOWN_ID}))),

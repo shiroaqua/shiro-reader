@@ -4,6 +4,7 @@ use crate::domain::library::tag::value_objects::TagDeleteStrategy;
 pub struct CreateTagDefinitionCommand {
     pub name: String,
     pub parent_id: Option<String>,
+    pub color: String,
     pub allows_value: bool,
     pub value_regex: Option<String>,
 }
@@ -12,6 +13,12 @@ pub struct CreateTagDefinitionCommand {
 pub struct RenameTagCommand {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Debug)]
+pub struct ChangeTagColorCommand {
+    pub id: String,
+    pub color: String,
 }
 
 #[derive(Debug)]

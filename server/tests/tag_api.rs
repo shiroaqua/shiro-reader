@@ -52,6 +52,8 @@ async fn creation_rejects_missing_parents_and_invalid_value_rules() {
     for regex in ["[", "(", "a)\\z|(?:b"] {
         app.define_tag(&reader, "BadRegex", None, true, Some(regex)).await.assert_tag_error(InvalidRegex);
     }
+    app.define_tag_with_color(&reader, "BadColor", None, false, None, Some("#12GG56"))
+        .await.assert_tag_error(InvalidColor);
     for regex in ["", "[0-9]+"] {
         app.define_tag(&reader, "NoValues", None, false, Some(regex)).await.assert_tag_error(RegexNotAllowed);
     }
@@ -76,6 +78,37 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
     assert!(renamed.updated_at > tag.updated_at);
     let expected = vec![root.node(vec![tag.renamed("Score").modified_at(renamed.updated_at).node(vec![child.node(vec![])])])];
     assert_eq!(tree, expected);
+}
+
+// 验证创建必须提供颜色，且颜色 PATCH 校验格式并持久化更新。
+#[tokio::test]
+async fn colors_are_required_and_can_be_changed_using_rgb_hex_values() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.define_tag_with_color(&reader, "MissingColor", None, false, None, None)
+        .await.assert_status(422);
+    let default_color = app.add_tag(&reader, "DefaultColor", None, false, None).await;
+    let explicit_color = app.add_tag_with_color(
+        &reader, "ExplicitColor", None, false, None, Some("#a1B2c3"),
+    ).await;
+    assert_eq!(default_color.color, "#6f6862");
+    assert_eq!(explicit_color.color, "#a1B2c3");
+
+    for color in ["", "000000", "#12345", "#1234567", "#12345678", "#GG0000", " #FFFFFF", "#ＦＦＦＦＦＦ"] {
+        app.change_tag_color(&reader, &default_color.id, color).await.assert_tag_error(InvalidColor);
+    }
+    assert_eq!(app.tag_tree(&reader).await, [default_color.node(vec![]), explicit_color.node(vec![])]);
+
+    app.change_tag_color(&reader, &default_color.id, "#33FF00").await.assert_empty(204);
+    app.change_tag_color(&reader, &default_color.id, "#33FF00").await.assert_tag_error(UnchangedColor);
+    let tree = app.tag_tree(&reader).await;
+    let changed = TagDefinitionData::find(&tree, &default_color.id).unwrap();
+    assert_eq!(changed.color, "#33FF00");
+    assert!(changed.updated_at > default_color.updated_at);
+    assert_eq!(tree, [
+        default_color.colored("#33FF00").modified_at(changed.updated_at).node(vec![]),
+        explicit_color.node(vec![]),
+    ]);
 }
 
 // 验证移动标签可更换父级或移至根层，同时保留子树、值规则和书籍绑定。
@@ -214,6 +247,7 @@ async fn missing_or_invalid_targets_are_reported_for_all_mutations() {
     let tag = app.add_tag(&reader, "Tag", None, false, None).await;
     for (id, error) in [(INVALID_ID, InvalidId), (UNKNOWN_ID, NotFound)] {
         app.rename_tag(&reader, id, "Renamed").await.assert_tag_error(error);
+        app.change_tag_color(&reader, id, "#FFFFFF").await.assert_tag_error(error);
         for strategy in [Cascade, Promote] {
             app.delete_tag(&reader, id, strategy).await.assert_tag_error(error);
         }

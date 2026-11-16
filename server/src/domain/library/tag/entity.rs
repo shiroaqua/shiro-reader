@@ -7,7 +7,7 @@ use crate::domain::RequiresVerificationEntity;
 
 use super::{
     errors::TagDomainError,
-    value_objects::{TagId, TagName, TagValueRule},
+    value_objects::{TagColor, TagId, TagName, TagValueRule},
 };
 
 #[derive(Debug, Clone, toasty::Model, Entity)]
@@ -19,6 +19,7 @@ pub struct TagDefinition {
     name: TagName,
     #[index]
     parent_id: Option<TagId>,
+    color: TagColor,
     value_rule: TagValueRule,
     created_at: Timestamp,
     updated_at: Timestamp,
@@ -28,6 +29,7 @@ impl TagDefinition {
     pub fn new(
         name: TagName,
         parent_id: Option<TagId>,
+        color: TagColor,
         value_rule: TagValueRule,
     ) -> Self {
         let created_at = Timestamp::now();
@@ -35,6 +37,7 @@ impl TagDefinition {
             id: TagId::new(),
             name,
             parent_id,
+            color,
             value_rule,
             created_at,
             updated_at: created_at,
@@ -47,6 +50,10 @@ impl TagDefinition {
 
     pub fn parent_id(&self) -> Option<&TagId> {
         self.parent_id.as_ref()
+    }
+
+    pub fn color(&self) -> &TagColor {
+        &self.color
     }
 
     pub fn value_rule(&self) -> &TagValueRule {
@@ -87,6 +94,21 @@ impl TagDefinition {
         Ok(TagDefinitionChange {
             entity: self,
             fields: TagDefinitionFields::PARENT_ID | TagDefinitionFields::UPDATED_AT,
+        })
+    }
+
+    pub fn change_color(
+        &mut self,
+        color: TagColor,
+    ) -> Result<TagDefinitionChange<'_>, TagDomainError> {
+        if self.color == color {
+            return Err(TagDomainError::ColorUnchanged);
+        }
+        self.color = color;
+        self.updated_at = Timestamp::now();
+        Ok(TagDefinitionChange {
+            entity: self,
+            fields: TagDefinitionFields::COLOR | TagDefinitionFields::UPDATED_AT,
         })
     }
 }

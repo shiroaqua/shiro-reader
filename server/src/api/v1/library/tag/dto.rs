@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct DefineTagRequest {
     pub name: String,
     pub parent_id: Option<String>,
+    pub color: String,
     pub allows_value: bool,
     pub value_regex: Option<String>,
 }
@@ -14,6 +15,12 @@ pub struct DefineTagRequest {
 #[serde(deny_unknown_fields)]
 pub struct RenameTagRequest {
     pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeTagColorRequest {
+    pub color: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +66,7 @@ pub struct TagResponse {
     pub id: String,
     pub name: String,
     pub parent_id: Option<String>,
+    pub color: String,
     pub allows_value: bool,
     pub value_regex: Option<String>,
     pub created_at: Timestamp,

@@ -11,7 +11,7 @@ use crate::{
             tag::{
                 commands::{
                     BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand,
-                    MoveTagCommand, RenameTagCommand, UnbindBookTagCommand,
+                    MoveTagCommand, RenameTagCommand, ChangeTagColorCommand, UnbindBookTagCommand,
                 },
                 dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
                 errors::TagApplicationError,
@@ -26,7 +26,7 @@ use crate::{
                 entity::{BookTag, TagDefinition},
                 errors::TagDomainError,
                 tree::{TagParentChange, TagTree},
-                value_objects::{TagId, TagName, TagValueRule},
+                value_objects::{TagColor, TagId, TagName, TagValueRule},
             },
         },
     },
@@ -44,6 +44,7 @@ impl TagService {
     ) -> Result<TagDefinitionOutput, LibraryApplicationError> {
         let name = TagName::parse(command.name)?;
         let parent_id = command.parent_id.map(TagId::parse).transpose()?;
+        let color = TagColor::parse(command.color)?;
         let value_rule = TagValueRule::new(command.allows_value, command.value_regex)?;
         if let Some(parent_id) = parent_id {
             let mut tx = self
@@ -54,7 +55,7 @@ impl TagService {
             if !tag_exists(&mut tx, &parent_id).await? {
                 return Err(TagApplicationError::ParentNotFound.into());
             }
-            let tag_def = TagDefinition::new(name, Some(parent_id), value_rule)
+            let tag_def = TagDefinition::new(name, Some(parent_id), color, value_rule)
                 .create()
                 .exec(&mut tx)
                 .await
@@ -62,7 +63,7 @@ impl TagService {
             tx.commit().await.map_err(TagDefinition::map_db_err)?;
             Ok(tag_def.into())
         } else {
-            Ok(TagDefinition::new(name, None, value_rule)
+            Ok(TagDefinition::new(name, None, color, value_rule)
                 .create()
                 .exec(&mut self.db)
                 .await
@@ -113,6 +114,26 @@ impl TagService {
         let mut definition = TagDefinition::get_by_id(&mut tx, &id).await.map_result()?;
         definition
             .rename(name)?
+            .exec(&mut tx)
+            .await
+            .map_err(TagDefinition::map_db_err)?;
+        tx.commit().await.map_err(TagDefinition::map_db_err)
+    }
+
+    pub async fn change_tag_color(
+        &mut self,
+        command: ChangeTagColorCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = TagId::parse(command.id)?;
+        let color = TagColor::parse(command.color)?;
+        let mut tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(TagDefinition::map_db_err)?;
+        let mut definition = TagDefinition::get_by_id(&mut tx, &id).await.map_result()?;
+        definition
+            .change_color(color)?
             .exec(&mut tx)
             .await
             .map_err(TagDefinition::map_db_err)?;

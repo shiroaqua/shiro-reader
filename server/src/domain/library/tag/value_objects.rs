@@ -48,6 +48,23 @@ impl TagName {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed)]
+pub struct TagColor(String);
+
+impl TagColor {
+    pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
+        let value = value.as_ref();
+        let bytes = value.as_bytes();
+        if bytes.len() != 7
+            || bytes[0] != b'#'
+            || !bytes[1..].iter().all(u8::is_ascii_hexdigit)
+        {
+            return Err(TagDomainError::InvalidColor);
+        }
+        Ok(Self(value.to_owned()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TagValueRule {
     allows_value: bool,

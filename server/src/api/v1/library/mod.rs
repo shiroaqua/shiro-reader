@@ -42,5 +42,6 @@ pub fn router() -> Router<AppState> {
             delete(tag::handlers::delete_tag),
         )
         .route("/tags/{tag_id}/name", patch(tag::handlers::rename_tag))
+        .route("/tags/{tag_id}/color", patch(tag::handlers::change_tag_color))
         .route("/tags/{tag_id}/parent", patch(tag::handlers::move_tag))
 }

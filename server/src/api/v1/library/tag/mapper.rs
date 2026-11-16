@@ -17,6 +17,7 @@ impl From<TagDefinitionOutput> for TagResponse {
             id: output.id,
             name: output.name,
             parent_id: output.parent_id,
+            color: output.color,
             allows_value: output.allows_value,
             value_regex: output.value_regex,
             created_at: output.created_at,

@@ -12,6 +12,12 @@ pub enum TagDomainError {
     #[error("unchanged tag name")]
     NameUnchanged,
 
+    #[error("tag color must use the #RRGGBB format")]
+    InvalidColor,
+
+    #[error("unchanged tag color")]
+    ColorUnchanged,
+
     #[error("invalid tag value regex")]
     InvalidValueRegex,
 

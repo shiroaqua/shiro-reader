@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS tag_definitions (
     id BLOB NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
     parent_id BLOB REFERENCES tag_definitions(id) ON DELETE RESTRICT,
+    color TEXT NOT NULL,
     value_rule TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL

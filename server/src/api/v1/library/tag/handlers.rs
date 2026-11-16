@@ -5,13 +5,13 @@ use axum::{
 use crate::{
     api::extractors::{auth::RoutedState}, application::library::tag::commands::{
         BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand, MoveTagCommand,
-        RenameTagCommand, UnbindBookTagCommand,
+        RenameTagCommand, ChangeTagColorCommand, UnbindBookTagCommand,
     }, error::AppError,
 };
 
 use super::dto::{
     BookTagResponse, BindBookTagRequest, DefineTagRequest, DeleteTagQuery, RenameTagRequest, TagResponse,
-    MoveTagRequest, TagTreeNodeResponse, UnbindBookTagRequest,
+    MoveTagRequest, TagTreeNodeResponse, UnbindBookTagRequest, ChangeTagColorRequest,
 };
 
 pub async fn create_tag(
@@ -21,10 +21,23 @@ pub async fn create_tag(
     let output = state.tag_service.define_tag(CreateTagDefinitionCommand {
         name: request.name,
         parent_id: request.parent_id,
+        color: request.color,
         allows_value: request.allows_value,
         value_regex: request.value_regex,
     }).await?;
     Ok((StatusCode::CREATED, Json(output.into())))
+}
+
+pub async fn change_tag_color(
+    mut state: RoutedState,
+    Path(tag_id): Path<String>,
+    Json(request): Json<ChangeTagColorRequest>,
+) -> Result<StatusCode, AppError> {
+    state.tag_service.change_tag_color(ChangeTagColorCommand {
+        id: tag_id,
+        color: request.color,
+    }).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn rename_tag(

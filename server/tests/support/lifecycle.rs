@@ -38,6 +38,7 @@ impl Restart {
                 let removed = app.add_tag(&session, "Removed", None, false, None).await;
                 let removed_child = app.add_tag(&session, "RemovedChild", Some(&removed.id), false, None).await;
                 app.bind_tag(&session, &book.id, &promoted.id, Some("7")).await.assert_empty(204);
+                app.change_tag_color(&session, &promoted.id, "#BB44CC").await.assert_empty(204);
                 app.rename_tag(&session, &promoted.id, "Score").await.assert_empty(204);
                 app.delete_tag(&session, &root.id, DeleteStrategy::Promote).await.assert_empty(204);
                 app.delete_tag(&session, &removed.id, DeleteStrategy::Cascade).await.assert_empty(204);
@@ -45,7 +46,8 @@ impl Restart {
                 let persisted_promoted = TagDefinitionData::find(&tree, &promoted.id).unwrap();
                 let saved = SavedTags {
                     session, book,
-                    promoted: promoted.renamed("Score").under(None).modified_at(persisted_promoted.updated_at),
+                    promoted: promoted.colored("#BB44CC").renamed("Score").under(None)
+                        .modified_at(persisted_promoted.updated_at),
                     leaf,
                     deleted_ids: vec![root.id, removed.id, removed_child.id],
                 };

@@ -241,6 +241,12 @@ impl From<TagApplicationError> for AppError {
                 TagDomainError::NameUnchanged => Self::BadRequest {
                     message: "library.tag.name_unchanged",
                 },
+                TagDomainError::InvalidColor => Self::BadRequest {
+                    message: "library.tag.invalid_color",
+                },
+                TagDomainError::ColorUnchanged => Self::BadRequest {
+                    message: "library.tag.color_unchanged",
+                },
                 TagDomainError::InvalidValueRegex => Self::BadRequest {
                     message: "library.tag.invalid_value_regex",
                 },
