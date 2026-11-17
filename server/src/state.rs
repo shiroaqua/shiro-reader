@@ -53,6 +53,9 @@ pub struct AppState {
 
 impl AppState {
     pub async fn build(config: &Config) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(&config.root_directory)?;
+        std::fs::create_dir_all(config.root_directory.join("users"))?;
+
         let crypto_params = Params::new(
             config.crypto.argon2_memory_cost,
             config.crypto.argon2_time_cost,

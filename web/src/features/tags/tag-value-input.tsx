@@ -1,6 +1,10 @@
 import { Input } from "@/components/ui/input"
 import { useTranslation } from "@/lib/i18n"
-import { getValueType, isValueValid } from "@/lib/tag-value-patterns"
+import {
+  getValueType,
+  isValueValid,
+  LANGUAGE_OPTIONS,
+} from "@/lib/tag-value-patterns"
 import type { Tag } from "@/lib/types"
 import { cn } from "cn"
 
@@ -19,6 +23,27 @@ export function TagValueInput({
   const { t } = useTranslation()
   const valueType = getValueType(tag)
   const isDate = valueType === "date"
+
+  if (valueType === "language") {
+    return (
+      <select
+        value={value}
+        disabled={disabled}
+        required
+        aria-label={t("local.tag.value")}
+        aria-invalid={!isValueValid(tag, value)}
+        className="h-7 w-40 shrink-0 rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{t("local.tag.language_placeholder")}</option>
+        {LANGUAGE_OPTIONS.map(({ code, label }) => (
+          <option key={code} value={code}>
+            {label}
+          </option>
+        ))}
+      </select>
+    )
+  }
 
   return (
     <Input
