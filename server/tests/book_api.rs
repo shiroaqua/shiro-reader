@@ -1,4 +1,5 @@
 mod support;
+use DeleteStrategy::*;
 use HttpError::*;
 use SampleFile::*;
 use support::*;
@@ -88,9 +89,90 @@ async fn rename_and_delete_preserve_shared_file() {
     book.assert_renamed("Renamed").await;
     book.delete().await.assert_empty(204);
     assert!(app.books(&reader).await.is_empty());
-    book.delete().await.assert_error(BookNotFound);
+    book.delete().await.assert_error(BookAlreadyDeleted);
     app.find_file(&reader, &Epub.hash()).await.assert_empty(204);
     app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
+}
+
+// 删除书籍后，普通列表隐藏书籍和标签绑定，恢复时重建仍存在的标签关系。
+#[tokio::test]
+async fn trash_restore_preserves_existing_tag_bindings() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "Tagged", Epub).await;
+    let tag = app.add_tag(&reader, "Genre", None, false, None).await;
+    app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_empty(204);
+
+    book.delete().await.assert_empty(204);
+    assert!(app.books(&reader).await.is_empty());
+    let trash = app.trash(&reader).await;
+    assert_eq!(trash.len(), 1);
+    assert_eq!(trash[0].book.id, book.data.id);
+    app.query_book_tags(&reader, &book.data.id).await.assert_error(BookNotFound);
+
+    app.restore_book(&reader, &book.data.id).await.assert_empty(204);
+    app.restore_book(&reader, &book.data.id).await.assert_error(BookNotDeleted);
+    let restored = app.books_by_ids(&reader, &[&book.data.id]).await;
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0].title, book.data.title);
+    assert_eq!(restored[0].hash, book.data.hash);
+    app.assert_book_tags(&reader, &book.data.id, &[tag.binding(None)]).await;
+    assert!(app.trash(&reader).await.is_empty());
+}
+
+// 恢复时跳过已经删除的标签定义。
+#[tokio::test]
+async fn restoring_book_skips_tag_definitions_that_were_deleted() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "Tagged", Epub).await;
+    let tag = app.add_tag(&reader, "Genre", None, false, None).await;
+    app.bind_tag(&reader, &book.data.id, &tag.id, None).await.assert_empty(204);
+    book.delete().await.assert_empty(204);
+    app.delete_tag(&reader, &tag.id, Cascade).await.assert_empty(204);
+
+    app.restore_book(&reader, &book.data.id).await.assert_empty(204);
+    assert!(app.book_tags(&reader, &book.data.id).await.is_empty());
+}
+
+#[tokio::test]
+async fn restoring_book_renames_it_when_its_original_title_is_in_use() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let deleted = app.add_book(&reader, "Shared title", Epub).await;
+    deleted.delete().await.assert_empty(204);
+    app.add_book(&reader, "Shared title", Epub).await;
+    app.add_book(&reader, "Shared title (1)", Epub).await;
+    app.add_book(&reader, "Shared title (2)", Epub).await;
+
+    app.restore_book(&reader, &deleted.data.id).await.assert_empty(204);
+    let restored = app.books_by_ids(&reader, &[&deleted.data.id]).await;
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0].title, "Shared title (3)");
+}
+
+// 批量移入回收站和彻底删除均为原子操作。
+#[tokio::test]
+async fn batch_trash_and_permanent_delete_are_atomic() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let first = app.add_book(&reader, "First", Epub).await;
+    let second = app.add_book(&reader, "Second", Epub).await;
+
+    app.delete_books(&reader, &[&first.data.id, UNKNOWN_ID]).await.assert_error(BookNotFound);
+    assert_eq!(app.books(&reader).await.len(), 2);
+
+    app.delete_books(&reader, &[&first.data.id, &second.data.id]).await.assert_empty(204);
+    assert!(app.books(&reader).await.is_empty());
+    assert_eq!(app.trash(&reader).await.len(), 2);
+    app.permanently_delete_books(&reader, &[&first.data.id, UNKNOWN_ID]).await.assert_error(BookNotFound);
+    assert_eq!(app.trash(&reader).await.len(), 2);
+    app.permanently_delete_books(&reader, &[&first.data.id, &second.data.id]).await.assert_empty(204);
+    assert!(app.trash(&reader).await.is_empty());
 }
 
 // 验证重命名、删除和获取封面时拒绝非法或不存在的书籍 ID。

@@ -65,6 +65,13 @@ pub struct BookData {
     pub updated_at: Timestamp,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TrashedBookData {
+    #[serde(flatten)]
+    pub book: BookData,
+    pub deleted_at: Timestamp,
+}
+
 pub struct Book<'a> {
     pub data: BookData,
     app: &'a TestApp,
@@ -72,6 +79,28 @@ pub struct Book<'a> {
 }
 
 impl TestApp {
+    pub async fn trash(&self, session: &Session) -> Vec<TrashedBookData> {
+        let response = self.send(Method::GET, "/api/v1/library/bookshelf/trash", None, Some(session)).await;
+        response.assert_status(200);
+        serde_json::from_value(response.json()).expect("trash list fields")
+    }
+
+    pub async fn restore_book(&self, session: &Session, id: &str) -> HttpResponse {
+        self.send(Method::POST, &format!("/api/v1/library/bookshelf/trash/{id}/restore"), None, Some(session)).await
+    }
+
+    pub async fn permanently_delete_book(&self, session: &Session, id: &str) -> HttpResponse {
+        self.send(Method::DELETE, &format!("/api/v1/library/bookshelf/trash/{id}"), None, Some(session)).await
+    }
+
+    pub async fn delete_books(&self, session: &Session, ids: &[&str]) -> HttpResponse {
+        self.send(Method::DELETE, BOOKS, Some(json!({"ids": ids})), Some(session)).await
+    }
+
+    pub async fn permanently_delete_books(&self, session: &Session, ids: &[&str]) -> HttpResponse {
+        self.send(Method::DELETE, "/api/v1/library/bookshelf/trash", Some(json!({"ids": ids})), Some(session)).await
+    }
+
     pub async fn books(&self, session: &Session) -> Vec<BookData> {
         self.books_by_ids(session, &[]).await
     }

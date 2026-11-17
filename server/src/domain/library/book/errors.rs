@@ -15,6 +15,12 @@ pub enum BookDomainError {
     #[error("unchanged book title")]
     TitleUnchanged,
 
+    #[error("book is already deleted")]
+    AlreadyDeleted,
+
+    #[error("book is not deleted")]
+    NotDeleted,
+
     #[error("invalid book timestamp")]
     InvalidTimestamp,
 }

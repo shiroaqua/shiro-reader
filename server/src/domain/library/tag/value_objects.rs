@@ -1,10 +1,17 @@
 use std::sync::LazyLock;
 
 use derive_more::{AsRef, Display};
+use jiff::Timestamp;
 use regex::Regex;
 use uuid::Uuid;
 
 use super::errors::TagDomainError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookTagStatus {
+    Active,
+    Deleted { deleted_at: Timestamp },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed)]
 pub struct TagId(Uuid);

@@ -1,4 +1,5 @@
 use derive_more::{AsRef, Display, From};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::domain::library::book::errors::BookDomainError;
@@ -11,6 +12,12 @@ pub struct BookTitle(String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BookHash(pub(crate) blake3::Hash);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookStatus {
+    Active,
+    Deleted { deleted_at: Timestamp },
+}
 
 impl BookHash {
     pub fn as_hash(&self) -> &blake3::Hash {

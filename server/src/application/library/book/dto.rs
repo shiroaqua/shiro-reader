@@ -19,3 +19,9 @@ pub struct GetBookOutput {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
+
+#[derive(Debug)]
+pub struct TrashedBookOutput {
+    pub book: GetBookOutput,
+    pub deleted_at: Timestamp,
+}

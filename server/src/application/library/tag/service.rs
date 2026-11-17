@@ -21,12 +21,12 @@ use crate::{
     domain::{
         EntityCreate, EntityId, RequiresVerificationEntity,
         library::{
-            book::{entity::Book, value_objects::BookId},
+            book::{entity::Book, value_objects::{BookId, BookStatus}},
             tag::{
                 entity::{BookTag, TagDefinition},
                 errors::TagDomainError,
                 tree::{TagParentChange, TagTree},
-                value_objects::{TagColor, TagId, TagName, TagValueRule},
+                value_objects::{BookTagStatus, TagColor, TagId, TagName, TagValueRule},
             },
         },
     },
@@ -202,6 +202,7 @@ impl TagService {
         tx.commit().await.map_err(BookTag::map_db_err)?;
         Ok(bindings
             .into_iter()
+            .filter(|binding| binding.status() == BookTagStatus::Active)
             .map(|binding| BookTagOutput {
                 tag_id: binding.tag_id().to_string(),
                 value: binding.value().map(str::to_owned),
@@ -233,11 +234,16 @@ impl TagService {
             .await
             .map_err(BookTag::map_db_err)?
         {
-            existing
-                .change_value(&definition, binding.value().map(str::to_owned))?
-                .exec(&mut tx)
-                .await
-                .map_err(BookTag::map_db_err)?;
+            if existing.value() != binding.value() {
+                existing
+                    .change_value(&definition, binding.value().map(str::to_owned))?
+                    .exec(&mut tx)
+                    .await
+                    .map_err(BookTag::map_db_err)?;
+            }
+            if existing.status() != BookTagStatus::Active {
+                existing.restore()?.exec(&mut tx).await.map_err(BookTag::map_db_err)?;
+            }
         } else {
             binding
                 .create()
@@ -261,20 +267,23 @@ impl TagService {
                 .eq(book_id.clone())
                 .and(BookTag::fields().tag_id().eq(tag_id.clone()))
         };
-        if BookTag::filter(filter())
+        if let Some(binding) = BookTag::filter(filter())
             .first()
             .exec(&mut tx)
             .await
             .map_err(BookTag::map_db_err)?
-            .is_none()
         {
-            check_binding_target(&mut tx, &book_id, &tag_id).await?;
+            if binding.status() != BookTagStatus::Active {
+                check_binding_target(&mut tx, &book_id, &tag_id).await?;
+            } else {
+                BookTag::filter(filter())
+                    .delete()
+                    .exec(&mut tx)
+                    .await
+                    .map_err(BookTag::map_db_err)?;
+            }
         } else {
-            BookTag::filter(filter())
-                .delete()
-                .exec(&mut tx)
-                .await
-                .map_err(BookTag::map_db_err)?;
+            check_binding_target(&mut tx, &book_id, &tag_id).await?;
         }
         tx.commit().await.map_err(BookTag::map_db_err)
     }
@@ -341,12 +350,15 @@ async fn book_exists(
     executor: &mut dyn Executor,
     id: &BookId,
 ) -> Result<bool, LibraryApplicationError> {
-    Ok(Book::filter(Book::fields().id().eq(id.clone()))
+    let book = Book::filter(Book::fields().id().eq(id.clone()))
         .first()
         .exec(executor)
         .await
-        .map_err(Book::map_db_err)?
-        .is_some())
+        .map_err(Book::map_db_err)?;
+    let Some(book) = book else {
+        return Ok(false);
+    };
+    Ok(book.status() == BookStatus::Active)
 }
 
 async fn check_binding_target(

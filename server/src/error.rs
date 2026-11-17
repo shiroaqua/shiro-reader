@@ -197,6 +197,12 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::TitleUnchanged => AppError::BadRequest {
                     message: "library.book.title_unchanged",
                 },
+                BookApplicationError::AlreadyDeleted => AppError::Conflict {
+                    message: "library.book.already_deleted",
+                },
+                BookApplicationError::NotDeleted => AppError::Conflict {
+                    message: "library.book.not_deleted",
+                },
                 BookApplicationError::Storage(error) => AppError::Internal(error),
             },
             LibraryApplicationError::BookFile(f) => match f {
@@ -259,6 +265,12 @@ impl From<TagApplicationError> for AppError {
                 },
                 TagDomainError::ValueRegexMismatch => Self::BadRequest {
                     message: "library.tag.value_regex_mismatch",
+                },
+                TagDomainError::AlreadyDeleted => Self::Conflict {
+                    message: "library.tag.already_deleted",
+                },
+                TagDomainError::NotDeleted => Self::Conflict {
+                    message: "library.tag.not_deleted",
                 },
                 TagDomainError::NotFound => Self::NotFound {
                     message: "library.tag.not_found",

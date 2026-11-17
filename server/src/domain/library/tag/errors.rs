@@ -47,4 +47,10 @@ pub enum TagDomainError {
 
     #[error("invalid tag timestamp")]
     InvalidTimestamp,
+
+    #[error("tag binding is already deleted")]
+    AlreadyDeleted,
+
+    #[error("tag binding is not deleted")]
+    NotDeleted,
 }

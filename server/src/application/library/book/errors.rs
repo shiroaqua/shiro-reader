@@ -24,6 +24,12 @@ pub enum BookApplicationError {
     #[error("unchanged book title")]
     TitleUnchanged,
 
+    #[error("book is already deleted")]
+    AlreadyDeleted,
+
+    #[error("book is not deleted")]
+    NotDeleted,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

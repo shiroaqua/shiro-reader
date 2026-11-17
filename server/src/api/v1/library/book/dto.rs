@@ -21,6 +21,12 @@ pub struct BooksQuery {
     pub id: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BookIdsRequest {
+    pub ids: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BookResponse {
@@ -31,4 +37,11 @@ pub struct BookResponse {
     pub file_type: String,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TrashedBookResponse {
+    #[serde(flatten)]
+    pub book: BookResponse,
+    pub deleted_at: Timestamp,
 }

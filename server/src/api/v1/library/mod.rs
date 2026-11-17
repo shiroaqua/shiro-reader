@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use axum::{
     Router,
-    routing::{delete, get, patch},
+    routing::{delete, get, patch, post},
 };
 
 pub mod book;
@@ -33,7 +33,21 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/bookshelf/books",
-            get(book::handers::get_books).post(book::handers::create_book),
+            get(book::handers::get_books)
+                .post(book::handers::create_book)
+                .delete(book::handers::delete_books),
+        )
+        .route(
+            "/bookshelf/trash",
+            get(book::handers::get_trash).delete(book::handers::permanently_delete_books),
+        )
+        .route(
+            "/bookshelf/trash/{book_id}",
+            delete(book::handers::permanently_delete_book),
+        )
+        .route(
+            "/bookshelf/trash/{book_id}/restore",
+            post(book::handers::restore_book),
         )
         .route(
             "/tags",

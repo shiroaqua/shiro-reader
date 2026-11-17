@@ -7,7 +7,7 @@ use crate::domain::library::book::value_objects::BookId;
 
 use super::{
     errors::TagDomainError,
-    value_objects::{TagColor, TagId, TagName, TagValueRule},
+    value_objects::{BookTagStatus, TagColor, TagId, TagName, TagValueRule},
 };
 
 #[derive(Debug, Clone, toasty::Model, Entity)]
@@ -119,9 +119,42 @@ pub struct BookTag {
     value: Option<String>,
     created_at: Timestamp,
     updated_at: Timestamp,
+    deleted_at: Option<Timestamp>,
 }
 
 impl BookTag {
+    pub fn status(&self) -> BookTagStatus {
+        match self.deleted_at {
+            Some(deleted_at) => BookTagStatus::Deleted { deleted_at },
+            None => BookTagStatus::Active,
+        }
+    }
+
+    pub fn mark_deleted(&mut self) -> Result<BookTagChange<'_>, TagDomainError> {
+        if self.status() != BookTagStatus::Active {
+            return Err(TagDomainError::AlreadyDeleted);
+        }
+        let now = Timestamp::now();
+        self.deleted_at = Some(now);
+        self.updated_at = now;
+        Ok(BookTagChange {
+            entity: self,
+            fields: BookTagFields::DELETED_AT | BookTagFields::UPDATED_AT,
+        })
+    }
+
+    pub fn restore(&mut self) -> Result<BookTagChange<'_>, TagDomainError> {
+        if self.status() == BookTagStatus::Active {
+            return Err(TagDomainError::NotDeleted);
+        }
+        self.deleted_at = None;
+        self.updated_at = Timestamp::now();
+        Ok(BookTagChange {
+            entity: self,
+            fields: BookTagFields::DELETED_AT | BookTagFields::UPDATED_AT,
+        })
+    }
+
     pub fn new(
         definition: &TagDefinition,
         book_id: BookId,
@@ -135,6 +168,7 @@ impl BookTag {
             value,
             created_at: now,
             updated_at: now,
+            deleted_at: None,
         })
     }
 

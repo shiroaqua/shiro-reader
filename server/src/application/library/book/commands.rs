@@ -10,6 +10,21 @@ pub struct DeleteBookCommand {
 }
 
 #[derive(Debug)]
+pub struct DeleteBooksCommand {
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct BookIdCommand {
+    pub id: String,
+}
+
+#[derive(Debug)]
+pub struct BookIdsCommand {
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug)]
 pub struct RenameBookCommand {
     pub id: String,
     pub title: String,

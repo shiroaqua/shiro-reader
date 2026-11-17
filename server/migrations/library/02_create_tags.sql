@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS book_tags (
     value TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    deleted_at TEXT,
     PRIMARY KEY (tag_id, book_id)
 );
 

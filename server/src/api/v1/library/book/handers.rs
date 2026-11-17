@@ -9,7 +9,10 @@ use axum_extra::extract::Query;
 use crate::{
     api::{extractors::auth::RoutedState, v1::library::book::dto::*},
     application::library::book::{
-        commands::{CreateBookCommand, DeleteBookCommand, GetBookCoverCommand, RenameBookCommand},
+        commands::{
+            BookIdCommand, BookIdsCommand, CreateBookCommand, DeleteBookCommand,
+            DeleteBooksCommand, GetBookCoverCommand, RenameBookCommand,
+        },
         queries::GetBooksQuery,
     },
     error::AppError,
@@ -39,6 +42,48 @@ pub async fn delete_book(
         .delete_book(DeleteBookCommand { id: book_id })
         .await?;
 
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn delete_books(
+    mut state: RoutedState,
+    Json(request): Json<BookIdsRequest>,
+) -> Result<StatusCode, AppError> {
+    state.book_service.delete_books(DeleteBooksCommand { ids: request.ids }).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_trash(
+    mut state: RoutedState,
+) -> Result<Json<Vec<TrashedBookResponse>>, AppError> {
+    let books = state.book_service.get_trash().await?.into_iter().map(|item| {
+        let book: BookResponse = item.book.into();
+        TrashedBookResponse { book, deleted_at: item.deleted_at }
+    }).collect();
+    Ok(Json(books))
+}
+
+pub async fn restore_book(
+    mut state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state.book_service.restore_book(BookIdCommand { id: book_id }).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn permanently_delete_book(
+    mut state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state.book_service.permanently_delete_books(BookIdsCommand { ids: vec![book_id] }).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn permanently_delete_books(
+    mut state: RoutedState,
+    Json(request): Json<BookIdsRequest>,
+) -> Result<StatusCode, AppError> {
+    state.book_service.permanently_delete_books(BookIdsCommand { ids: request.ids }).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

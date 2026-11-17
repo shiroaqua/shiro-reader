@@ -25,6 +25,8 @@ export const enServer: Record<keyof typeof zhServer, string> = {
   "library.tag.value_not_allowed": "This tag does not allow a value.",
   "library.tag.value_regex_mismatch":
     "The tag value does not match the required pattern.",
+  "library.tag.already_deleted": "The tag binding is already deleted.",
+  "library.tag.not_deleted": "The tag binding is not deleted.",
   "library.tag.not_found": "Tag not found.",
   "library.tag.parent_not_found":
     "Parent tag not found. Please refresh and try again.",
@@ -55,6 +57,8 @@ export const enServer: Record<keyof typeof zhServer, string> = {
   "library.book.invalid_hash_format": "Invalid book hash format.",
   "library.book.invalid_file": "Invalid book file.",
   "library.book.not_found": "Book not found.",
+  "library.book.already_deleted": "The book is already in the recycle bin.",
+  "library.book.not_deleted": "The book is not in the recycle bin and cannot be restored.",
   "library.book.title_conflict": "A book with this title already exists.",
   "library.book.title_unchanged": "The book title has not changed.",
   "library.book.file.upload.conflict":

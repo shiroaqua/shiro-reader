@@ -6,7 +6,7 @@ use crate::domain::{
     RequiresVerificationEntity,
     library::book::{
         errors::BookDomainError,
-        value_objects::{BookHash, BookId, BookTitle},
+        value_objects::{BookHash, BookId, BookStatus, BookTitle},
     },
 };
 
@@ -20,6 +20,7 @@ pub struct Book {
     hash: BookHash,
     created_at: Timestamp,
     updated_at: Timestamp,
+    deleted_at: Option<Timestamp>,
 }
 
 impl Book {
@@ -31,6 +32,7 @@ impl Book {
             hash: BookHash(hash),
             created_at,
             updated_at: created_at,
+            deleted_at: None,
         })
     }
 
@@ -48,6 +50,35 @@ impl Book {
     }
     pub fn updated_at(&self) -> Timestamp {
         self.updated_at
+    }
+    pub fn status(&self) -> BookStatus {
+        match self.deleted_at {
+            Some(deleted_at) => BookStatus::Deleted { deleted_at },
+            None => BookStatus::Active,
+        }
+    }
+    pub fn mark_deleted(&mut self) -> Result<BookChange<'_>, BookDomainError> {
+        if self.status() != BookStatus::Active {
+            return Err(BookDomainError::AlreadyDeleted);
+        }
+        let now = Timestamp::now();
+        self.deleted_at = Some(now);
+        self.updated_at = now;
+        Ok(BookChange {
+            entity: self,
+            fields: BookFields::DELETED_AT | BookFields::UPDATED_AT,
+        })
+    }
+    pub fn restore(&mut self) -> Result<BookChange<'_>, BookDomainError> {
+        if self.status() == BookStatus::Active {
+            return Err(BookDomainError::NotDeleted);
+        }
+        self.deleted_at = None;
+        self.updated_at = Timestamp::now();
+        Ok(BookChange {
+            entity: self,
+            fields: BookFields::DELETED_AT | BookFields::UPDATED_AT,
+        })
     }
     pub fn rename(&mut self, new_title: BookTitle) -> Result<BookChange<'_>, BookDomainError> {
         if self.title.eq(&new_title) {
