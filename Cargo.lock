@@ -3916,6 +3916,7 @@ dependencies = [
  "entity-derive",
  "epub",
  "futures-util",
+ "getrandom 0.4.2",
  "image",
  "jiff",
  "jsonwebtoken",
@@ -3933,6 +3934,8 @@ dependencies = [
  "toasty-driver-sqlite",
  "tokio",
  "tokio-util",
+ "toml",
+ "toml_edit",
  "tower",
  "tower-http",
  "tracing",
@@ -4676,6 +4679,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
