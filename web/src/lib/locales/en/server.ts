@@ -16,6 +16,8 @@ export const enServer: Record<keyof typeof zhServer, string> = {
   "library.tag.invalid_name_format":
     "Tag names can only contain letters, numbers, and periods.",
   "library.tag.name_unchanged": "The tag name has not changed.",
+  "library.tag.sibling_name_conflict":
+    "Tags at the same level must have different names.",
   "library.tag.invalid_value_regex": "Invalid tag value pattern.",
   "library.tag.value_regex_not_allowed":
     "Tags without values cannot have a value pattern.",

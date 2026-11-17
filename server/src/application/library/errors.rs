@@ -78,6 +78,11 @@ impl MapToastyError<LibraryApplicationError> for TagDefinition {
         if error.is_record_not_found() {
             return TagDomainError::NotFound.into();
         }
+        if let Some(rusqlite::Error::SqliteFailure(code, _)) = sqlite_error(&error)
+            && code.extended_code == 2067
+        {
+            return TagApplicationError::SiblingNameConflict.into();
+        }
         TagApplicationError::Storage(error.into()).into()
     }
 }

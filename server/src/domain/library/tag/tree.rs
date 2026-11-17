@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use super::{
     entity::TagDefinition,
     errors::TagDomainError,
-    value_objects::{TagDeleteStrategy, TagId},
+    value_objects::{TagDeleteStrategy, TagId, TagName},
 };
 
 #[derive(Debug)]
@@ -60,6 +60,20 @@ impl TagTree {
             .into_iter()
             .flatten()
             .map(|index| &self.tags[*index])
+    }
+
+    pub fn definition(&self, id: &TagId) -> Option<&TagDefinition> {
+        self.by_id.get(id).map(|index| &self.tags[*index])
+    }
+
+    pub fn has_sibling_name(
+        &self,
+        parent_id: Option<&TagId>,
+        name: &TagName,
+        except_id: Option<&TagId>,
+    ) -> bool {
+        self.children_of(parent_id)
+            .any(|tag| Some(tag.id()) != except_id && tag.name() == name)
     }
 
     pub fn plan_delete(

@@ -8,6 +8,9 @@ pub enum TagApplicationError {
     #[error("parent tag not found")]
     ParentNotFound,
 
+    #[error("a sibling tag with this name already exists")]
+    SiblingNameConflict,
+
     #[error(transparent)]
     Storage(#[from] anyhow::Error),
 }

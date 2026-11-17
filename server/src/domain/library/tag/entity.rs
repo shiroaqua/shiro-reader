@@ -15,7 +15,6 @@ use super::{
 pub struct TagDefinition {
     #[key]
     id: TagId,
-    #[unique]
     name: TagName,
     #[index]
     parent_id: Option<TagId>,

@@ -4,9 +4,9 @@ use SampleFile::Epub;
 use TagError::*;
 use support::*;
 
-// 验证标签定义形成稳定的树形结构，且同名标签拥有不同 ID。
+// 验证创建标签时拒绝同级重名，并保持标签树稳定。
 #[tokio::test]
-async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name() {
+async fn creation_rejects_a_name_already_used_by_a_sibling() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     assert!(app.tag_tree(&reader).await.is_empty());
@@ -17,12 +17,12 @@ async fn definitions_form_a_tree_and_keep_distinct_ids_even_with_the_same_name()
     let leaf = app
         .add_tag(&reader, "备注", Some(&child.id), true, None)
         .await;
-    let duplicate = app.add_tag(&reader, "分类2026", None, false, None).await;
-    assert_ne!(root.id, duplicate.id);
+    app.define_tag(&reader, "分类2026", None, false, None)
+        .await
+        .assert_tag_error(SiblingNameConflict);
     let tree = app.tag_tree(&reader).await;
-    assert_eq!(tree.len(), 2);
+    assert_eq!(tree.len(), 1);
     assert!(tree.contains(&root.node(vec![child.node(vec![leaf.node(vec![])])])));
-    assert!(tree.contains(&duplicate.node(vec![])));
     assert_eq!(app.tag_tree(&reader).await, tree);
 }
 
@@ -141,6 +141,21 @@ async fn rename_preserves_identity_parent_children_and_value_rules() {
             ]),
         ];
     assert_eq!(tree, expected);
+}
+
+// 验证重命名不能与同级标签重名，且冲突不会改变标签树。
+#[tokio::test]
+async fn rename_rejects_a_name_already_used_by_a_sibling() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let first = app.add_tag(&reader, "First", None, false, None).await;
+    let second = app.add_tag(&reader, "Second", None, false, None).await;
+    let tree = app.tag_tree(&reader).await;
+
+    app.rename_tag(&reader, &first.id, &second.name)
+        .await
+        .assert_tag_error(SiblingNameConflict);
+    assert_eq!(app.tag_tree(&reader).await, tree);
 }
 
 // 验证创建必须提供颜色，且颜色 PATCH 校验格式并持久化更新。
@@ -306,6 +321,25 @@ async fn moving_a_tag_rejects_missing_targets_and_cyclic_hierarchies() {
     );
 }
 
+// 验证移动标签后不能与目标父级下的标签重名，且冲突不会改变标签树。
+#[tokio::test]
+async fn moving_a_tag_rejects_a_name_already_used_at_the_destination() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let moving = app.add_tag(&reader, "Moving", None, false, None).await;
+    let destination = app
+        .add_tag(&reader, "Destination", None, false, None)
+        .await;
+    app.add_tag(&reader, "Moving", Some(&destination.id), false, None)
+        .await;
+    let tree = app.tag_tree(&reader).await;
+
+    app.move_tag(&reader, &moving.id, Some(&destination.id))
+        .await
+        .assert_tag_error(SiblingNameConflict);
+    assert_eq!(app.tag_tree(&reader).await, tree);
+}
+
 // 验证有值标签必须绑定完整匹配正则的非空字符串，无值标签拒绝任何值。
 #[tokio::test]
 async fn bindings_require_a_nonempty_string_matching_the_entire_regex() {
@@ -361,8 +395,8 @@ async fn optional_and_extended_regexes_work_after_loading_the_definition() {
     let reader = app.session("Reader").await;
     app.upload(&reader, Epub).await;
     let book = app.add_book(&reader, "Book", Epub).await;
-    for regex in [None, Some("")] {
-        let tag = app.add_tag(&reader, "自由值", None, true, regex).await;
+    for (name, regex) in [("自由值", None), ("自由值空正则", Some(""))] {
+        let tag = app.add_tag(&reader, name, None, true, regex).await;
         app.bind_tag(&reader, &book.data.id, &tag.id, Some("任意内容 !\n"))
             .await
             .assert_empty(204);
@@ -370,10 +404,11 @@ async fn optional_and_extended_regexes_work_after_loading_the_definition() {
             .await
             .assert_tag_error(ValueRequired);
     }
-    for regex in ["(?x)[0-9]+ # trailing comment", "1|22"] {
-        let tag = app
-            .add_tag(&reader, "限定值", None, true, Some(regex))
-            .await;
+    for (name, regex) in [
+        ("扩展值", "(?x)[0-9]+ # trailing comment"),
+        ("分支值", "1|22"),
+    ] {
+        let tag = app.add_tag(&reader, name, None, true, Some(regex)).await;
         app.bind_tag(&reader, &book.data.id, &tag.id, Some("22"))
             .await
             .assert_empty(204);
@@ -623,6 +658,27 @@ async fn promote_moves_all_direct_children_and_preserves_deeper_hierarchy() {
         ],
     )
     .await;
+}
+
+// 验证提升删除不会制造同级重名，并在冲突时保留原标签树。
+#[tokio::test]
+async fn promote_delete_rejects_a_sibling_name_conflict() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let root = app.add_tag(&reader, "Root", None, false, None).await;
+    let branch = app
+        .add_tag(&reader, "Branch", Some(&root.id), false, None)
+        .await;
+    app.add_tag(&reader, "Child", Some(&branch.id), false, None)
+        .await;
+    app.add_tag(&reader, "Child", Some(&root.id), false, None)
+        .await;
+    let tree = app.tag_tree(&reader).await;
+
+    app.delete_tag(&reader, &branch.id, Promote)
+        .await
+        .assert_tag_error(SiblingNameConflict);
+    assert_eq!(app.tag_tree(&reader).await, tree);
 }
 
 // 验证级联和提升两种策略均可删除叶子标签，且重复删除报错。

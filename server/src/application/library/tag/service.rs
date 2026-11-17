@@ -46,30 +46,25 @@ impl TagService {
         let parent_id = command.parent_id.map(TagId::parse).transpose()?;
         let color = TagColor::parse(command.color)?;
         let value_rule = TagValueRule::new(command.allows_value, command.value_regex)?;
-        if let Some(parent_id) = parent_id {
-            let mut tx = self
-                .db
-                .transaction()
-                .await
-                .map_err(TagDefinition::map_db_err)?;
-            if !tag_exists(&mut tx, &parent_id).await? {
-                return Err(TagApplicationError::ParentNotFound.into());
-            }
-            let tag_def = TagDefinition::new(name, Some(parent_id), color, value_rule)
-                .create()
-                .exec(&mut tx)
-                .await
-                .map_result()?;
-            tx.commit().await.map_err(TagDefinition::map_db_err)?;
-            Ok(tag_def.into())
-        } else {
-            Ok(TagDefinition::new(name, None, color, value_rule)
-                .create()
-                .exec(&mut self.db)
-                .await
-                .map_result()?
-                .into())
+        let mut tx = self
+            .db
+            .transaction()
+            .await
+            .map_err(TagDefinition::map_db_err)?;
+        let existing = definitions(&mut tx).await?;
+        if parent_id.as_ref().is_some_and(|parent_id| {
+            !existing.iter().any(|tag| tag.id() == parent_id)
+        }) {
+            return Err(TagApplicationError::ParentNotFound.into());
         }
+        ensure_no_sibling_name(&existing, parent_id.as_ref(), &name, &[])?;
+        let tag_def = TagDefinition::new(name, parent_id, color, value_rule)
+            .create()
+            .exec(&mut tx)
+            .await
+            .map_result()?;
+        tx.commit().await.map_err(TagDefinition::map_db_err)?;
+        Ok(tag_def.into())
     }
 
     pub async fn undefine_tag(
@@ -84,6 +79,22 @@ impl TagService {
             .map_err(TagDefinition::map_db_err)?;
         let tree = TagTree::new(definitions(&mut tx).await?)?;
         let deletion = tree.plan_delete(&id, command.strategy)?;
+        for (index, change) in deletion.promoted_children().iter().enumerate() {
+            let child = tree
+                .definition(change.id())
+                .ok_or(TagDomainError::NotFound)?;
+            if tree.has_sibling_name(change.parent_id(), child.name(), Some(&id)) {
+                return Err(TagApplicationError::SiblingNameConflict.into());
+            }
+            for previous in &deletion.promoted_children()[..index] {
+                let previous = tree
+                    .definition(previous.id())
+                    .ok_or(TagDomainError::NotFound)?;
+                if previous.name() == child.name() {
+                    return Err(TagApplicationError::SiblingNameConflict.into());
+                }
+            }
+        }
         for change in deletion.promoted_children() {
             apply_parent_change(&mut tx, change).await?;
         }
@@ -111,7 +122,9 @@ impl TagService {
             .transaction()
             .await
             .map_err(TagDefinition::map_db_err)?;
+        let siblings = definitions(&mut tx).await?;
         let mut definition = TagDefinition::get_by_id(&mut tx, &id).await.map_result()?;
+        ensure_no_sibling_name(&siblings, definition.parent_id(), &name, &[&id])?;
         definition
             .rename(name)?
             .exec(&mut tx)
@@ -153,6 +166,13 @@ impl TagService {
             .map_err(TagDefinition::map_db_err)?;
         let tree = TagTree::new(definitions(&mut tx).await?)?;
         let change = tree.plan_move(&id, parent_id.as_ref())?;
+        let tag_name = tree
+            .definition(&id)
+            .ok_or(TagDomainError::NotFound)?
+            .name();
+        if tree.has_sibling_name(change.parent_id(), tag_name, Some(&id)) {
+            return Err(TagApplicationError::SiblingNameConflict.into());
+        }
         apply_parent_change(&mut tx, &change).await?;
         tx.commit().await.map_err(TagDefinition::map_db_err)
     }
@@ -268,6 +288,24 @@ fn tree_node(tree: &TagTree, definition: &TagDefinition) -> TagTreeNodeOutput {
             .map(|child| tree_node(tree, child))
             .collect(),
     }
+}
+
+fn ensure_no_sibling_name(
+    definitions: &[TagDefinition],
+    parent_id: Option<&TagId>,
+    name: &TagName,
+    excluded_ids: &[&TagId],
+) -> Result<(), LibraryApplicationError> {
+    if definitions.iter().any(|definition| {
+        definition.parent_id() == parent_id
+            && definition.name() == name
+            && !excluded_ids
+                .iter()
+                .any(|excluded_id| definition.id() == *excluded_id)
+    }) {
+        return Err(TagApplicationError::SiblingNameConflict.into());
+    }
+    Ok(())
 }
 
 async fn definitions(

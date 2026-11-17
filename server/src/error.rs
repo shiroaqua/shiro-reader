@@ -275,6 +275,9 @@ impl From<TagApplicationError> for AppError {
             TagApplicationError::ParentNotFound => Self::NotFound {
                 message: "library.tag.parent_not_found",
             },
+            TagApplicationError::SiblingNameConflict => Self::Conflict {
+                message: "library.tag.sibling_name_conflict",
+            },
             TagApplicationError::Storage(error) => Self::Internal(error),
         }
     }

@@ -12,6 +12,16 @@ CREATE TABLE IF NOT EXISTS tag_definitions (
 CREATE INDEX IF NOT EXISTS idx_tag_definitions_parent_id ON tag_definitions(parent_id);
 
 -- #[toasty::breakpoint]
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_definitions_root_name
+ON tag_definitions(name)
+WHERE parent_id IS NULL;
+
+-- #[toasty::breakpoint]
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_definitions_parent_name
+ON tag_definitions(parent_id, name)
+WHERE parent_id IS NOT NULL;
+
+-- #[toasty::breakpoint]
 CREATE TABLE IF NOT EXISTS book_tags (
     tag_id BLOB NOT NULL REFERENCES tag_definitions(id) ON DELETE CASCADE,
     book_id BLOB NOT NULL REFERENCES books(id) ON DELETE CASCADE,
