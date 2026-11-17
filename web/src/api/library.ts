@@ -8,6 +8,7 @@ import type {
   TagTreeNode,
 } from "@/lib/types"
 import { notifyError } from "@/lib/error-notifications"
+import { ErrorCode } from "@/lib/error-codes"
 
 export const bookshelf = {
   book: {
@@ -83,7 +84,7 @@ export const files = {
       } catch (error) {
         if (
           error instanceof ApiError &&
-          error.message === "library.book.file.already_exists"
+          error.code === ErrorCode.bookFileAlreadyExists
         )
           return
         if (error instanceof ApiError) notifyError(error.translation)

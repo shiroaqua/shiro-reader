@@ -24,6 +24,7 @@ import { formatBookDate } from "@/lib/format"
 import { useTranslation } from "@/lib/i18n"
 import { booksQueryKey } from "@/lib/query-keys"
 import type { Book } from "@/lib/types"
+import { ErrorCode } from "@/lib/error-codes"
 
 export function BookCard({ book }: { book: Book }) {
   const { t } = useTranslation()
@@ -60,11 +61,11 @@ export function BookCard({ book }: { book: Book }) {
 
   const handleMutationError = (error: Error) => {
     if (!(error instanceof ApiError)) return
-    if (error.message === "library.book.not_found") {
+    if (error.code === ErrorCode.bookNotFound) {
       setRenaming(false)
       setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
-    } else if (error.message === "library.book.version_conflict") {
+    } else if (error.code === ErrorCode.bookVersionConflict) {
       // Leave edit mode so the refetched title is visible before the user retries.
       setRenaming(false)
     }

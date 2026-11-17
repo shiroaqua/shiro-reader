@@ -4,12 +4,18 @@ export const API_BASE_URL = "http://localhost/api/v1"
 
 export class ApiError extends Error {
   httpStatus: number
+  code: number
   translation: TranslationMessage
 
-  constructor(status: number, translation: TranslationMessage) {
+  constructor(
+    status: number,
+    translation: TranslationMessage,
+    code = 0
+  ) {
     super(translation.key)
     this.name = "ApiError"
     this.httpStatus = status
+    this.code = code
     this.translation = translation
   }
 }
@@ -50,10 +56,16 @@ export async function sendRequest(
 
 export async function parseError(response: Response): Promise<ApiError> {
   try {
-    const payload = (await response.json()) as { error?: { message?: string } }
+    const payload = (await response.json()) as {
+      error?: { code?: unknown; message?: unknown }
+    }
     const code = payload?.error?.message
     if (typeof code === "string") {
-      return new ApiError(response.status, { source: "server", key: code })
+      return new ApiError(
+        response.status,
+        { source: "server", key: code },
+        typeof payload.error?.code === "number" ? payload.error.code : 0
+      )
     }
     return new ApiError(response.status, {
       source: "local",

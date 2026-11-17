@@ -146,7 +146,10 @@ impl HttpResponse {
     pub fn assert_tag_error(&self, error: TagError) {
         let (status, message) = error.contract();
         self.assert_status(status);
-        assert_eq!(self.json(), json!({"error": {"message": message}}));
+        assert_eq!(
+            self.json(),
+            json!({"error": {"code": expected_error_code(message), "message": message}})
+        );
     }
 }
 
