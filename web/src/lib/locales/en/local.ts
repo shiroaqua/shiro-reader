@@ -29,7 +29,7 @@ export const enLocal: Record<keyof typeof zhLocal, string> = {
   "local.book.delete": "Delete",
   "local.book.delete_confirm_title": "Delete book?",
   "local.book.delete_confirm_description":
-    'Are you sure you want to delete "{title}"? This cannot be undone.',
+    'Are you sure you want to move "{title}" to trash?',
   "local.book.sort": "Sort",
   "local.book.sort.by": "Sort by",
   "local.book.sort.title": "Name",
@@ -38,6 +38,26 @@ export const enLocal: Record<keyof typeof zhLocal, string> = {
   "local.book.sort.asc": "Ascending",
   "local.book.sort.desc": "Descending",
   "local.book.tags": "Tags",
+  "local.trash.list": "Trash",
+  "local.trash.loading": "Loading trash…",
+  "local.trash.empty": "Trash is empty.",
+  "local.trash.load_failed": "Failed to load trash.",
+  "local.trash.select_all": "Select all",
+  "local.trash.select_item": 'Select "{title}"',
+  "local.trash.selected_count": "{count} selected",
+  "local.trash.restore": "Restore",
+  "local.trash.restore_selected": "Restore selected",
+  "local.trash.permanently_delete": "Permanently delete",
+  "local.trash.permanently_delete_selected": "Delete selected permanently",
+  "local.trash.permanently_delete_confirm_title": "Permanently delete book?",
+  "local.trash.permanently_delete_batch_confirm_title":
+    "Permanently delete selected books?",
+  "local.trash.permanently_delete_confirm_description":
+    'Are you sure you want to permanently delete "{title}"? This cannot be undone.',
+  "local.trash.permanently_delete_batch_confirm_description":
+    "Are you sure you want to permanently delete the {count} selected books? This cannot be undone.",
+  "local.trash.deleted_at": "Deleted",
+  "local.trash.sort.deleted_date": "Delete date",
   "local.library.book.file.unsupported":
     "This book file format is not supported.",
   "local.tag.list": "Tag list",

@@ -3,16 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { BookOpen, LoaderCircle, Pencil, Tag, Trash2 } from "lucide-react"
 import { ApiError, library } from "@/api/library"
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
-import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -22,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { BookTagDialog } from "@/features/tags/book-tag-dialog"
 import { formatBookDate } from "@/lib/format"
 import { useTranslation } from "@/lib/i18n"
-import { booksQueryKey } from "@/lib/query-keys"
+import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import type { Book } from "@/lib/types"
 import { ErrorCode } from "@/lib/error-codes"
 
@@ -50,7 +40,6 @@ export function BookCard({ book }: { book: Book }) {
     }
   }, [book.id])
   const [renaming, setRenaming] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
 
   const updateBooks = (update: (books: Book[]) => Book[]) =>
@@ -63,7 +52,6 @@ export function BookCard({ book }: { book: Book }) {
     if (!(error instanceof ApiError)) return
     if (error.code === ErrorCode.bookNotFound) {
       setRenaming(false)
-      setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
     } else if (error.code === ErrorCode.bookVersionConflict) {
       // Leave edit mode so the refetched title is visible before the user retries.
@@ -87,11 +75,14 @@ export function BookCard({ book }: { book: Book }) {
   const deleteMutation = useMutation({
     mutationFn: () => library.bookshelf.book.delete(book.id),
     onSuccess: () => {
-      setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
     },
     onError: handleMutationError,
-    onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: booksQueryKey }),
+        queryClient.invalidateQueries({ queryKey: trashQueryKey }),
+      ]),
   })
 
   const submitRename = (value: string) => {
@@ -111,11 +102,7 @@ export function BookCard({ book }: { book: Book }) {
         className="group/card flex min-w-0 flex-col gap-1.5"
       >
         <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 bg-muted shadow-sm transition-all duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25">
-          {coverFailed ? (
-            <div className="flex size-full items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/5 text-muted-foreground">
-              <BookOpen aria-hidden="true" className="size-8 opacity-40" />
-            </div>
-          ) : (
+          {coverUrl && !coverFailed ? (
             <img
               src={coverUrl}
               alt=""
@@ -123,6 +110,10 @@ export function BookCard({ book }: { book: Book }) {
               className="size-full object-cover transition-transform duration-200 group-hover/card:scale-[1.02]"
               onError={() => setCoverFailed(true)}
             />
+          ) : (
+            <div className="flex size-full items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/5 text-muted-foreground">
+              <BookOpen aria-hidden="true" className="size-8 opacity-40" />
+            </div>
           )}
         </div>
         {renaming ? (
@@ -173,51 +164,17 @@ export function BookCard({ book }: { book: Book }) {
         </ContextMenuItem>
         <ContextMenuItem
           variant="destructive"
-          onClick={() => setDeleteOpen(true)}
+          disabled={deleteMutation.isPending}
+          onClick={() => deleteMutation.mutate()}
         >
-          <Trash2 aria-hidden="true" />
+          {deleteMutation.isPending ? (
+            <LoaderCircle aria-hidden="true" className="animate-spin" />
+          ) : (
+            <Trash2 aria-hidden="true" />
+          )}
           {t("local.book.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
-      <AlertDialog
-        open={deleteOpen}
-        onOpenChange={(open) => {
-          if (!deleteMutation.isPending) setDeleteOpen(open)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("local.book.delete_confirm_title")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("local.book.delete_confirm_description").replace(
-                "{title}",
-                book.title
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose
-              disabled={deleteMutation.isPending}
-              render={<Button variant="outline" />}
-            >
-              {t("local.common.cancel")}
-            </AlertDialogClose>
-            <Button
-              variant="destructive"
-              disabled={deleteMutation.isPending}
-              aria-busy={deleteMutation.isPending}
-              onClick={() => deleteMutation.mutate()}
-            >
-              {deleteMutation.isPending && (
-                <LoaderCircle aria-hidden="true" className="animate-spin" />
-              )}
-              {t("local.book.delete")}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       <BookTagDialog book={book} open={tagsOpen} onOpenChange={setTagsOpen} />
     </ContextMenu>
   )

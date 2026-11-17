@@ -3,6 +3,7 @@ import { API_BASE_URL, ApiError, type RequestOptions } from "./http"
 import type {
   Book,
   BookTag,
+  TrashedBook,
   UndefineTagStrategy,
   Tag,
   TagTreeNode,
@@ -51,6 +52,33 @@ export const bookshelf = {
       request<void>(`bookshelf/books/${encodeURIComponent(id)}/tags`, {
         method: "DELETE",
         body: { tag_id: tagId },
+        expectBody: false,
+      }),
+  },
+  trash: {
+    list: () => request<TrashedBook[]>("bookshelf/trash"),
+    restore: (id: Book["id"]) =>
+      request<void>(`bookshelf/trash/${encodeURIComponent(id)}/restore`, {
+        method: "POST",
+        expectBody: false,
+      }),
+    restoreBatch: async (ids: Book["id"][]): Promise<void> => {
+      await Promise.all(ids.map((id) =>
+        request<void>(`bookshelf/trash/${encodeURIComponent(id)}/restore`, {
+          method: "POST",
+          expectBody: false,
+        })
+      ))
+    },
+    permanentlyDelete: (id: Book["id"]) =>
+      request<void>(`bookshelf/trash/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        expectBody: false,
+      }),
+    permanentlyDeleteBatch: (ids: Book["id"][]) =>
+      request<void>("bookshelf/trash", {
+        method: "DELETE",
+        body: { ids },
         expectBody: false,
       }),
   },

@@ -254,9 +254,6 @@ impl BookService {
         LibraryApplicationError,
     > {
         let id = BookId::parse(command.id)?;
-        if Book::get_by_id(&mut self.db, &id).await.map_result()?.status() != BookStatus::Active {
-            return Err(BookApplicationError::NotFound.into());
-        }
         let book = Book::get_by_id(&mut self.db, &id).await.map_result()?;
         self.bookfile.download_book_cover_file(*book.hash()).await
     }

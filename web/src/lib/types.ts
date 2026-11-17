@@ -10,6 +10,10 @@ export interface Book {
     updated_at: string;
   }
 
+export interface TrashedBook extends Book {
+  deleted_at: string;
+}
+
 export interface Tag {
   id: UUID;
   name: string;

@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { BookshelfBooks } from "@/features/books/bookshelf-books"
+import { TrashList } from "@/features/books/trash-list"
 import { useTranslation } from "@/lib/i18n"
 import { useAuth } from "@/context/auth-context"
 import { notifyError } from "@/lib/error-notifications"
@@ -39,7 +40,7 @@ import { notifyError } from "@/lib/error-notifications"
 export function DashboardScreen() {
   const { t } = useTranslation()
   const { username, logout } = useAuth()
-  const [isRootBookshelfSelected, setIsRootBookshelfSelected] = useState(true)
+  const [activeMenu, setActiveMenu] = useState<string>("bookshelf")
 
   const menus: DashboardMenu[] = [
     {
@@ -51,9 +52,9 @@ export function DashboardScreen() {
       id: "bookshelf",
       icon: <LibraryBig />,
       name: t("local.dashboard.bookshelf"),
-      isActive: isRootBookshelfSelected,
+      isActive: activeMenu === "bookshelf",
       onSelect: () => {
-        setIsRootBookshelfSelected(true)
+        setActiveMenu("bookshelf")
       },
     },
     {
@@ -75,6 +76,10 @@ export function DashboardScreen() {
       id: "trash",
       icon: <Trash />,
       name: t("local.dashboard.trash"),
+      isActive: activeMenu === "trash",
+      onSelect: () => {
+        setActiveMenu("trash")
+      },
     },
   ]
 
@@ -103,10 +108,17 @@ export function DashboardScreen() {
         <header className="flex h-12 items-center gap-2 border-b border-border/50 px-4">
           <SidebarTrigger />
           <div className="h-4 w-px bg-border/60" />
-          <h1 className="text-sm font-medium text-foreground">{t("local.dashboard.bookshelf")}</h1>
+          <h1 className="text-sm font-medium text-foreground">
+            {activeMenu === "bookshelf"
+              ? t("local.dashboard.bookshelf")
+              : activeMenu === "trash"
+                ? t("local.dashboard.trash")
+                : t("local.dashboard.bookshelf")}
+          </h1>
         </header>
         <div className="flex-1 overflow-y-auto">
-          {isRootBookshelfSelected && <BookshelfBooks />}
+          {activeMenu === "bookshelf" && <BookshelfBooks />}
+          {activeMenu === "trash" && <TrashList />}
         </div>
       </main>
     </SidebarProvider>

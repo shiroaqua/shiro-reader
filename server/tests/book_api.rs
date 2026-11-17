@@ -109,6 +109,7 @@ async fn trash_restore_preserves_existing_tag_bindings() {
     let trash = app.trash(&reader).await;
     assert_eq!(trash.len(), 1);
     assert_eq!(trash[0].book.id, book.data.id);
+    book.cover().await.assert_png();
     app.query_book_tags(&reader, &book.data.id).await.assert_error(BookNotFound);
 
     app.restore_book(&reader, &book.data.id).await.assert_empty(204);
