@@ -1,4 +1,4 @@
-use std::io::{self, ErrorKind};
+use std::io::ErrorKind;
 
 use crate::application::errors::MapToastyError;
 use crate::application::library::book::errors::BookApplicationError;
@@ -9,6 +9,7 @@ use crate::domain::library::book::errors::BookDomainError;
 use crate::domain::library::tag::entity::{BookTag, TagDefinition};
 use crate::domain::library::tag::errors::TagDomainError;
 use crate::infrastructure::db::sqlite::sqlite_error;
+use crate::infrastructure::storage::book_file_storage::BookFileStorageError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -38,12 +39,11 @@ impl From<BookDomainError> for BookApplicationError {
     }
 }
 
-impl From<io::Error> for LibraryApplicationError {
-    // todo: 取消使用io:Error，转而专门设一个error
-    fn from(value: io::Error) -> Self {
-        match value.kind() {
+impl From<BookFileStorageError> for LibraryApplicationError {
+    fn from(value: BookFileStorageError) -> Self {
+        match value.0.kind() {
             ErrorKind::NotFound => BookFileApplicationError::NotFound,
-            _ => BookFileApplicationError::Storage(value.into()),
+            _ => BookFileApplicationError::Storage(value.0.into()),
         }
         .into()
     }
@@ -66,9 +66,14 @@ impl MapToastyError<LibraryApplicationError> for Book {
         if error.is_record_not_found() {
             return BookApplicationError::NotFound.into();
         }
-        if let Some(rusqlite::Error::SqliteFailure(code, Some(message))) = sqlite_error(&error) {
-            if code.extended_code == 2067 && message.contains("books.title") {
-                return BookApplicationError::TitleConflict.into();
+        if let Some(rusqlite::Error::SqliteFailure(code, message)) = sqlite_error(&error) {
+            match (code.extended_code, message.as_deref()) {
+                (rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE, Some(msg))
+                    if msg.contains("books.title") =>
+                {
+                    return BookApplicationError::TitleConflict.into();
+                }
+                _ => {}
             }
         }
         BookApplicationError::Storage(error.into()).into()
@@ -80,10 +85,18 @@ impl MapToastyError<LibraryApplicationError> for TagDefinition {
         if error.is_record_not_found() {
             return TagDomainError::NotFound.into();
         }
-        if let Some(rusqlite::Error::SqliteFailure(code, _)) = sqlite_error(&error)
-            && code.extended_code == 2067
-        {
-            return TagApplicationError::SiblingNameConflict.into();
+        if let Some(rusqlite::Error::SqliteFailure(code, message)) = sqlite_error(&error) {
+            match (code.extended_code, message.as_deref()) {
+                (rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE, Some(msg))
+                    if msg.contains("tag_definitions.name") =>
+                {
+                    return TagApplicationError::SiblingNameConflict.into();
+                }
+                (rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY, _) => {
+                    return TagApplicationError::ParentNotFound.into();
+                }
+                _ => {}
+            }
         }
         TagApplicationError::Storage(error.into()).into()
     }
@@ -91,6 +104,9 @@ impl MapToastyError<LibraryApplicationError> for TagDefinition {
 
 impl MapToastyError<LibraryApplicationError> for BookTag {
     fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
+        if error.is_record_not_found() {
+            return TagDomainError::NotFound.into();
+        }
         TagApplicationError::Storage(error.into()).into()
     }
 }

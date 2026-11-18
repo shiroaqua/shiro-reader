@@ -9,6 +9,8 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
+use derive_more::{AsRef, Deref, Display, From};
+use thiserror::Error;
 use tokio_util::io::ReaderStream;
 
 use tokio::{
@@ -22,6 +24,23 @@ use crate::domain::library::book::file::entity::BookFileType;
 
 const BOOK_FILE_VERSION: u8 = 1;
 const BOOK_FILE_HEADER_SIZE: u64 = 1 + 1 + 32 + 8;
+
+#[derive(Debug, Error, Display, From, Deref, AsRef)]
+pub struct BookFileStorageError(#[source] pub io::Error);
+
+impl From<io::ErrorKind> for BookFileStorageError {
+    fn from(kind: io::ErrorKind) -> Self {
+        Self(io::Error::from(kind))
+    }
+}
+
+impl From<tempfile::PersistError> for BookFileStorageError {
+    fn from(err: tempfile::PersistError) -> Self {
+        Self(err.error)
+    }
+}
+
+pub type StorageResult<T> = Result<T, BookFileStorageError>;
 
 pub struct BookFileStorage {
     dir: PathBuf,
@@ -169,7 +188,7 @@ impl BookFileStorage {
         }
     }
 
-    pub async fn save<R>(&self, hash: &Hash, mut reader: R) -> io::Result<()>
+    pub async fn save<R>(&self, hash: &Hash, mut reader: R) -> StorageResult<()>
     where
         R: AsyncRead + Unpin,
     {
@@ -191,7 +210,7 @@ impl BookFileStorage {
 
         let file_hash = hasher.finalize();
         if !hash.eq(&file_hash) {
-            return Err(io::Error::from(io::ErrorKind::InvalidData));
+            return Err(io::ErrorKind::InvalidData.into());
         }
 
         let file_type = get_file_type(temp_file.as_file_mut())?;
@@ -233,14 +252,14 @@ impl BookFileStorage {
                 self.files.insert(file_hash, file_type);
                 Ok(())
             }
-            Err(e) => Err(e.error),
+            Err(e) => Err(e.error.into()),
         }
     }
 
     pub async fn open_cover(
         &self,
         key: Hash,
-    ) -> io::Result<(impl Stream<Item = io::Result<Bytes>> + 'static, String)> {
+    ) -> StorageResult<(impl Stream<Item = io::Result<Bytes>> + 'static, String)> {
         let cover = self.covers.get(&key).map(|cover| cover.value().clone());
         if let Some((path, format)) = cover {
             match File::open(path).await {
@@ -251,7 +270,7 @@ impl BookFileStorage {
                     ));
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => { /*跳入下面*/ }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
         }
 
@@ -260,7 +279,7 @@ impl BookFileStorage {
         Ok((stream.boxed(), ImageFormat::Png.to_mime_type().to_owned()))
     }
 
-    pub async fn open(&self, hash: &Hash) -> io::Result<File> {
+    pub async fn open(&self, hash: &Hash) -> StorageResult<File> {
         if self.files.contains_key(hash) {
             let mut file = File::open(
                 self.dir
@@ -272,7 +291,7 @@ impl BookFileStorage {
                 .await?;
             Ok(file)
         } else {
-            Err(io::Error::from(io::ErrorKind::NotFound))
+            Err(io::ErrorKind::NotFound.into())
         }
     }
 }
