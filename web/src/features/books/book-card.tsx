@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { BookOpen, LoaderCircle, Pencil, Tag, Trash2 } from "lucide-react"
+import { LoaderCircle, Pencil, Tag, Trash2 } from "lucide-react"
 import { ApiError, library } from "@/api/library"
 import {
   ContextMenu,
@@ -9,6 +9,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
+import { BookCover } from "@/features/books/book-cover"
 import { BookTagDialog } from "@/features/tags/book-tag-dialog"
 import { formatBookDate } from "@/lib/format"
 import { useTranslation } from "@/lib/i18n"
@@ -19,26 +20,6 @@ import { ErrorCode } from "@/lib/error-codes"
 export function BookCard({ book }: { book: Book }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [coverFailed, setCoverFailed] = useState(false)
-  const [coverUrl, setCoverUrl] = useState<string>()
-  useEffect(() => {
-    let active = true
-    let objectUrl: string | undefined
-    void library.bookshelf.book
-      .getCover(book.id)
-      .then((blob) => {
-        if (!active) return
-        objectUrl = URL.createObjectURL(blob)
-        setCoverUrl(objectUrl)
-      })
-      .catch(() => {
-        if (active) setCoverFailed(true)
-      })
-    return () => {
-      active = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [book.id])
   const [renaming, setRenaming] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
 
@@ -99,30 +80,20 @@ export function BookCard({ book }: { book: Book }) {
     <ContextMenu disabled={renaming}>
       <ContextMenuTrigger
         render={<li />}
-        className="group/card flex min-w-0 flex-col gap-1.5"
+        className="group/card flex min-w-0 flex-col gap-1"
       >
-        <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl border border-border/50 bg-muted shadow-sm transition-all duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25">
-          {coverUrl && !coverFailed ? (
-            <img
-              src={coverUrl}
-              alt=""
-              loading="lazy"
-              className="size-full object-cover transition-transform duration-200 group-hover/card:scale-[1.02]"
-              onError={() => setCoverFailed(true)}
-            />
-          ) : (
-            <div className="flex size-full items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/5 text-muted-foreground">
-              <BookOpen aria-hidden="true" className="size-8 opacity-40" />
-            </div>
-          )}
-        </div>
+        <BookCover
+          bookId={book.id}
+          className="aspect-[3/4] w-full rounded-xl shadow-sm transition-all duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25"
+          imageClassName="transition-transform duration-200 group-hover/card:scale-[1.02]"
+        />
         {renaming ? (
           <Input
             autoFocus
             defaultValue={book.title}
             aria-label={t("local.book.title")}
             disabled={renameMutation.isPending}
-            className="mt-1 h-7 text-center"
+            className="mt-1.5 h-7 text-center"
             onFocus={(event) => event.currentTarget.select()}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return
@@ -148,7 +119,7 @@ export function BookCard({ book }: { book: Book }) {
         )}
         <time
           dateTime={book.updated_at}
-          className="text-center text-[11px] text-muted-foreground"
+          className="text-center text-xs text-muted-foreground tabular-nums"
         >
           {formatBookDate(book.updated_at)}
         </time>

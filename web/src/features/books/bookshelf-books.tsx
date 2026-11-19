@@ -1,22 +1,11 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import {
-  ArrowDownWideNarrow,
-  ArrowUpNarrowWide,
-  LibraryBig,
-} from "lucide-react"
+import { CircleAlert, LibraryBig, RotateCcw } from "lucide-react"
 import { library } from "@/api/library"
+import { EmptyState } from "@/components/empty-state"
+import { PageSection, PageToolbar } from "@/components/page-layout"
+import { SortMenu } from "@/components/sort-menu"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BookCard } from "@/features/books/book-card"
 import { UploadBookButton } from "@/features/books/upload-book-button"
@@ -26,8 +15,6 @@ import {
   saveBookSort,
   sortBooks,
   type BookSort,
-  type BookSortField,
-  type BookSortOrder,
 } from "@/lib/book-sort"
 import { useTranslation } from "@/lib/i18n"
 import type { Book } from "@/lib/types"
@@ -38,6 +25,8 @@ export function BookshelfBooks() {
     data: books,
     isPending,
     isError,
+    isFetching,
+    refetch,
   } = useQuery<Book[]>({
     queryKey: booksQueryKey,
     queryFn: () => library.bookshelf.book.list(),
@@ -54,14 +43,30 @@ export function BookshelfBooks() {
   }
 
   return (
-    <section
-      aria-labelledby="bookshelf-books-title"
-      className="flex flex-1 flex-col gap-5 p-6"
-    >
-      <div className="flex items-center justify-end gap-2">
-        <SortBooksMenu sort={sort} onChange={changeSort} />
-        <UploadBookButton />
-      </div>
+    <PageSection aria-label={t("local.dashboard.bookshelf")}>
+      <PageToolbar
+        start={
+          books &&
+          books.length > 0 && (
+            <span className="tabular-nums">
+              {t("local.book.count").replace("{count}", String(books.length))}
+            </span>
+          )
+        }
+        end={
+          <>
+            <SortMenu
+              fields={[
+                { value: "title", label: t("local.book.sort.title") },
+                { value: "date", label: t("local.book.sort.date") },
+              ]}
+              sort={sort}
+              onChange={changeSort}
+            />
+            <UploadBookButton />
+          </>
+        }
+      />
       {isPending ? (
         <div
           aria-busy="true"
@@ -69,29 +74,37 @@ export function BookshelfBooks() {
           className={GRID_CLASS_NAME}
         >
           {Array.from({ length: 8 }, (_, index) => (
-            <div key={index} className="flex flex-col gap-2.5">
+            <div key={index} className="flex flex-col items-center gap-2">
               <Skeleton className="aspect-[3/4] w-full rounded-xl" />
-              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="mt-1 h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
             </div>
           ))}
         </div>
       ) : isError ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {t("local.book.load_failed")}
-        </p>
+        <EmptyState
+          tone="destructive"
+          icon={<CircleAlert aria-hidden="true" />}
+          title={t("local.book.load_failed")}
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isFetching}
+              onClick={() => void refetch()}
+            >
+              <RotateCcw aria-hidden="true" />
+              {t("local.common.retry")}
+            </Button>
+          }
+        />
       ) : books.length === 0 ? (
-        <div
-          role="status"
-          className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground"
-        >
-          <div className="flex size-20 items-center justify-center rounded-2xl bg-muted/80">
-            <LibraryBig aria-hidden="true" className="size-10" />
-          </div>
-          <p className="text-sm font-medium text-foreground">
-            {t("local.book.empty")}
-          </p>
-        </div>
+        <EmptyState
+          icon={<LibraryBig aria-hidden="true" />}
+          title={t("local.book.empty")}
+          description={t("local.book.empty_hint")}
+        />
       ) : (
         <ul aria-label={t("local.book.list")} className={GRID_CLASS_NAME}>
           {sortedBooks.map((book) => (
@@ -99,70 +112,9 @@ export function BookshelfBooks() {
           ))}
         </ul>
       )}
-    </section>
-  )
-}
-
-function SortBooksMenu({
-  sort,
-  onChange,
-}: {
-  sort: BookSort
-  onChange: (sort: BookSort) => void
-}) {
-  const { t } = useTranslation()
-  const Icon = sort.order === "asc" ? ArrowUpNarrowWide : ArrowDownWideNarrow
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button type="button" variant="outline" size="sm" />}
-      >
-        <Icon aria-hidden="true" />
-        {t(
-          sort.field === "title"
-            ? "local.book.sort.title"
-            : "local.book.sort.date"
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent aria-label={t("local.book.sort")}>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("local.book.sort.by")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={sort.field}
-            onValueChange={(field: BookSortField) =>
-              onChange({ ...sort, field })
-            }
-          >
-            <DropdownMenuRadioItem value="title">
-              {t("local.book.sort.title")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="date">
-              {t("local.book.sort.date")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("local.book.sort.order")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={sort.order}
-            onValueChange={(order: BookSortOrder) =>
-              onChange({ ...sort, order })
-            }
-          >
-            <DropdownMenuRadioItem value="asc">
-              {t("local.book.sort.asc")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="desc">
-              {t("local.book.sort.desc")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </PageSection>
   )
 }
 
 const GRID_CLASS_NAME =
-  "grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-5 gap-y-7"
+  "grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-5 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))]"

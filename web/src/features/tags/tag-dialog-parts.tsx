@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { NativeSelect } from "@/components/ui/native-select"
 import { useTranslation } from "@/lib/i18n"
 import { tagsQueryKey } from "@/lib/query-keys"
 import { collectBranchIds } from "@/lib/tag-tree"
@@ -44,9 +45,6 @@ import {
 /** The dialog grows with the tag list up to a cap; past that the list, not the dialog, scrolls. */
 export const TAG_DIALOG_CONTENT_CLASS_NAME =
   "max-h-[min(32rem,calc(100dvh-2rem))] sm:max-w-lg"
-
-const SELECT_CLASS_NAME =
-  "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:[&>option]:bg-popover"
 
 /** Tag tree query plus the search and expand state shared by the bind and manage dialogs. */
 export function useTagTreeView() {
@@ -411,7 +409,7 @@ export function CreateTagDialog({
                   type="button"
                   aria-label={t("local.tag.color.choose")}
                   disabled={createMutation.isPending}
-                  className="flex h-9 items-center gap-2 rounded-lg border border-input px-2 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                  className="flex h-8 items-center gap-2 rounded-lg border border-input px-2.5 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
                 >
                   <Hash
                     aria-hidden="true"
@@ -427,8 +425,7 @@ export function CreateTagDialog({
           </div>
           <div className="grid gap-1.5 text-sm font-medium">
             <span>{t("local.tag.value_type")}</span>
-            <select
-              className={SELECT_CLASS_NAME}
+            <NativeSelect
               value={valueType}
               aria-label={t("local.tag.value_type")}
               disabled={createMutation.isPending}
@@ -441,7 +438,7 @@ export function CreateTagDialog({
                   {t(valueTypeLabelKey(type))}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             <span className="text-xs font-normal text-muted-foreground">
               {t("local.tag.allows_value_hint")}
             </span>

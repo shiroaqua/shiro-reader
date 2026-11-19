@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  ArrowDownWideNarrow,
-  ArrowUpNarrowWide,
-  BookOpen,
+  CircleAlert,
   LoaderCircle,
   RotateCcw,
   Trash,
   Trash2,
 } from "lucide-react"
 import { library } from "@/api/library"
+import { EmptyState } from "@/components/empty-state"
+import { PageSection, PageToolbar } from "@/components/page-layout"
+import { SortMenu, type SortOrder } from "@/components/sort-menu"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -21,24 +22,15 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BookCover } from "@/features/books/book-cover"
 import { formatBookDate } from "@/lib/format"
 import { useTranslation } from "@/lib/i18n"
 import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import type { TrashedBook } from "@/lib/types"
+import { cn } from "cn"
 
 type SortField = "title" | "deleted_at"
-type SortOrder = "asc" | "desc"
 type TrashSort = { field: SortField; order: SortOrder }
 
 const DEFAULT_SORT: TrashSort = { field: "deleted_at", order: "desc" }
@@ -77,6 +69,8 @@ export function TrashList() {
     data: trash,
     isPending,
     isError,
+    isFetching,
+    refetch,
   } = useQuery<TrashedBook[]>({
     queryKey: trashQueryKey,
     queryFn: () => library.bookshelf.trash.list(),
@@ -170,105 +164,123 @@ export function TrashList() {
     }
   }
 
-  const isAllSelected = trash && trash.length > 0 && selectedIds.size === trash.length
+  const isAllSelected = !!trash && trash.length > 0 && selectedIds.size === trash.length
   const isSomeSelected = selectedIds.size > 0 && !isAllSelected
 
   return (
-    <section
-      aria-labelledby="trash-title"
-      className="flex flex-1 flex-col gap-5 p-6"
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          {trash && trash.length > 0 && (
-            <>
+    <PageSection aria-label={t("local.dashboard.trash")}>
+      <PageToolbar
+        start={
+          trash &&
+          trash.length > 0 && (
+            <label className="flex cursor-pointer items-center gap-2.5 select-none">
               <Checkbox
-                id="select-all"
                 checked={isAllSelected}
+                indeterminate={isSomeSelected}
                 onCheckedChange={handleSelectAll}
                 aria-label={t("local.trash.select_all")}
-                className={isSomeSelected ? "data-[state=checked]:bg-muted-foreground" : ""}
               />
-              {selectedIds.size > 0 && (
-                <span className="text-sm text-muted-foreground">
-                  {t("local.trash.selected_count").replace(
-                    "{count}",
-                    String(selectedIds.size)
+              <span className="tabular-nums">
+                {selectedIds.size > 0
+                  ? t("local.trash.selected_count").replace(
+                      "{count}",
+                      String(selectedIds.size)
+                    )
+                  : t("local.trash.count").replace(
+                      "{count}",
+                      String(trash.length)
+                    )}
+              </span>
+            </label>
+          )
+        }
+        end={
+          <>
+            {selectedIds.size > 0 && (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRestoreSelected}
+                  disabled={restoreMutation.isPending}
+                  aria-busy={restoreMutation.isPending}
+                >
+                  {restoreMutation.isPending ? (
+                    <LoaderCircle aria-hidden="true" className="animate-spin" />
+                  ) : (
+                    <RotateCcw aria-hidden="true" />
                   )}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handlePermanentDeleteSelected}
-              disabled={permanentDeleteMutation.isPending || restoreMutation.isPending}
-            >
-              <Trash2 aria-hidden="true" />
-              {t("local.trash.permanently_delete_selected")}
-            </Button>
-          )}
-          {selectedIds.size > 0 && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRestoreSelected}
-              disabled={restoreMutation.isPending}
-              aria-busy={restoreMutation.isPending}
-            >
-              {restoreMutation.isPending && (
-                <LoaderCircle aria-hidden="true" className="animate-spin" />
-              )}
-              <RotateCcw aria-hidden="true" />
-              {t("local.trash.restore_selected")}
-            </Button>
-          )}
-          <SortTrashMenu sort={sort} onChange={setSort} />
-        </div>
-      </div>
+                  {t("local.trash.restore_selected")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handlePermanentDeleteSelected}
+                  disabled={permanentDeleteMutation.isPending || restoreMutation.isPending}
+                >
+                  <Trash2 aria-hidden="true" />
+                  {t("local.trash.permanently_delete_selected")}
+                </Button>
+              </>
+            )}
+            <SortMenu
+              fields={[
+                { value: "title", label: t("local.book.sort.title") },
+                { value: "deleted_at", label: t("local.trash.sort.deleted_date") },
+              ]}
+              sort={sort}
+              onChange={setSort}
+            />
+          </>
+        }
+      />
 
       {isPending ? (
         <div
           aria-busy="true"
           aria-label={t("local.trash.loading")}
-          className="space-y-3"
+          className={LIST_CLASS_NAME}
         >
           {Array.from({ length: 5 }, (_, index) => (
-            <div key={index} className="flex items-center gap-4 rounded-lg border border-border/50 p-4">
-              <Skeleton className="size-5" />
-              <Skeleton className="size-16 rounded-md" />
+            <div key={index} className={cn(ITEM_CLASS_NAME, "bg-card")}>
+              <Skeleton className="size-4" />
+              <Skeleton className="h-14 w-[42px] rounded-md" />
               <div className="flex-1 space-y-2">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-4 w-1/4" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/4" />
               </div>
-              <Skeleton className="h-9 w-20" />
+              <Skeleton className="h-7 w-16" />
             </div>
           ))}
         </div>
       ) : isError ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          {t("local.trash.load_failed")}
-        </p>
+        <EmptyState
+          tone="destructive"
+          icon={<CircleAlert aria-hidden="true" />}
+          title={t("local.trash.load_failed")}
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isFetching}
+              onClick={() => void refetch()}
+            >
+              <RotateCcw aria-hidden="true" />
+              {t("local.common.retry")}
+            </Button>
+          }
+        />
       ) : trash.length === 0 ? (
-        <div
-          role="status"
-          className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground"
-        >
-          <div className="flex size-20 items-center justify-center rounded-2xl bg-muted/80">
-            <Trash aria-hidden="true" className="size-10" />
-          </div>
-          <p className="text-sm font-medium text-foreground">
-            {t("local.trash.empty")}
-          </p>
-        </div>
+        <EmptyState
+          icon={<Trash aria-hidden="true" />}
+          title={t("local.trash.empty")}
+          description={t("local.trash.empty_hint")}
+        />
       ) : (
-        <ul aria-label={t("local.trash.list")} className="space-y-2">
+        <ul aria-label={t("local.trash.list")} className={LIST_CLASS_NAME}>
           {sortedTrash.map((item) => (
             <TrashListItem
               key={item.id}
@@ -333,9 +345,14 @@ export function TrashList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </PageSection>
   )
 }
+
+const LIST_CLASS_NAME = "grid gap-2"
+
+const ITEM_CLASS_NAME =
+  "flex items-center gap-3 rounded-xl border p-3 sm:gap-4"
 
 function TrashListItem({
   item,
@@ -353,31 +370,15 @@ function TrashListItem({
   disabled: boolean
 }) {
   const { t } = useTranslation()
-  const [coverFailed, setCoverFailed] = useState(false)
-  const [coverUrl, setCoverUrl] = useState<string>()
-
-  // Load cover image
-  useEffect(() => {
-    let active = true
-    let objectUrl: string | undefined
-    void library.bookshelf.book
-      .getCover(item.id)
-      .then((blob) => {
-        if (!active) return
-        objectUrl = URL.createObjectURL(blob)
-        setCoverUrl(objectUrl)
-      })
-      .catch(() => {
-        if (active) setCoverFailed(true)
-      })
-    return () => {
-      active = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [item.id])
 
   return (
-    <li className="group flex items-center gap-4 rounded-lg border border-border/50 bg-card p-4 transition-colors hover:border-border hover:bg-accent/5">
+    <li
+      data-selected={selected || undefined}
+      className={cn(
+        ITEM_CLASS_NAME,
+        "bg-card transition-colors hover:bg-accent/50 data-selected:bg-accent"
+      )}
+    >
       <Checkbox
         checked={selected}
         onCheckedChange={onSelectChange}
@@ -385,38 +386,25 @@ function TrashListItem({
         disabled={disabled}
       />
 
-      <div className="relative h-14 w-[42px] flex-shrink-0 overflow-hidden rounded-md border border-border/50 bg-muted">
-        {coverUrl && !coverFailed ? (
-          <img
-            src={coverUrl}
-            alt=""
-            loading="lazy"
-            className="size-full object-contain"
-            onError={() => setCoverFailed(true)}
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center bg-gradient-to-br from-muted to-muted-foreground/5 text-muted-foreground">
-            <BookOpen aria-hidden="true" className="size-6 opacity-40" />
-          </div>
-        )}
-      </div>
+      <BookCover
+        bookId={item.id}
+        className="h-14 w-[42px] shrink-0 rounded-md"
+        iconClassName="size-5"
+      />
 
-      <div className="flex-1 min-w-0">
-        <h3
-          title={item.title}
-          className="font-medium text-sm truncate text-foreground"
-        >
+      <div className="min-w-0 flex-1">
+        <h3 title={item.title} className="truncate text-sm font-medium">
           {item.title}
         </h3>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="mt-1 text-xs text-muted-foreground">
           {t("local.trash.deleted_at")}{" "}
-          <time dateTime={item.deleted_at}>
+          <time dateTime={item.deleted_at} className="tabular-nums">
             {formatBookDate(item.deleted_at)}
           </time>
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <Button
           type="button"
           variant="outline"
@@ -430,73 +418,16 @@ function TrashListItem({
         </Button>
         <Button
           type="button"
-          variant="ghost"
-          size="sm"
+          variant="destructive"
+          size="icon-sm"
           onClick={onDelete}
           disabled={disabled}
           title={t("local.trash.permanently_delete")}
-          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+          aria-label={t("local.trash.permanently_delete")}
         >
           <Trash2 aria-hidden="true" />
         </Button>
       </div>
     </li>
-  )
-}
-
-function SortTrashMenu({
-  sort,
-  onChange,
-}: {
-  sort: TrashSort
-  onChange: (sort: TrashSort) => void
-}) {
-  const { t } = useTranslation()
-  const Icon = sort.order === "asc" ? ArrowUpNarrowWide : ArrowDownWideNarrow
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button type="button" variant="outline" size="sm" />}
-      >
-        <Icon aria-hidden="true" />
-        {t(
-          sort.field === "title"
-            ? "local.book.sort.title"
-            : "local.trash.sort.deleted_date"
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent aria-label={t("local.book.sort")}>
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("local.book.sort.by")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={sort.field}
-            onValueChange={(field: SortField) => onChange({ ...sort, field })}
-          >
-            <DropdownMenuRadioItem value="title">
-              {t("local.book.sort.title")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="deleted_at">
-              {t("local.trash.sort.deleted_date")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{t("local.book.sort.order")}</DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={sort.order}
-            onValueChange={(order: SortOrder) => onChange({ ...sort, order })}
-          >
-            <DropdownMenuRadioItem value="asc">
-              {t("local.book.sort.asc")}
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="desc">
-              {t("local.book.sort.desc")}
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }

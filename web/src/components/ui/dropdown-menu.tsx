@@ -94,13 +94,15 @@ function DropdownMenuSeparator({ className, ...props }: MenuPrimitive.Separator.
 function DropdownMenuItem({
   className,
   children,
+  variant = "default",
   ...props
-}: MenuPrimitive.Item.Props) {
+}: MenuPrimitive.Item.Props & { variant?: "default" | "destructive" }) {
   return (
     <MenuPrimitive.Item
       data-slot="dropdown-menu-item"
+      data-variant={variant}
       className={cn(
-        "relative flex cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 data-[variant=destructive]:text-destructive data-[variant=destructive]:data-highlighted:bg-destructive/10 data-[variant=destructive]:data-highlighted:text-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

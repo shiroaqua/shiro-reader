@@ -10,6 +10,7 @@ import {
   SidebarTrigger,
   SidebarProvider,
   SidebarFooter,
+  SidebarHeader,
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
@@ -31,6 +32,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Separator } from "@/components/ui/separator"
+import { BrandMark } from "@/components/brand-mark"
 import { BookshelfBooks } from "@/features/books/bookshelf-books"
 import { TrashList } from "@/features/books/trash-list"
 import { useTranslation } from "@/lib/i18n"
@@ -83,12 +86,24 @@ export function DashboardScreen() {
     },
   ]
 
+  const activeTitle =
+    menus.find((item) => item.id === activeMenu)?.name ??
+    t("local.dashboard.bookshelf")
+
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <div className="flex h-12 items-center gap-2.5 px-2 group-data-[collapsible=icon]:px-0">
+            <BrandMark />
+            <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+              ShiroReader
+            </span>
+          </div>
+        </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup className="pt-3">
-            <SidebarMenu>
+          <SidebarGroup>
+            <SidebarMenu className="gap-1">
               {menus.map((item) => (
                 <DashboardMenuItem key={item.id} item={item} />
               ))}
@@ -97,23 +112,15 @@ export function DashboardScreen() {
         </SidebarContent>
 
         <SidebarFooter>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <UserProfileMenu username={username} onLogout={logout} />
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <UserProfileMenu username={username} onLogout={logout} />
         </SidebarFooter>
       </Sidebar>
       <main className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="flex h-12 items-center gap-2 border-b border-border/50 px-4">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger />
-          <div className="h-4 w-px bg-border/60" />
-          <h1 className="text-sm font-medium text-foreground">
-            {activeMenu === "bookshelf"
-              ? t("local.dashboard.bookshelf")
-              : activeMenu === "trash"
-                ? t("local.dashboard.trash")
-                : t("local.dashboard.bookshelf")}
+          <Separator orientation="vertical" className="mx-1 data-vertical:h-4 data-vertical:self-center" />
+          <h1 className="text-base font-semibold tracking-tight">
+            {activeTitle}
           </h1>
         </header>
         <div className="flex-1 overflow-y-auto">
@@ -168,6 +175,7 @@ function UserProfileMenu({
   const { t } = useTranslation()
   const submitting = useRef(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const initial = username?.trim().charAt(0).toUpperCase() || undefined
 
   const handleLogout = async () => {
     if (submitting.current) return
@@ -192,13 +200,13 @@ function UserProfileMenu({
               <SidebarMenuButton
                 size="lg"
                 disabled={isLoggingOut}
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
               />
             }
           >
-            <Avatar className="h-8 w-8 rounded-lg">
-              <AvatarFallback className="rounded-lg bg-gradient-to-br from-primary/80 to-primary">
-                <User className="size-4 text-primary-foreground" />
+            <Avatar className="size-8 rounded-lg">
+              <AvatarFallback className="rounded-lg bg-gradient-to-br from-primary/80 to-primary font-semibold text-primary-foreground">
+                {initial ?? <User className="size-4" />}
               </AvatarFallback>
             </Avatar>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -206,19 +214,19 @@ function UserProfileMenu({
                 {username || t("local.common.user")}
               </span>
             </div>
-            <ChevronsUpDown className="ml-auto size-4" />
+            <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) rounded-lg"
+            className="min-w-56"
             side="right"
             align="end"
-            sideOffset={4}
+            sideOffset={8}
           >
             <DropdownMenuGroup>
               <DropdownMenuItem
+                variant="destructive"
                 onClick={handleLogout}
                 disabled={isLoggingOut}
-                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
               >
                 <LogOut />
                 <span>{t("local.dashboard.profile.logout")}</span>

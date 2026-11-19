@@ -2,6 +2,7 @@ import { useState, type ReactElement, type ReactNode } from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 import { Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { translateTagName, useTranslation } from "@/lib/i18n"
 import { cn } from "cn"
 
@@ -129,7 +130,7 @@ export function TagColorPalette({
           style={{ backgroundColor: custom ?? color }}
           className="size-7 shrink-0 rounded-full ring-1 ring-foreground/15 ring-inset"
         />
-        <input
+        <Input
           value={draft}
           disabled={disabled}
           spellCheck={false}
@@ -137,7 +138,7 @@ export function TagColorPalette({
           aria-label={t("local.tag.color.custom")}
           placeholder={matchesPreset ? color : color.toUpperCase()}
           onChange={(event) => setDraft(event.target.value.trim())}
-          className="h-7 w-24 rounded-md border border-input bg-transparent px-2 font-mono text-xs uppercase outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="h-7 w-24 px-2 font-mono text-xs uppercase md:text-xs"
         />
         <Button
           type="submit"
