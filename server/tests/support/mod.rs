@@ -50,6 +50,7 @@ impl TestApp {
     }
 
     pub async fn at(root: &std::path::Path) -> Self {
+        runtime::prepare_libs(root).await;
         let state = AppState::build(&runtime::config(root))
             .await
             .expect("build application");
