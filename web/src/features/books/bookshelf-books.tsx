@@ -283,7 +283,7 @@ export function BookshelfBooks({
         >
           {Array.from({ length: 8 }, (_, index) => (
             <div key={index} className="flex flex-col items-center gap-2">
-              <Skeleton className="aspect-[3/4] w-full rounded-xl" />
+              <Skeleton className="aspect-[5/7] w-full rounded-xl" />
               <Skeleton className="mt-1 h-4 w-3/4" />
               <Skeleton className="h-3 w-1/2" />
             </div>
@@ -511,4 +511,4 @@ function hasOpenOverlay(): boolean {
 }
 
 const GRID_CLASS_NAME =
-  "grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-5 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))]"
+  "grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-5 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]"

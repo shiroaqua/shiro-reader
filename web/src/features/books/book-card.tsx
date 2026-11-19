@@ -144,28 +144,24 @@ export function BookCard({
       >
         <div
           className={cn(
-            "relative rounded-xl transition-all duration-200",
+            "relative rounded-xl",
             selected && !willDeselect
               ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
               : willDeselect
                 ? "ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
                 : willSelect
                   ? "ring-2 ring-primary/45 ring-offset-2 ring-offset-background"
-                  : "group-hover/card:-translate-y-0.5"
+                  : undefined
           )}
         >
           <BookCover
             bookId={book.id}
             className={cn(
-              "aspect-[3/4] w-full rounded-xl shadow-sm transition-shadow duration-200",
+              "aspect-[5/7] w-full rounded-xl shadow-sm transition-shadow duration-200",
               !selected &&
                 !willSelect &&
                 !willDeselect &&
                 "group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25"
-            )}
-            imageClassName={cn(
-              "transition-transform duration-200",
-              !selected && !isSelectionMode && "group-hover/card:scale-[1.02]"
             )}
           />
           {!isRenaming && (
