@@ -59,8 +59,10 @@ async fn main() -> anyhow::Result<()> {
     let router =
         app::build_router(state).layer(DefaultBodyLimit::max(config.server.max_upload_size));
 
-    let listener = TcpListener::bind(config.server.socket_addr()).await?;
-    info!(addr = %config.server.socket_addr(), "server listening");
+    let addr = config.server.socket_addr();
+    let listener = TcpListener::bind(addr).await?;
+    let url = listening_url(addr);
+    info!(%addr, %url, "server listening");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
@@ -90,5 +92,14 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+    }
+}
+
+/// Formats an HTTP URL for the bound address so IDE port-forwarding output parsers can detect it.
+fn listening_url(addr: std::net::SocketAddr) -> String {
+    if addr.ip().is_ipv6() && (addr.ip().is_unspecified() || addr.ip().is_loopback()) {
+        format!("http://localhost:{}", addr.port())
+    } else {
+        format!("http://{addr}")
     }
 }

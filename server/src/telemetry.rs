@@ -4,7 +4,7 @@ use crate::config::{LogFormat, TelemetryConfig};
 
 pub fn init(config: &TelemetryConfig) -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("axum=info,tower_http=info"));
+        .unwrap_or_else(|_| EnvFilter::new("shiro_reader_server=info,axum=info,tower_http=info"));
 
     match config.log_format {
         LogFormat::Json => {
