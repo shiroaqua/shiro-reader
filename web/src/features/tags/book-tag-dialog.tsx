@@ -18,7 +18,7 @@ import {
 import { TagManageDialog } from "@/features/tags/tag-manage-dialog"
 import { TagValueInput } from "@/features/tags/tag-value-input"
 import { ErrorCode } from "@/lib/error-codes"
-import { translateTagName, useTranslation } from "@/lib/i18n"
+import { formatCountMessage, translateTagName, useTranslation } from "@/lib/i18n"
 import { booksQueryKey, bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { isValueValid } from "@/lib/tag-value-patterns"
@@ -117,13 +117,11 @@ function BookTagForm({
     string
   > | null>(null)
   // Tags undefined in the manage dialog must not stay selected, or saving would try to bind them.
-  const selected = useMemo(
-    () =>
-      selectionDraft === null
-        ? initialSelection
-        : new Map([...selectionDraft].filter(([id]) => existingIds.has(id))),
-    [selectionDraft, initialSelection, existingIds]
-  )
+  const selected = useMemo(() => {
+    const source = selectionDraft ?? initialSelection
+    if (tagsQuery.data === undefined) return source
+    return new Map([...source].filter(([id]) => existingIds.has(id)))
+  }, [selectionDraft, initialSelection, tagsQuery.data, existingIds])
   const changes = useMemo(
     () => diffBindings(bindingsQuery.data ?? [], selected),
     [bindingsQuery.data, selected]
@@ -286,11 +284,31 @@ export function BatchBookTagDialog({
       targetBookIds: readonly string[]
       bindings: BookTag[]
     }) => {
+      const tasks: { bookId: string; binding: BookTag }[] = []
       for (const bookId of targetBookIds) {
         for (const binding of bindings) {
-          await library.bookshelf.book.bindTag(bookId, binding)
+          tasks.push({ bookId, binding })
         }
       }
+      let firstError: unknown
+      let aborted = false
+      const concurrency = Math.min(4, tasks.length)
+      let cursor = 0
+      await Promise.all(
+        Array.from({ length: concurrency }, async () => {
+          while (!aborted && cursor < tasks.length) {
+            const task = tasks[cursor]
+            cursor += 1
+            try {
+              await library.bookshelf.book.bindTag(task.bookId, task.binding)
+            } catch (error) {
+              if (firstError === undefined) firstError = error
+              aborted = true
+            }
+          }
+        })
+      )
+      if (firstError !== undefined) throw firstError
     },
     onSettled: async (_data, error, variables) => {
       // Reload even after a failure: earlier requests may already have succeeded.
@@ -470,7 +488,12 @@ function BatchBookTagForm({
           )}
         </span>
         <span className="truncate">
-          {t("local.book.batch_tags_hint").replace("{count}", String(bookCount))}
+          {formatCountMessage(
+            bookCount,
+            "local.book.batch_tags_hint_one",
+            "local.book.batch_tags_hint",
+            t
+          )}
         </span>
       </div>
 

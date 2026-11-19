@@ -2,8 +2,36 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+function isWithinErrorAlerts(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("[data-error-alerts]") !== null
+}
+
+function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      onOpenChange={(open, eventDetails) => {
+        if (
+          !open &&
+          (eventDetails.reason === "outside-press" ||
+            eventDetails.reason === "focus-out")
+        ) {
+          const event = eventDetails.event
+          const relatedTarget =
+            "relatedTarget" in event ? event.relatedTarget : null
+          if (
+            isWithinErrorAlerts(event.target) ||
+            isWithinErrorAlerts(relatedTarget)
+          ) {
+            eventDetails.cancel()
+            return
+          }
+        }
+        onOpenChange?.(open, eventDetails)
+      }}
+      {...props}
+    />
+  )
 }
 
 function DialogContent({ className, ...props }: DialogPrimitive.Popup.Props) {
@@ -47,7 +75,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-sm break-all text-muted-foreground", className)}
+      className={cn("text-sm wrap-break-word text-muted-foreground", className)}
       {...props}
     />
   )

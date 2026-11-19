@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import "./index.css"
 import App from "./App.tsx"
-import { ThemeProvider } from "@/components/theme-provider.tsx"
 import { ApiErrorAlerts } from "@/components/api-error-alerts"
+import { ErrorBoundary } from "@/components/error-boundary"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,11 +19,11 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
         <App />
         <ApiErrorAlerts />
-      </ThemeProvider>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>
 )

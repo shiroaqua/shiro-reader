@@ -47,7 +47,12 @@ export function useTagTreeDrag({
     event.preventDefault()
     dragCleanup.current?.()
     const source = event.currentTarget
-    source.setPointerCapture(event.pointerId)
+    const pointerId = event.pointerId
+    try {
+      source.setPointerCapture(pointerId)
+    } catch {
+      // Synthetic or detached pointer events may reject capture.
+    }
     const preview = document.createElement("div")
     const checkbox = source.querySelector("[role='checkbox']")?.cloneNode(true)
     const name = document.createElement("span")
@@ -114,40 +119,84 @@ export function useTagTreeDrag({
       highlighted = target
     }
 
+    let scrollContainer: HTMLElement | null = source.closest<HTMLElement>(
+      "[data-tag-tree-root]"
+    )
+    let scrollVelocity = 0
+    let scrollFrame: number | undefined
+    const stepScroll = () => {
+      if (!scrollContainer || scrollVelocity === 0) {
+        scrollFrame = undefined
+        return
+      }
+      scrollContainer.scrollTop += scrollVelocity
+      scrollFrame = requestAnimationFrame(stepScroll)
+    }
+    const updateAutoScroll = (clientY: number) => {
+      if (!scrollContainer) return
+      const rect = scrollContainer.getBoundingClientRect()
+      const edge = 36
+      if (clientY < rect.top + edge) {
+        scrollVelocity = -6
+      } else if (clientY > rect.bottom - edge) {
+        scrollVelocity = 6
+      } else {
+        scrollVelocity = 0
+      }
+      if (scrollVelocity !== 0 && scrollFrame === undefined) {
+        scrollFrame = requestAnimationFrame(stepScroll)
+      }
+    }
+
     const cleanup = () => {
       highlight(null)
+      scrollVelocity = 0
+      if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+      scrollContainer = null
+      try {
+        if (source.hasPointerCapture(pointerId)) {
+          source.releasePointerCapture(pointerId)
+        }
+      } catch {
+        // Element may already be detached.
+      }
       source.style.opacity = originalOpacity
       preview.remove()
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", drop)
       window.removeEventListener("pointercancel", cancel)
       window.removeEventListener("blur", cancel)
-      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keydown", onKeyDown, true)
       dragCleanup.current = null
       setIsDragging(false)
     }
     const move = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== event.pointerId) return
+      if (pointer.pointerId !== pointerId) return
       preview.style.left = `${pointer.clientX}px`
       preview.style.top = `${pointer.clientY}px`
+      updateAutoScroll(pointer.clientY)
       highlight(dropTargetAt(pointer.clientX, pointer.clientY)?.element ?? null)
     }
     const drop = (pointer: PointerEvent) => {
-      if (pointer.pointerId !== event.pointerId) return
+      if (pointer.pointerId !== pointerId) return
       const target = dropTargetAt(pointer.clientX, pointer.clientY)
       cleanup()
       if (target) onMove(node.id, target.parentId)
     }
     const cancel = () => cleanup()
     const onKeyDown = (key: KeyboardEvent) => {
-      if (key.key === "Escape") cleanup()
+      if (key.key === "Escape") {
+        key.preventDefault()
+        key.stopPropagation()
+        cleanup()
+      }
     }
     dragCleanup.current = cleanup
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", drop)
     window.addEventListener("pointercancel", cancel)
     window.addEventListener("blur", cancel)
-    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keydown", onKeyDown, true)
   }
 
   return { isDragging, startDrag }

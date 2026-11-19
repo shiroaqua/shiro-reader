@@ -22,7 +22,6 @@ export const ErrorCode = {
   bookTitleUnchanged: 2008,
   bookAlreadyDeleted: 2009,
   bookNotDeleted: 2010,
-  bookVersionConflict: 2011,
   bookFileUploadConflict: 2101,
   bookFileAlreadyExists: 2102,
   bookFileInvalidHashFormat: 2103,

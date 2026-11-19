@@ -53,7 +53,7 @@ function AlertDialogDescription({
 }: AlertDialogPrimitive.Description.Props) {
   return (
     <AlertDialogPrimitive.Description
-      className={cn("text-sm break-all text-muted-foreground", className)}
+      className={cn("text-sm wrap-break-word text-muted-foreground", className)}
       {...props}
     />
   )

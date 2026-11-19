@@ -7,14 +7,14 @@ import { translateTagName, useTranslation } from "@/lib/i18n"
 import { cn } from "cn"
 
 /** The color a tag gets when none is chosen, matching the server default. */
-export const DEFAULT_TAG_COLOR = "#6f6862"
+export const DEFAULT_TAG_COLOR = "#000000"
 
 /**
  * Muted colors with enough depth to remain distinct from the page background.
  * The default stays first so the first swatch matches a new tag.
  */
 export const TAG_COLORS = [
-  "#000000",
+  DEFAULT_TAG_COLOR,
   "#968b82",
   "#d98282",
   "#df9a74",
@@ -35,6 +35,12 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/
 /** True for the exact `#RRGGBB` format the server accepts. */
 export function isTagColor(value: string): boolean {
   return HEX_COLOR.test(value)
+}
+
+function normalizeCustomColor(value: string): string | null {
+  const trimmed = value.trim()
+  const candidate = trimmed.startsWith("#") ? trimmed : `#${trimmed}`
+  return isTagColor(candidate) ? candidate.toLowerCase() : null
 }
 
 /** The text color that stays readable on top of the given background. */
@@ -99,10 +105,16 @@ export function TagColorPalette({
 }) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
-  const custom = isTagColor(draft) ? draft.toLowerCase() : null
+  const custom = normalizeCustomColor(draft)
   const matchesPreset = TAG_COLORS.some(
     (preset) => preset.toLowerCase() === color.toLowerCase()
   )
+
+  const applyCustom = () => {
+    if (!custom || disabled) return
+    onSelect(custom)
+    setDraft("")
+  }
 
   return (
     <div className="grid gap-3">
@@ -118,13 +130,7 @@ export function TagColorPalette({
           />
         ))}
       </div>
-      <form
-        className="flex items-center gap-1.5"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (custom) onSelect(custom)
-        }}
-      >
+      <div className="flex items-center gap-1.5">
         <span
           aria-hidden="true"
           style={{ backgroundColor: custom ?? color }}
@@ -138,18 +144,26 @@ export function TagColorPalette({
           aria-label={t("local.tag.color.custom")}
           placeholder={matchesPreset ? color : color.toUpperCase()}
           onChange={(event) => setDraft(event.target.value.trim())}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === "Enter") {
+              event.preventDefault()
+              applyCustom()
+            }
+          }}
           className="h-7 w-24 px-2 font-mono text-xs uppercase md:text-xs"
         />
         <Button
-          type="submit"
+          type="button"
           size="sm"
           variant="outline"
           disabled={disabled || custom === null}
+          onClick={applyCustom}
           className="h-7 px-2"
         >
           {t("local.tag.color.apply")}
         </Button>
-      </form>
+      </div>
     </div>
   )
 }
@@ -217,8 +231,14 @@ export function TagColorPopover({
   trigger: ReactNode
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
   return (
-    <PopoverPrimitive.Root>
+    <PopoverPrimitive.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!disabled || !next) setOpen(next)
+      }}
+    >
       <PopoverPrimitive.Trigger
         disabled={disabled}
         render={trigger as ReactElement}
@@ -237,7 +257,10 @@ export function TagColorPopover({
             <TagColorPalette
               color={color}
               disabled={disabled}
-              onSelect={onSelect}
+              onSelect={(nextColor) => {
+                onSelect(nextColor)
+                setOpen(false)
+              }}
             />
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>

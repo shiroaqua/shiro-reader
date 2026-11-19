@@ -7,10 +7,6 @@ export const enServer: Record<keyof typeof zhServer, string> = {
   "identity.user.name_conflict": "That username is already in use.",
   "identity.user.name_unchanged": "The username has not changed.",
   "identity.user.password_hash_unchanged": "The password has not changed.",
-  "identity.user.version_conflict":
-    "User data has changed. Please refresh and try again.",
-  "library.book.version_conflict":
-    "Book data has changed. Please review the latest data and try again.",
   "library.tag.invalid_id": "Invalid tag ID.",
   "library.tag.missing_name": "Please enter a tag name.",
   "library.tag.invalid_name_format":
@@ -32,8 +28,6 @@ export const enServer: Record<keyof typeof zhServer, string> = {
     "Parent tag not found. Please refresh and try again.",
   "library.tag.invalid_move":
     "A tag cannot be moved under itself or one of its descendants.",
-  "library.tag.version_conflict":
-    "Tag data has changed. Please refresh and try again.",
   "library.tag.invalid_color": "Invalid tag color. Use the #RRGGBB format.",
   "library.tag.color_unchanged": "The tag color has not changed.",
   "library.tag.invalid_delete_strategy": "Invalid tag deletion strategy.",

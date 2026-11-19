@@ -10,6 +10,16 @@ import {
 } from "lucide-react"
 import { ApiError, library } from "@/api/library"
 import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Button } from "@/components/ui/button"
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -46,6 +56,16 @@ export function BookCard({
   const queryClient = useQueryClient()
   const [renaming, setRenaming] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [prevSelectionMode, setPrevSelectionMode] = useState(isSelectionMode)
+  if (isSelectionMode !== prevSelectionMode) {
+    setPrevSelectionMode(isSelectionMode)
+    if (isSelectionMode) {
+      setRenaming(false)
+      setTagsOpen(false)
+      setDeleteOpen(false)
+    }
+  }
   const isRenaming = renaming && !isSelectionMode
   const willSelect = !selected && selectionPreview === "select"
   const willDeselect = selected && selectionPreview === "deselect"
@@ -60,10 +80,8 @@ export function BookCard({
     if (!(error instanceof ApiError)) return
     if (error.code === ErrorCode.bookNotFound) {
       setRenaming(false)
+      setDeleteOpen(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
-    } else if (error.code === ErrorCode.bookVersionConflict) {
-      // Leave edit mode so the refetched title is visible before the user retries.
-      setRenaming(false)
     }
   }
 
@@ -84,6 +102,7 @@ export function BookCard({
     mutationFn: () => library.bookshelf.book.delete(book.id),
     onSuccess: () => {
       updateBooks((books) => books.filter((item) => item.id !== book.id))
+      setDeleteOpen(false)
     },
     onError: handleMutationError,
     onSettled: () =>
@@ -104,7 +123,8 @@ export function BookCard({
   }
 
   return (
-    <ContextMenu disabled={isRenaming || isSelectionMode}>
+    <>
+      <ContextMenu disabled={isRenaming || isSelectionMode}>
       <ContextMenuTrigger
         render={<li />}
         data-selected={selected || undefined}
@@ -231,7 +251,7 @@ export function BookCard({
         ) : (
           <h2
             title={book.title}
-            className="mt-1.5 line-clamp-2 text-center text-sm leading-snug font-medium break-all"
+            className="mt-1.5 line-clamp-2 text-center text-sm leading-snug font-medium wrap-break-word"
           >
             {book.title}
           </h2>
@@ -259,21 +279,57 @@ export function BookCard({
         <ContextMenuItem
           variant="destructive"
           disabled={deleteMutation.isPending}
-          onClick={() => deleteMutation.mutate()}
+          onClick={() => setDeleteOpen(true)}
         >
-          {deleteMutation.isPending ? (
-            <LoaderCircle aria-hidden="true" className="animate-spin" />
-          ) : (
-            <Trash2 aria-hidden="true" />
-          )}
+          <Trash2 aria-hidden="true" />
           {t("local.book.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
+      </ContextMenu>
       <BookTagDialog
         book={book}
         open={tagsOpen && !isSelectionMode}
         onOpenChange={setTagsOpen}
       />
-    </ContextMenu>
+      <AlertDialog
+        open={deleteOpen && !isSelectionMode}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) setDeleteOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("local.book.delete_confirm_title")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("local.book.delete_confirm_description").replace(
+                "{title}",
+                book.title
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              disabled={deleteMutation.isPending}
+              render={<Button variant="outline" />}
+            >
+              {t("local.common.cancel")}
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              aria-busy={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+            >
+              {deleteMutation.isPending && (
+                <LoaderCircle aria-hidden="true" className="animate-spin" />
+              )}
+              {t("local.book.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

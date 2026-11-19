@@ -14,12 +14,12 @@ const compareDate = (a: Book, b: Book) =>
 // Returns a sorted copy; "date" uses the update time shown on each card.
 export function sortBooks(books: readonly Book[], { field, order }: BookSort, locale?: string) {
   const collator = new Intl.Collator(locale, { numeric: true, sensitivity: "base" })
+  const direction = order === "asc" ? 1 : -1
   const compare =
     field === "title"
-      ? (a: Book, b: Book) => collator.compare(a.title, b.title) || compareDate(a, b)
-      : (a: Book, b: Book) => compareDate(a, b) || collator.compare(a.title, b.title)
-  const direction = order === "asc" ? 1 : -1
-  return [...books].sort((a, b) => direction * compare(a, b))
+      ? (a: Book, b: Book) => direction * collator.compare(a.title, b.title) || compareDate(b, a)
+      : (a: Book, b: Book) => direction * compareDate(a, b) || collator.compare(a.title, b.title)
+  return [...books].sort(compare)
 }
 
 export function parseBookSort(value: string | null): BookSort {

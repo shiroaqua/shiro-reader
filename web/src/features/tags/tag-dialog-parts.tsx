@@ -25,12 +25,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { NativeSelect } from "@/components/ui/native-select"
-import { useTranslation } from "@/lib/i18n"
+import { translateServerMessage, useTranslation } from "@/lib/i18n"
 import { tagsQueryKey } from "@/lib/query-keys"
 import { collectBranchIds } from "@/lib/tag-tree"
 import { filterTagTree } from "@/lib/tag-filter"
 import {
   VALUE_TYPES,
+  isValidTagName,
   toValueRule,
   valueTypeLabelKey,
   type ValueType,
@@ -46,6 +47,30 @@ import {
 export const TAG_DIALOG_CONTENT_CLASS_NAME =
   "max-h-[min(32rem,calc(100dvh-2rem))] sm:max-w-lg"
 
+/** Search and expand state over a visible tag tree. */
+export function useTagTreeExpansion(visibleTree: TagTreeNode[]) {
+  const branchIds = useMemo(() => collectBranchIds(visibleTree), [visibleTree])
+  const [expandedIds, setExpanded] = useState<ReadonlySet<string> | null>(null)
+  const expanded = useMemo(
+    () => expandedIds ?? new Set(branchIds),
+    [expandedIds, branchIds]
+  )
+
+  const resetExpanded = () => setExpanded(null)
+
+  const toggleExpand = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current ?? branchIds)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+
+  const expand = (id: string) =>
+    setExpanded((current) => new Set([...(current ?? branchIds), id]))
+
+  return { expanded, toggleExpand, expand, resetExpanded }
+}
+
 /** Tag tree query plus the search and expand state shared by the bind and manage dialogs. */
 export function useTagTreeView() {
   const { locale } = useTranslation()
@@ -59,28 +84,14 @@ export function useTagTreeView() {
     () => filterTagTree(tree, query, locale),
     [tree, query, locale]
   )
-  const branchIds = useMemo(() => collectBranchIds(visibleTree), [visibleTree])
-  const [expandedIds, setExpanded] = useState<ReadonlySet<string> | null>(null)
-  const expanded = useMemo(
-    () => expandedIds ?? new Set(branchIds),
-    [expandedIds, branchIds]
-  )
+  const { expanded, toggleExpand, expand, resetExpanded } =
+    useTagTreeExpansion(visibleTree)
 
   const setQuery = (next: string) => {
     setQueryState(next)
     // Re-expand every branch that still matches the new filter.
-    setExpanded(null)
+    resetExpanded()
   }
-
-  const toggleExpand = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current ?? branchIds)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
-
-  const expand = (id: string) =>
-    setExpanded((current) => new Set([...(current ?? branchIds), id]))
 
   return {
     tagsQuery,
@@ -331,15 +342,17 @@ export function CreateTagDialog({
   onClose: () => void
   onStage?: (definition: Omit<Tag, "id">) => void
 }) {
-  const { t } = useTranslation()
+  const { locale, t } = useTranslation()
   const [name, setName] = useState("")
   const [valueType, setValueType] = useState<ValueType>("none")
   const [color, setColor] = useState(DEFAULT_TAG_COLOR)
+  const trimmedName = name.trim()
+  const isNameInvalid = trimmedName !== "" && !isValidTagName(trimmedName)
   const queryClient = useQueryClient()
   const createMutation = useMutation({
     mutationFn: () =>
       library.tag.define({
-        name: name.trim(),
+        name: trimmedName,
         parent_id: parentId,
         color,
         ...toValueRule(valueType),
@@ -349,12 +362,13 @@ export function CreateTagDialog({
       onClose()
     },
   })
-  const canSubmit = name.trim() !== "" && !createMutation.isPending
+  const canSubmit =
+    trimmedName !== "" && !isNameInvalid && !createMutation.isPending
 
   const submit = () => {
     if (!canSubmit) return
     const definition = {
-      name: name.trim(),
+      name: trimmedName,
       parent_id: parentId,
       color,
       ...toValueRule(valueType),
@@ -387,6 +401,7 @@ export function CreateTagDialog({
               autoFocus
               value={name}
               disabled={createMutation.isPending}
+              aria-invalid={isNameInvalid || undefined}
               placeholder={t("local.tag.name_placeholder")}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
@@ -397,6 +412,14 @@ export function CreateTagDialog({
                 }
               }}
             />
+            {isNameInvalid && (
+              <span className="text-xs font-normal text-destructive">
+                {translateServerMessage(
+                  "library.tag.invalid_name_format",
+                  locale
+                )}
+              </span>
+            )}
           </label>
           <div className="grid gap-1.5 text-sm font-medium">
             <span>{t("local.tag.color")}</span>

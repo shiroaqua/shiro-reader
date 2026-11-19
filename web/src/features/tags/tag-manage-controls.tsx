@@ -19,8 +19,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { notifyError } from "@/lib/error-notifications"
 import { translateTagName, useTranslation } from "@/lib/i18n"
+import { isValidTagName } from "@/lib/tag-value-patterns"
 import type { TagTreeNode, UndefineTagStrategy } from "@/lib/types"
+import { cn } from "cn"
 
 export function ManageTreeRow({
   node,
@@ -78,7 +81,7 @@ export function ManageTreeRow({
       node={node}
       depth={depth}
       expanded={expanded}
-      disabled={disabled || coveredByCascade}
+      disabled={disabled}
       selected={checked}
       onToggleExpand={onToggleExpand}
       onPointerDown={onPointerDown}
@@ -93,7 +96,12 @@ export function ManageTreeRow({
         />
       ) : (
         <>
-          <div className="flex min-w-0 flex-1 cursor-grab items-center gap-2 py-1.5 text-sm">
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-2 py-1.5 text-sm",
+              !disabled && !isPendingDeletion && "cursor-grab"
+            )}
+          >
             <Checkbox
               className="relative before:absolute before:-inset-1 before:content-['']"
               checked={checked}
@@ -220,13 +228,28 @@ function RenameTagInput({
   const { t } = useTranslation()
   const [draft, setDraft] = useState(initialName)
   const finished = useRef(false)
+  const trimmed = draft.trim()
+  const isInvalid = trimmed !== "" && !isValidTagName(trimmed)
 
   // Enter or leaving the field stages the name; Done sends it to the server.
-  const finish = (shouldStage: boolean) => {
+  const finish = (shouldStage: boolean, warnOnInvalid = false) => {
     if (finished.current || disabled) return
+    if (shouldStage && isInvalid) {
+      if (warnOnInvalid) {
+        notifyError({
+          source: "server",
+          key: "library.tag.invalid_name_format",
+        })
+        return
+      }
+      finished.current = true
+      onDone()
+      return
+    }
     finished.current = true
-    const name = draft.trim()
-    if (shouldStage && name !== "" && name !== initialName) onStage(name)
+    if (shouldStage && trimmed !== "" && trimmed !== initialName) {
+      onStage(trimmed)
+    }
     onDone()
   }
 
@@ -235,6 +258,7 @@ function RenameTagInput({
       autoFocus
       value={draft}
       aria-label={t("local.tag.rename")}
+      aria-invalid={isInvalid || undefined}
       aria-busy={disabled}
       disabled={disabled}
       className="h-7 min-w-0 flex-1 text-sm"
@@ -244,7 +268,7 @@ function RenameTagInput({
         if (event.nativeEvent.isComposing) return
         if (event.key === "Enter") {
           event.preventDefault()
-          finish(true)
+          finish(true, true)
         } else if (event.key === "Escape") {
           // Only leave edit mode; the dialog itself stays open.
           event.preventDefault()
@@ -259,14 +283,17 @@ function RenameTagInput({
 
 export function DeleteTagDialog({
   tag,
+  displayName,
   onConfirm,
   onClose,
 }: {
   tag: TagTreeNode
+  displayName?: string
   onConfirm: (strategy: UndefineTagStrategy) => void
   onClose: () => void
 }) {
   const { locale, t } = useTranslation()
+  const resolvedName = displayName ?? translateTagName(tag.name, locale)
   const hasChildren = tag.children.length > 0
   // Promoting children is the non-destructive default.
   const [strategy, setStrategy] = useState<UndefineTagStrategy>("PROMOTE")
@@ -299,7 +326,7 @@ export function DeleteTagDialog({
           <AlertDialogDescription>
             {t("local.tag.delete_confirm_description").replace(
               "{name}",
-              translateTagName(tag.name, locale)
+              resolvedName
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>

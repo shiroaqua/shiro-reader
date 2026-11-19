@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Trash2 } from "lucide-react"
+import { library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
 import {
@@ -9,7 +10,7 @@ import {
   TagDialogHeader,
   TagSearchBar,
   TagTreeBox,
-  useTagTreeView,
+  useTagTreeExpansion,
 } from "@/features/tags/tag-dialog-parts"
 import {
   BatchDeleteTagDialog,
@@ -21,8 +22,8 @@ import {
   applyPendingMoves,
   collectCascadeDeletedIds,
   collectSelectedRoots,
-  collectTagMetadata,
   commitTagChanges,
+  countTagChanges,
   prepareChanges,
   resolveParentAfterPartialCommit,
   TagManageCommitError,
@@ -30,7 +31,7 @@ import {
   type PendingDelete,
 } from "@/features/tags/tag-manage-model"
 import { useTagTreeDrag } from "@/features/tags/use-tag-tree-drag"
-import { useTranslation } from "@/lib/i18n"
+import { formatCountMessage, translateTagName, useTranslation } from "@/lib/i18n"
 import { booksQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { filterTagTree } from "@/lib/tag-filter"
@@ -78,8 +79,12 @@ function TagManageForm({
   onSavingChange: (isSaving: boolean) => void
 }) {
   const { locale, t } = useTranslation()
-  const view = useTagTreeView()
-  const { tagsQuery, expanded, toggleExpand, expand } = view
+  const tagsQuery = useQuery({
+    queryKey: tagsQueryKey,
+    queryFn: () => library.tag.list(),
+  })
+  const serverTree = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data])
+  const [query, setQueryState] = useState("")
   const [active, setActive] = useState<ActiveDialog | null>(null)
   const [pendingCreates, setPendingCreates] = useState<PendingCreate[]>([])
   const [pendingRenames, setPendingRenames] = useState<
@@ -100,15 +105,21 @@ function TagManageForm({
   const tree = useMemo(
     () =>
       applyPendingMoves(
-        addPendingCreates(view.tree, pendingCreates),
+        addPendingCreates(serverTree, pendingCreates),
         pendingMoves
       ),
-    [view.tree, pendingCreates, pendingMoves]
+    [serverTree, pendingCreates, pendingMoves]
   )
   const visibleTree = useMemo(
-    () => filterTagTree(tree, view.query, locale),
-    [tree, view.query, locale]
+    () => filterTagTree(tree, query, locale),
+    [tree, query, locale]
   )
+  const { expanded, toggleExpand, expand, resetExpanded } =
+    useTagTreeExpansion(visibleTree)
+  const setQuery = (next: string) => {
+    setQueryState(next)
+    resetExpanded()
+  }
   // Tags that no longer exist (deleted here or elsewhere) drop out of the selection.
   const selectedTags = useMemo(
     () =>
@@ -125,17 +136,32 @@ function TagManageForm({
     () => collectSelectedRoots(tree, selected),
     [tree, selected]
   )
-  const tagMetadata = useMemo(() => collectTagMetadata(tree), [tree])
   const cascadeDeletedIds = useMemo(
     () => collectCascadeDeletedIds(tree, pendingDeletes),
     [tree, pendingDeletes]
   )
-  const pendingCount =
-    pendingCreates.length +
-    pendingMoves.size +
-    pendingRenames.size +
-    pendingRecolors.size +
-    pendingDeletes.size
+  const preparedChanges = useMemo(
+    () =>
+      prepareChanges(
+        serverTree,
+        tree,
+        pendingCreates,
+        pendingMoves,
+        pendingRenames,
+        pendingRecolors,
+        pendingDeletes
+      ),
+    [
+      serverTree,
+      tree,
+      pendingCreates,
+      pendingMoves,
+      pendingRenames,
+      pendingRecolors,
+      pendingDeletes,
+    ]
+  )
+  const pendingCount = countTagChanges(preparedChanges)
   const queryClient = useQueryClient()
   const saveMutation = useMutation({
     mutationFn: commitTagChanges,
@@ -148,7 +174,10 @@ function TagManageForm({
       const recoloredIds = new Set(error.progress.recoloredIds)
       const deletedIds = new Set(error.progress.deletedIds)
       const removedIds = new Set<string>()
-      for (const [id, strategy] of changes.deletes) {
+      for (const [id, strategy] of [
+        ...changes.earlyDeletes,
+        ...changes.lateDeletes,
+      ]) {
         if (!deletedIds.has(id)) continue
         const tag = findTag(tree, id)
         if (strategy === "CASCADE" && tag) {
@@ -180,12 +209,22 @@ function TagManageForm({
           new Map(
             [...current]
               .filter(([id]) => !movedIds.has(id) && !removedIds.has(id))
-              .map(([id, parentId]) => [
-                id,
-                parentId
-                  ? (error.progress.createdIds.get(parentId) ?? parentId)
-                  : null,
-              ])
+              .map(([id, parentId]) => {
+                const resolvedParentId = resolveParentAfterPartialCommit(
+                  parentId,
+                  deletedIds,
+                  pendingDeletes,
+                  pendingCreates,
+                  tree
+                )
+                return [
+                  id,
+                  resolvedParentId
+                    ? (error.progress.createdIds.get(resolvedParentId) ??
+                      resolvedParentId)
+                    : null,
+                ]
+              })
           )
       )
       setPendingDeletes(
@@ -219,7 +258,11 @@ function TagManageForm({
     onSettled: async (_data, error) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: tagsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: booksQueryKey }),
+        queryClient.invalidateQueries({
+          predicate: (cachedQuery) =>
+            cachedQuery.queryKey[0] === booksQueryKey[0] &&
+            cachedQuery.queryKey[2] === "tags",
+        }),
       ])
       onSavingChange(false)
       if (!error) onClose()
@@ -227,6 +270,7 @@ function TagManageForm({
   })
 
   const stageCreate = (definition: Omit<Tag, "id">) => {
+    if (definition.parent_id) expand(definition.parent_id)
     setPendingCreates((current) => [
       ...current,
       { ...definition, draftId: `draft:${crypto.randomUUID()}` },
@@ -269,8 +313,60 @@ function TagManageForm({
     })
   }
 
-  const stageDelete = (id: string, strategy: UndefineTagStrategy) =>
+  const stageDelete = (id: string, strategy: UndefineTagStrategy) => {
+    const draft = pendingCreates.find((create) => create.draftId === id)
+    if (draft) {
+      const draftNode = findTag(tree, id)
+      if (strategy === "CASCADE") {
+        const subtreeIds = new Set(
+          draftNode ? collectSubtreeIds(draftNode) : [id]
+        )
+        setPendingCreates((current) =>
+          current.filter((create) => !subtreeIds.has(create.draftId))
+        )
+        const serverSubtreeIds = [...subtreeIds].filter(
+          (nodeId) => !nodeId.startsWith("draft:")
+        )
+        if (serverSubtreeIds.length > 0) {
+          setPendingMoves((current) => {
+            const next = new Map(current)
+            for (const nodeId of serverSubtreeIds) next.delete(nodeId)
+            return next
+          })
+          setPendingDeletes((current) => {
+            const next = new Map(current)
+            for (const nodeId of serverSubtreeIds) {
+              next.set(nodeId, { strategy: "CASCADE" })
+            }
+            return next
+          })
+        }
+      } else {
+        setPendingCreates((current) =>
+          current
+            .filter((create) => create.draftId !== id)
+            .map((create) =>
+              create.parent_id === id
+                ? { ...create, parent_id: draft.parent_id }
+                : create
+            )
+        )
+        setPendingMoves((current) => {
+          const next = new Map<string, string | null>()
+          for (const [nodeId, targetParentId] of current) {
+            const nextParentId =
+              targetParentId === id ? draft.parent_id : targetParentId
+            if (findTag(serverTree, nodeId)?.parent_id !== nextParentId) {
+              next.set(nodeId, nextParentId)
+            }
+          }
+          return next
+        })
+      }
+      return
+    }
     setPendingDeletes((current) => new Map(current).set(id, { strategy }))
+  }
 
   const restoreDelete = (id: string) =>
     setPendingDeletes((current) => {
@@ -301,9 +397,13 @@ function TagManageForm({
     } else {
       setPendingMoves((current) => {
         const next = new Map(current)
-        if (view.tree.length && findTag(view.tree, id)?.parent_id === parentId)
-          next.delete(id)
-        else next.set(id, parentId)
+        next.delete(id)
+        if (
+          serverTree.length === 0 ||
+          findTag(serverTree, id)?.parent_id !== parentId
+        ) {
+          next.set(id, parentId)
+        }
         return next
       })
     }
@@ -320,27 +420,11 @@ function TagManageForm({
 
   const submit = () => {
     if (saveMutation.isPending) return
-    const changes = prepareChanges(
-      view.tree,
-      tree,
-      tagMetadata,
-      pendingCreates,
-      pendingMoves,
-      pendingRenames,
-      pendingRecolors,
-      pendingDeletes
-    )
-    if (
-      changes.creates.length === 0 &&
-      changes.moves.length === 0 &&
-      changes.renames.length === 0 &&
-      changes.recolors.length === 0 &&
-      changes.deletes.length === 0
-    ) {
+    if (pendingCount === 0) {
       onClose()
       return
     }
-    saveMutation.mutate(changes)
+    saveMutation.mutate(preparedChanges)
   }
 
   const toggleSelect = (node: TagTreeNode, checked: boolean) =>
@@ -416,9 +500,9 @@ function TagManageForm({
       />
 
       <TagSearchBar
-        query={view.query}
+        query={query}
         disabled={saveMutation.isPending}
-        onQueryChange={view.setQuery}
+        onQueryChange={setQuery}
         onDefine={() => setActive({ kind: "create", parentId: null })}
       />
 
@@ -442,9 +526,11 @@ function TagManageForm({
           )}
           {pendingCount > 0 && (
             <span className="ml-2">
-              {t("local.tag.pending_changes").replace(
-                "{count}",
-                String(pendingCount)
+              {formatCountMessage(
+                pendingCount,
+                "local.tag.pending_changes_one",
+                "local.tag.pending_changes",
+                t
               )}
             </span>
           )}
@@ -477,6 +563,10 @@ function TagManageForm({
       {active?.kind === "delete" && (
         <DeleteTagDialog
           tag={active.tag}
+          displayName={translateTagName(
+            pendingRenames.get(active.tag.id) ?? active.tag.name,
+            locale
+          )}
           onConfirm={(strategy) => {
             stageDelete(active.tag.id, strategy)
             closeActive()

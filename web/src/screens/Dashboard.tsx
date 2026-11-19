@@ -17,6 +17,7 @@ import {
   Search,
   Clock,
   LibraryBig,
+  LoaderCircle,
   NotebookPen,
   ChartNoAxesCombined,
   Trash,
@@ -36,6 +37,7 @@ import { Separator } from "@/components/ui/separator"
 import { BrandMark } from "@/components/brand-mark"
 import { BookshelfBooks } from "@/features/books/bookshelf-books"
 import { TrashList } from "@/features/books/trash-list"
+import { ApiError } from "@/api/http"
 import { useTranslation } from "@/lib/i18n"
 import { useAuth } from "@/context/auth-context"
 import { notifyError } from "@/lib/error-notifications"
@@ -92,7 +94,7 @@ export function DashboardScreen() {
     t("local.dashboard.bookshelf")
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-svh overflow-hidden">
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="flex h-12 items-center gap-2.5 px-2 group-data-[collapsible=icon]:px-0">
@@ -116,7 +118,7 @@ export function DashboardScreen() {
           <UserProfileMenu username={username} onLogout={logout} />
         </SidebarFooter>
       </Sidebar>
-      <main className="flex min-w-0 flex-1 flex-col bg-background">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         <header className="group/header flex h-14 shrink-0 items-center gap-2 border-b px-4 transition-colors has-data-[slot=selection-bar]:bg-muted/60">
           <div className="flex min-w-0 items-center gap-2 group-has-data-[slot=selection-bar]/header:hidden">
             <SidebarTrigger />
@@ -130,7 +132,7 @@ export function DashboardScreen() {
             className="hidden min-w-0 flex-1 items-center group-has-data-[slot=selection-bar]/header:flex"
           />
         </header>
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {activeMenu === "bookshelf" && (
             <BookshelfBooks headerOverlay={headerOverlay} />
           )}
@@ -192,8 +194,12 @@ function UserProfileMenu({
     setIsLoggingOut(true)
     try {
       await onLogout()
-    } catch {
-      notifyError({ source: "local", key: "local.auth.logout_failed" })
+    } catch (error) {
+      notifyError(
+        error instanceof ApiError
+          ? error.translation
+          : { source: "local", key: "local.auth.logout_failed" }
+      )
     } finally {
       submitting.current = false
       setIsLoggingOut(false)
@@ -209,6 +215,7 @@ function UserProfileMenu({
               <SidebarMenuButton
                 size="lg"
                 disabled={isLoggingOut}
+                aria-busy={isLoggingOut}
                 className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
               />
             }
@@ -223,7 +230,11 @@ function UserProfileMenu({
                 {username || t("local.common.user")}
               </span>
             </div>
-            <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
+            {isLoggingOut ? (
+              <LoaderCircle aria-hidden="true" className="ml-auto size-4 animate-spin text-muted-foreground" />
+            ) : (
+              <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
+            )}
           </DropdownMenuTrigger>
           <DropdownMenuContent
             className="min-w-56"

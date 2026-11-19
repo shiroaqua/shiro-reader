@@ -71,6 +71,18 @@ function subscribe(listener: () => void) {
   return () => window.removeEventListener("languagechange", listener)
 }
 
+export function formatCountMessage(
+  count: number,
+  singularKey: LocalTranslationKey,
+  pluralKey: LocalTranslationKey,
+  t: (key: LocalTranslationKey) => string
+): string {
+  return t(count === 1 ? singularKey : pluralKey).replace(
+    "{count}",
+    String(count)
+  )
+}
+
 export function useTranslation() {
   const locale = useSyncExternalStore(subscribe, getLocale, () => "en" as const)
   return {

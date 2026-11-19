@@ -1,6 +1,7 @@
 import { library } from "@/api/library"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import type { Tag, TagTreeNode, UndefineTagStrategy } from "@/lib/types"
+
 export async function commitTagChanges(changes: TagChanges) {
   const progress: CommitProgress = {
     createdIds: new Map(),
@@ -10,6 +11,10 @@ export async function commitTagChanges(changes: TagChanges) {
     deletedIds: [],
   }
   try {
+    for (const [id, strategy] of changes.earlyDeletes) {
+      await library.tag.undefine(id, strategy)
+      progress.deletedIds.push(id)
+    }
     for (const create of changes.creates) {
       const { draftId, ...definition } = create
       const parentId = definition.parent_id
@@ -29,7 +34,7 @@ export async function commitTagChanges(changes: TagChanges) {
       )
       progress.movedIds.push(id)
     }
-    for (const [id, strategy] of changes.deletes) {
+    for (const [id, strategy] of changes.lateDeletes) {
       await library.tag.undefine(id, strategy)
       progress.deletedIds.push(id)
     }
@@ -51,11 +56,23 @@ export type PendingDelete = { strategy: UndefineTagStrategy }
 export type PendingCreate = Omit<Tag, "id"> & { draftId: string }
 
 export type TagChanges = {
+  earlyDeletes: [string, UndefineTagStrategy][]
   creates: PendingCreate[]
   moves: [string, string | null][]
+  lateDeletes: [string, UndefineTagStrategy][]
   renames: [string, string][]
   recolors: [string, string][]
-  deletes: [string, UndefineTagStrategy][]
+}
+
+export function countTagChanges(changes: TagChanges): number {
+  return (
+    changes.earlyDeletes.length +
+    changes.creates.length +
+    changes.moves.length +
+    changes.lateDeletes.length +
+    changes.renames.length +
+    changes.recolors.length
+  )
 }
 
 export type CommitProgress = {
@@ -103,6 +120,38 @@ export function collectTagMetadata(nodes: TagTreeNode[]) {
   return metadata
 }
 
+function cloneTagTree(nodes: readonly TagTreeNode[]): TagTreeNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    children: cloneTagTree(node.children),
+  }))
+}
+
+/** Orders draft creates so any draft parent always precedes its draft children. */
+export function sortPendingCreates(
+  pendingCreates: readonly PendingCreate[]
+): PendingCreate[] {
+  const byId = new Map(pendingCreates.map((item) => [item.draftId, item]))
+  const ordered: PendingCreate[] = []
+  const visited = new Set<string>()
+  const visiting = new Set<string>()
+
+  const visit = (item: PendingCreate) => {
+    if (visited.has(item.draftId) || visiting.has(item.draftId)) return
+    visiting.add(item.draftId)
+    if (item.parent_id) {
+      const parent = byId.get(item.parent_id)
+      if (parent) visit(parent)
+    }
+    visiting.delete(item.draftId)
+    visited.add(item.draftId)
+    ordered.push(item)
+  }
+
+  for (const item of pendingCreates) visit(item)
+  return ordered
+}
+
 export function addPendingCreates(
   serverTree: TagTreeNode[],
   pendingCreates: PendingCreate[]
@@ -117,7 +166,7 @@ export function addPendingCreates(
     })
   const tree = cloneTree(serverTree)
 
-  for (const create of pendingCreates) {
+  for (const create of sortPendingCreates(pendingCreates)) {
     const node: TagTreeNode = {
       id: create.draftId,
       name: create.name,
@@ -136,33 +185,62 @@ export function addPendingCreates(
   return tree
 }
 
+function detachNode(nodes: TagTreeNode[], id: string): TagTreeNode | undefined {
+  const index = nodes.findIndex((node) => node.id === id)
+  if (index !== -1) return nodes.splice(index, 1)[0]
+  for (const node of nodes) {
+    const found = detachNode(node.children, id)
+    if (found) return found
+  }
+  return undefined
+}
+
+/**
+ * Applies moves in dependency order so moving an ancestor under a former
+ * descendant waits until that descendant has moved out.
+ */
+function orderAndApplyMoves(
+  baseTree: TagTreeNode[],
+  moves: readonly [string, string | null][],
+  mutateBase: boolean
+): { orderedMoves: [string, string | null][]; tree: TagTreeNode[] } {
+  const workingTree = mutateBase ? baseTree : cloneTagTree(baseTree)
+  const orderedMoves: [string, string | null][] = []
+  let remaining = [...moves]
+
+  while (remaining.length > 0) {
+    const deferred: [string, string | null][] = []
+    let progressed = false
+
+    for (const move of remaining) {
+      const [id, parentId] = move
+      const node = findTag(workingTree, id)
+      const parent = parentId ? findTag(workingTree, parentId) : null
+      if (!node || (parentId && !parent)) continue
+      if (parentId && collectSubtreeIds(node).includes(parentId)) {
+        deferred.push(move)
+        continue
+      }
+      detachNode(workingTree, id)
+      node.parent_id = parentId
+      if (parent) parent.children.push(node)
+      else workingTree.push(node)
+      orderedMoves.push(move)
+      progressed = true
+    }
+
+    if (!progressed) break
+    remaining = deferred
+  }
+
+  return { orderedMoves, tree: workingTree }
+}
+
 export function applyPendingMoves(
   tree: TagTreeNode[],
   moves: ReadonlyMap<string, string | null>
 ): TagTreeNode[] {
-  const detach = (
-    nodes: TagTreeNode[],
-    id: string
-  ): TagTreeNode | undefined => {
-    const index = nodes.findIndex((node) => node.id === id)
-    if (index !== -1) return nodes.splice(index, 1)[0]
-    for (const node of nodes) {
-      const found = detach(node.children, id)
-      if (found) return found
-    }
-  }
-
-  for (const [id, parentId] of moves) {
-    const node = findTag(tree, id)
-    const parent = parentId ? findTag(tree, parentId) : null
-    if (!node || (parentId && !parent)) continue
-    if (parentId && collectSubtreeIds(node).includes(parentId)) continue
-    detach(tree, id)
-    node.parent_id = parentId
-    if (parent) parent.children.push(node)
-    else tree.push(node)
-  }
-  return tree
+  return orderAndApplyMoves(tree, [...moves], true).tree
 }
 
 export function collectCascadeDeletedIds(
@@ -208,7 +286,6 @@ export function resolveParentAfterPartialCommit(
 export function prepareChanges(
   serverTree: TagTreeNode[],
   tree: TagTreeNode[],
-  metadata: Map<string, { depth: number; ancestors: string[] }>,
   pendingCreates: PendingCreate[],
   pendingMoves: ReadonlyMap<string, string | null>,
   pendingRenames: ReadonlyMap<string, string>,
@@ -235,16 +312,18 @@ export function prepareChanges(
     return parentId
   }
 
-  const creates = pendingCreates
-    .filter(
-      (create) =>
-        !pendingDeletes.has(create.draftId) &&
-        !cascadeDeletedIds.has(create.draftId)
-    )
-    .map((create) => ({
-      ...create,
-      parent_id: resolveParentId(create.parent_id),
-    }))
+  const creates = sortPendingCreates(
+    pendingCreates
+      .filter(
+        (create) =>
+          !pendingDeletes.has(create.draftId) &&
+          !cascadeDeletedIds.has(create.draftId)
+      )
+      .map((create) => ({
+        ...create,
+        parent_id: resolveParentId(create.parent_id),
+      }))
+  )
 
   const renames = [...pendingRenames].filter(
     ([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id)
@@ -252,32 +331,75 @@ export function prepareChanges(
   const recolors = [...pendingRecolors].filter(
     ([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id)
   )
-  const moves = [...pendingMoves]
+  const rawMoves = [...pendingMoves]
     .filter(([id]) => !pendingDeletes.has(id) && !cascadeDeletedIds.has(id))
     .map(
       ([id, parentId]) =>
         [id, resolveParentId(parentId)] as [string, string | null]
     )
     .filter(([id, parentId]) => findTag(serverTree, id)?.parent_id !== parentId)
+
+  const { orderedMoves: moves, tree: preDeleteTree } = orderAndApplyMoves(
+    addPendingCreates(serverTree, creates),
+    rawMoves,
+    true
+  )
+  const preDeleteMetadata = collectTagMetadata(preDeleteTree)
   const pendingCreateIds = new Set(
     pendingCreates.map((create) => create.draftId)
   )
-  const deletes = [...pendingDeletes]
+
+  const deleteMap = new Map<string, UndefineTagStrategy>()
+  for (const [id, deletion] of pendingDeletes) {
+    if (!pendingCreateIds.has(id)) {
+      deleteMap.set(id, deletion.strategy)
+    }
+  }
+  // A server tag dragged under a cascade-deleted parent is not moved on the server,
+  // so include it in deletes explicitly if no cascade-deleted ancestor covers it there.
+  for (const id of cascadeDeletedIds) {
+    if (pendingCreateIds.has(id) || deleteMap.has(id)) continue
+    const coveredOnServer = (
+      preDeleteMetadata.get(id)?.ancestors ?? []
+    ).some((ancestorId) => deleteMap.get(ancestorId) === "CASCADE")
+    if (!coveredOnServer) {
+      deleteMap.set(id, "CASCADE")
+    }
+  }
+
+  const allDeletes = [...deleteMap]
     .filter(
       ([id]) =>
-        !pendingCreateIds.has(id) &&
-        !(metadata.get(id)?.ancestors ?? []).some(
-          (ancestorId) => pendingDeletes.get(ancestorId)?.strategy === "CASCADE"
+        !(preDeleteMetadata.get(id)?.ancestors ?? []).some(
+          (ancestorId) => deleteMap.get(ancestorId) === "CASCADE"
         )
     )
-    .map(
-      ([id, deletion]) =>
-        [id, deletion.strategy] as [string, UndefineTagStrategy]
-    )
-    .sort(
-      ([leftId], [rightId]) =>
-        (metadata.get(rightId)?.depth ?? 0) - (metadata.get(leftId)?.depth ?? 0)
-    )
+    .sort(([leftId, leftStrategy], [rightId, rightStrategy]) => {
+      const depthDiff =
+        (preDeleteMetadata.get(rightId)?.depth ?? 0) -
+        (preDeleteMetadata.get(leftId)?.depth ?? 0)
+      if (depthDiff !== 0) return depthDiff
+      // Run non-promoting deletes before PROMOTE deletes at the same depth to avoid sibling collisions.
+      const leftRank = leftStrategy === "PROMOTE" ? 1 : 0
+      const rightRank = rightStrategy === "PROMOTE" ? 1 : 0
+      return leftRank - rightRank
+    })
 
-  return { creates, moves, renames, recolors, deletes }
+  // Defer deleting any server tag whose subtree contains a kept node being moved out.
+  const movedNodeIds = new Set(moves.map(([id]) => id))
+  const earlyDeletes: [string, UndefineTagStrategy][] = []
+  const lateDeletes: [string, UndefineTagStrategy][] = []
+  for (const entry of allDeletes) {
+    const [id] = entry
+    const serverNode = findTag(serverTree, id)
+    const protectsMovedDescendant =
+      serverNode !== undefined &&
+      collectSubtreeIds(serverNode).some(
+        (descendantId) => descendantId !== id && movedNodeIds.has(descendantId)
+      )
+    if (protectsMovedDescendant) lateDeletes.push(entry)
+    else earlyDeletes.push(entry)
+  }
+
+  return { earlyDeletes, creates, moves, lateDeletes, renames, recolors }
 }

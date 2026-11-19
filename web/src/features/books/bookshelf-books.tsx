@@ -36,7 +36,7 @@ import {
   sortBooks,
   type BookSort,
 } from "@/lib/book-sort"
-import { useTranslation } from "@/lib/i18n"
+import { formatCountMessage, useTranslation } from "@/lib/i18n"
 import type { Book } from "@/lib/types"
 
 type SelectionAnchor = {
@@ -252,7 +252,12 @@ export function BookshelfBooks({
           books &&
           books.length > 0 && (
             <span className="tabular-nums">
-              {t("local.book.count").replace("{count}", String(books.length))}
+              {formatCountMessage(
+                books.length,
+                "local.book.count_one",
+                "local.book.count",
+                t
+              )}
             </span>
           )
         }
@@ -338,7 +343,7 @@ export function BookshelfBooks({
 
       <BatchBookTagDialog
         bookIds={selectedBookIds}
-        open={batchTagOpen}
+        open={batchTagOpen && selectedBookIds.length > 0}
         onOpenChange={setBatchTagOpen}
         onSuccess={clearSelection}
       />

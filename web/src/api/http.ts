@@ -26,15 +26,34 @@ export type RequestOptions = {
   cache?: RequestCache
   timeoutMs?: number | null
   expectBody?: boolean
+  signal?: AbortSignal
 }
 
 export async function sendRequest(
   path: string,
-  { method = "GET", body, cache, timeoutMs = 10_000 }: RequestOptions = {},
+  {
+    method = "GET",
+    body,
+    cache,
+    timeoutMs = 10_000,
+    signal,
+  }: RequestOptions = {},
   token?: string
 ): Promise<Response> {
+  if (signal?.aborted) {
+    throw new DOMException("Aborted", "AbortError")
+  }
   const controller = new AbortController()
-  const timeout = timeoutMs === null ? undefined : setTimeout(() => controller.abort(), timeoutMs)
+  let timedOut = false
+  const onAbort = () => controller.abort(signal?.reason)
+  signal?.addEventListener("abort", onAbort, { once: true })
+  const timeout =
+    timeoutMs === null
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true
+          controller.abort()
+        }, timeoutMs)
   const headers: Record<string, string> = {}
   if (token) headers.Authorization = `Bearer ${token}`
   const init: RequestInit = { method, headers, signal: controller.signal }
@@ -47,10 +66,26 @@ export async function sendRequest(
   }
   try {
     return await fetch(`${API_BASE_URL}/${path}`, init)
-  } catch {
-    throw new ApiError(0, { source: "local", key: "local.network.error" })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new ApiError(0, {
+      source: "local",
+      key: timedOut ? "local.network.timeout" : "local.network.error",
+    })
   } finally {
     clearTimeout(timeout)
+    signal?.removeEventListener("abort", onAbort)
+  }
+}
+
+export async function parseJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new ApiError(response.status, {
+      source: "local",
+      key: "local.common.error.unknown",
+    })
   }
 }
 

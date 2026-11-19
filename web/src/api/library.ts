@@ -1,5 +1,5 @@
 import { sendAuthenticatedRequest } from "./auth"
-import { API_BASE_URL, ApiError, type RequestOptions } from "./http"
+import { ApiError, parseJson, type RequestOptions } from "./http"
 import type {
   Book,
   BookTag,
@@ -37,14 +37,13 @@ export const bookshelf = {
         body: { ids },
         expectBody: false,
       }),
-    getCover: async (id: Book["id"]): Promise<Blob> =>
+    getCover: async (id: Book["id"], signal?: AbortSignal): Promise<Blob> =>
       (
         await sendAuthenticatedRequest(
-          `library/bookshelf/books/${encodeURIComponent(id)}/cover`
+          `library/bookshelf/books/${encodeURIComponent(id)}/cover`,
+          { signal }
         )
       ).blob(),
-    coverUrl: (id: Book["id"]) =>
-      `${API_BASE_URL}/library/bookshelf/books/${encodeURIComponent(id)}/cover`,
 
     getTags: (id: Book["id"]) =>
       request<BookTag[]>(`bookshelf/books/${encodeURIComponent(id)}/tags`),
@@ -68,13 +67,42 @@ export const bookshelf = {
         method: "POST",
         expectBody: false,
       }),
-    restoreBatch: async (ids: Book["id"][]): Promise<void> => {
-      await Promise.all(ids.map((id) =>
-        request<void>(`bookshelf/trash/${encodeURIComponent(id)}/restore`, {
-          method: "POST",
-          expectBody: false,
+    restoreBatch: async (
+      ids: Book["id"][]
+    ): Promise<{ restoredIds: Book["id"][]; failedIds: Book["id"][] }> => {
+      const restoredIds: Book["id"][] = []
+      const failedIds: Book["id"][] = []
+      let firstError: ApiError | undefined
+      const queue = [...ids]
+      const concurrency = Math.min(4, queue.length)
+      await Promise.all(
+        Array.from({ length: concurrency }, async () => {
+          while (queue.length > 0) {
+            const id = queue.shift()!
+            try {
+              await performRequest<void>(
+                `bookshelf/trash/${encodeURIComponent(id)}/restore`,
+                {
+                  method: "POST",
+                  expectBody: false,
+                }
+              )
+              restoredIds.push(id)
+            } catch (error) {
+              failedIds.push(id)
+              if (!firstError && error instanceof ApiError) {
+                firstError = error
+              }
+            }
+          }
         })
-      ))
+      )
+      if (firstError) {
+        notifyError(firstError.translation)
+      } else if (failedIds.length > 0) {
+        notifyError({ source: "local", key: "local.common.error.unknown" })
+      }
+      return { restoredIds, failedIds }
     },
     permanentlyDelete: (id: Book["id"]) =>
       request<void>(`bookshelf/trash/${encodeURIComponent(id)}`, {
@@ -187,5 +215,5 @@ async function performRequest<T>(
   const response = await sendAuthenticatedRequest(`library/${path}`, options)
   if (response.status === 204 || options.expectBody === false)
     return undefined as T
-  return (await response.json()) as T
+  return parseJson<T>(response)
 }

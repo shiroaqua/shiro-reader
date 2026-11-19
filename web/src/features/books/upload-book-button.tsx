@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent } from "react"
+import { useRef, useState, type ChangeEvent } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Upload } from "lucide-react"
 import { ApiError, library } from "@/api/library"
@@ -16,27 +16,53 @@ export function UploadBookButton() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [progress, setProgress] = useState<{
+    current: number
+    total: number
+  } | null>(null)
   const uploadMutation = useMutation({
     mutationFn: async (files: File[]) => {
+      let uploadedAny = false
       // Upload one at a time so a failure only affects that file.
-      for (const file of files) {
-        try {
-          const hash = await hashFile(file)
-          if (!(await library.files.book.exists(hash)))
-            await library.files.book.upload(hash, file)
-
-          await library.bookshelf.book.create(
-            file.name.replace(BOOK_FILE_PATTERN, "").trim(),
-            hash
-          )
-        } catch (error) {
-          if (!(error instanceof ApiError)) {
-            notifyError({ source: "local", key: "local.common.error.unknown" })
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index]
+          setProgress({ current: index + 1, total: files.length })
+          const title = file.name.replace(BOOK_FILE_PATTERN, "").trim()
+          if (title === "") {
+            notifyError({
+              source: "server",
+              key: "library.book.missing_title",
+            })
+            continue
           }
+          try {
+            const hash = await hashFile(file)
+            if (!(await library.files.book.exists(hash)))
+              await library.files.book.upload(hash, file)
+
+            await library.bookshelf.book.create(title, hash)
+            uploadedAny = true
+            void queryClient.invalidateQueries({ queryKey: booksQueryKey })
+          } catch (error) {
+            if (!(error instanceof ApiError)) {
+              notifyError({
+                source: "local",
+                key: "local.common.error.unknown",
+              })
+            } else if (error.httpStatus === 401 || error.httpStatus === 0) {
+              // Session expired or network unavailable: abort remaining uploads.
+              break
+            }
+          }
+        }
+      } finally {
+        setProgress(null)
+        if (uploadedAny) {
+          await queryClient.invalidateQueries({ queryKey: booksQueryKey })
         }
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: booksQueryKey }),
   })
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -51,6 +77,14 @@ export function UploadBookButton() {
       })
     if (bookFiles.length > 0) uploadMutation.mutate(bookFiles)
   }
+
+  const label = !uploadMutation.isPending
+    ? t("local.book.upload")
+    : progress && progress.total > 1
+      ? t("local.book.uploading_progress")
+          .replace("{current}", String(progress.current))
+          .replace("{total}", String(progress.total))
+      : t("local.book.uploading")
 
   return (
     <>
@@ -74,9 +108,7 @@ export function UploadBookButton() {
         ) : (
           <Upload aria-hidden="true" />
         )}
-        {uploadMutation.isPending
-          ? t("local.book.uploading")
-          : t("local.book.upload")}
+        {label}
       </Button>
     </>
   )

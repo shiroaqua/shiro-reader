@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BookCover } from "@/features/books/book-cover"
 import { formatBookDate } from "@/lib/format"
-import { useTranslation } from "@/lib/i18n"
+import { formatCountMessage, useTranslation } from "@/lib/i18n"
 import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import type { TrashedBook } from "@/lib/types"
 import { cn } from "cn"
@@ -35,31 +35,36 @@ type TrashSort = { field: SortField; order: SortOrder }
 
 const DEFAULT_SORT: TrashSort = { field: "deleted_at", order: "desc" }
 
+const compareDeletedAt = (a: TrashedBook, b: TrashedBook) =>
+  (Date.parse(a.deleted_at) || 0) - (Date.parse(b.deleted_at) || 0)
+
 function sortTrash(
-  books: TrashedBook[],
+  books: readonly TrashedBook[],
   sort: TrashSort,
   locale: string
 ): TrashedBook[] {
-  const sorted = [...books]
-  const collator = new Intl.Collator(locale, { sensitivity: "base" })
-
-  sorted.sort((a, b) => {
-    if (sort.field === "title") {
-      const comparison = collator.compare(a.title, b.title)
-      return sort.order === "asc" ? comparison : -comparison
-    } else {
-      const comparison = a.deleted_at.localeCompare(b.deleted_at)
-      return sort.order === "asc" ? comparison : -comparison
-    }
+  const collator = new Intl.Collator(locale, {
+    numeric: true,
+    sensitivity: "base",
   })
-
-  return sorted
+  const direction = sort.order === "asc" ? 1 : -1
+  const compare =
+    sort.field === "title"
+      ? (a: TrashedBook, b: TrashedBook) =>
+          direction * collator.compare(a.title, b.title) ||
+          compareDeletedAt(b, a)
+      : (a: TrashedBook, b: TrashedBook) =>
+          direction * compareDeletedAt(a, b) ||
+          collator.compare(a.title, b.title)
+  return [...books].sort(compare)
 }
 
 export function TrashList() {
   const { t, locale } = useTranslation()
   const queryClient = useQueryClient()
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedDraft, setSelectedDraft] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
   const [sort, setSort] = useState<TrashSort>(DEFAULT_SORT)
   const [permanentDeleteOpen, setPermanentDeleteOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<TrashedBook | null>(null)
@@ -80,6 +85,14 @@ export function TrashList() {
     () => (trash ? sortTrash(trash, sort, locale) : []),
     [trash, sort, locale]
   )
+  const validTrashIds = useMemo(
+    () => new Set(sortedTrash.map((item) => item.id)),
+    [sortedTrash]
+  )
+  const selectedIds = useMemo(
+    () => new Set([...selectedDraft].filter((id) => validTrashIds.has(id))),
+    [selectedDraft, validTrashIds]
+  )
 
   const updateTrash = (update: (trash: TrashedBook[]) => TrashedBook[]) =>
     queryClient.setQueryData<TrashedBook[]>(
@@ -88,13 +101,22 @@ export function TrashList() {
     )
 
   const restoreMutation = useMutation({
-    mutationFn: (ids: string[]) =>
-      ids.length === 1
-        ? library.bookshelf.trash.restore(ids[0])
-        : library.bookshelf.trash.restoreBatch(ids),
-    onSuccess: (_, ids) => {
-      updateTrash((trash) => trash.filter((item) => !ids.includes(item.id)))
-      setSelectedIds(new Set())
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 1) {
+        await library.bookshelf.trash.restore(ids[0])
+        return { restoredIds: ids, failedIds: [] as string[] }
+      }
+      return library.bookshelf.trash.restoreBatch(ids)
+    },
+    onSuccess: ({ restoredIds }) => {
+      if (restoredIds.length === 0) return
+      const restored = new Set(restoredIds)
+      updateTrash((current) =>
+        current.filter((item) => !restored.has(item.id))
+      )
+      setSelectedDraft(
+        (selected) => new Set([...selected].filter((id) => !restored.has(id)))
+      )
     },
     onSettled: () =>
       Promise.all([
@@ -109,24 +131,23 @@ export function TrashList() {
         ? library.bookshelf.trash.permanentlyDelete(ids[0])
         : library.bookshelf.trash.permanentlyDeleteBatch(ids),
     onSuccess: (_, ids) => {
-      updateTrash((trash) => trash.filter((item) => !ids.includes(item.id)))
-      setSelectedIds((selected) => new Set([...selected].filter((id) => !ids.includes(id))))
+      const deleted = new Set(ids)
+      updateTrash((current) => current.filter((item) => !deleted.has(item.id)))
+      setSelectedDraft(
+        (selected) => new Set([...selected].filter((id) => !deleted.has(id)))
+      )
       setPermanentDeleteOpen(false)
       setItemToDelete(null)
       setIdsToDelete([])
     },
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: trashQueryKey }),
-        queryClient.invalidateQueries({ queryKey: booksQueryKey }),
-      ]),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: trashQueryKey }),
   })
 
   const handleSelectAll = (checked: boolean) => {
     if (checked && trash) {
-      setSelectedIds(new Set(trash.map((item) => item.id)))
+      setSelectedDraft(new Set(trash.map((item) => item.id)))
     } else {
-      setSelectedIds(new Set())
+      setSelectedDraft(new Set())
     }
   }
 
@@ -137,7 +158,7 @@ export function TrashList() {
     } else {
       newSelected.delete(id)
     }
-    setSelectedIds(newSelected)
+    setSelectedDraft(newSelected)
   }
 
   const handleRestoreSelected = () => {
@@ -153,10 +174,21 @@ export function TrashList() {
   }
 
   const handlePermanentDeleteSelected = () => {
-    setItemToDelete(null)
-    setIdsToDelete(Array.from(selectedIds))
+    const ids = Array.from(selectedIds)
+    setItemToDelete(
+      ids.length === 1
+        ? (trash?.find((item) => item.id === ids[0]) ?? null)
+        : null
+    )
+    setIdsToDelete(ids)
     setPermanentDeleteOpen(true)
   }
+
+  const singleDeleteItem =
+    itemToDelete ??
+    (idsToDelete.length === 1
+      ? (trash?.find((item) => item.id === idsToDelete[0]) ?? null)
+      : null)
 
   const confirmPermanentDelete = () => {
     if (idsToDelete.length > 0) {
@@ -186,9 +218,11 @@ export function TrashList() {
                       "{count}",
                       String(selectedIds.size)
                     )
-                  : t("local.trash.count").replace(
-                      "{count}",
-                      String(trash.length)
+                  : formatCountMessage(
+                      trash.length,
+                      "local.trash.count_one",
+                      "local.trash.count",
+                      t
                     )}
               </span>
             </label>
@@ -203,7 +237,9 @@ export function TrashList() {
                   variant="outline"
                   size="sm"
                   onClick={handleRestoreSelected}
-                  disabled={restoreMutation.isPending}
+                  disabled={
+                    restoreMutation.isPending || permanentDeleteMutation.isPending
+                  }
                   aria-busy={restoreMutation.isPending}
                 >
                   {restoreMutation.isPending ? (
@@ -320,7 +356,7 @@ export function TrashList() {
                   )
                 : t("local.trash.permanently_delete_confirm_description").replace(
                     "{title}",
-                    itemToDelete?.title || ""
+                    singleDeleteItem?.title ?? ""
                   )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -412,6 +448,7 @@ function TrashListItem({
           onClick={onRestore}
           disabled={disabled}
           title={t("local.trash.restore")}
+          aria-label={t("local.trash.restore")}
         >
           <RotateCcw aria-hidden="true" />
           <span className="hidden sm:inline">{t("local.trash.restore")}</span>

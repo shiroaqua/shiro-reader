@@ -5,5 +5,4 @@ export const zhTagNames: Record<string, string> = {
   "tag.issnIsbn": "ISSN / ISBN",
   "tag.publisher": "出版商",
   "tag.edition": "版次",
-  "tag.classification": "分类",
 }

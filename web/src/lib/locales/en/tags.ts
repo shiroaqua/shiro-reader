@@ -5,5 +5,4 @@ export const enTagNames: Record<string, string> = {
   "tag.issnIsbn": "ISSN / ISBN",
   "tag.publisher": "Publisher",
   "tag.edition": "Edition",
-  "tag.classification": "Classification",
 }

@@ -299,6 +299,13 @@ export function getValueType(rule: ValueRule): ValueType {
   return "text"
 }
 
+const TAG_NAME_PATTERN = /^[\p{L}\p{N}.]+$/u
+
+/** Matches the server's TagName::parse rule: letters, numbers, and periods only. */
+export function isValidTagName(name: string): boolean {
+  return TAG_NAME_PATTERN.test(name)
+}
+
 /** Client-side check; the server still validates the regex on its own. */
 export function isValueValid(rule: ValueRule, value: string): boolean {
   const type = getValueType(rule)
@@ -306,6 +313,13 @@ export function isValueValid(rule: ValueRule, value: string): boolean {
   if (value === "") return false
   const { regex } = VALUE_TYPE_SPECS[type]
   if (regex !== null && !new RegExp(regex).test(value)) return false
+  if (type === "text" && rule.value_regex) {
+    try {
+      if (!new RegExp(`^(?:${rule.value_regex})$`).test(value)) return false
+    } catch {
+      // Regex features unsupported in JS RegExp fall back to server-side validation.
+    }
+  }
   if (type === "date") return isCalendarDate(value)
   if (type === "language") return LANGUAGE_CODE_SET.has(value)
   return type !== "issn_isbn" || isValidIssnIsbn(value)

@@ -1,4 +1,10 @@
-import { ApiError, parseError, sendRequest, type RequestOptions } from "./http"
+import {
+  ApiError,
+  parseError,
+  parseJson,
+  sendRequest,
+  type RequestOptions,
+} from "./http"
 
 export const AUTH_STORAGE_KEY = "shiro-reader.auth"
 // Axum serves HEAD for GET routes; this checks authentication without a book payload.
@@ -8,6 +14,7 @@ type Session = { username: string; access_token: string; refresh_token: string }
 type AuthState = { session: Session | null; isLoading: boolean }
 let state: AuthState = { session: null, isLoading: true }
 let generation = 0
+let clockOffsetMs = 0
 let refreshPending: Promise<string> | undefined
 let restorePending: Promise<void> | undefined
 let logoutPending: Promise<void> | undefined
@@ -36,18 +43,69 @@ function persist(session: Session | null) {
   }
 }
 
-function expiresAt(token: string): number {
+function parseStoredSession(raw: string | null): Session | null {
+  if (!raw) return null
   try {
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")
-    const { exp } = JSON.parse(atob(payload)) as { exp?: unknown }
-    return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : 0
+    const stored: unknown = JSON.parse(raw)
+    if (
+      !stored ||
+      typeof stored !== "object" ||
+      !("username" in stored) ||
+      typeof stored.username !== "string" ||
+      !("access_token" in stored) ||
+      typeof stored.access_token !== "string" ||
+      !("refresh_token" in stored) ||
+      typeof stored.refresh_token !== "string"
+    ) {
+      return null
+    }
+    return {
+      username: stored.username,
+      access_token: stored.access_token,
+      refresh_token: stored.refresh_token,
+    }
   } catch {
-    return 0
+    return null
   }
 }
 
+function parseJwtClaims(token: string): { exp: number; iat?: number } | null {
+  try {
+    const parts = token.split(".")
+    if (parts.length < 2) return null
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=")
+    const { exp, iat } = JSON.parse(atob(padded)) as {
+      exp?: unknown
+      iat?: unknown
+    }
+    if (typeof exp !== "number" || !Number.isFinite(exp)) return null
+    return {
+      exp: exp * 1000,
+      iat: typeof iat === "number" && Number.isFinite(iat) ? iat * 1000 : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+function syncClockOffset(token: string) {
+  const claims = parseJwtClaims(token)
+  if (claims?.iat !== undefined) {
+    clockOffsetMs = claims.iat - Date.now()
+  }
+}
+
+function expiresAt(token: string): number {
+  return parseJwtClaims(token)?.exp ?? 0
+}
+
+function serverNow(): number {
+  return Date.now() + clockOffsetMs
+}
+
 function expired(token: string): boolean {
-  return expiresAt(token) <= Date.now()
+  return expiresAt(token) <= serverNow()
 }
 
 function authError() {
@@ -57,11 +115,11 @@ function authError() {
   })
 }
 
-export function clearSession() {
+export function clearSession(shouldPersist = true) {
   generation++
   refreshPending = undefined
   validationPending = undefined
-  persist(null)
+  if (shouldPersist) persist(null)
   publish(null)
 }
 
@@ -69,39 +127,17 @@ export async function logout(): Promise<void> {
   if (logoutPending) return logoutPending
   const session = state.session
   if (!session) return
-  // Retire in-flight requests so their failures or refreshes cannot change this session.
-  const attempt = ++generation
-  refreshPending = undefined
-  validationPending = undefined
   const pending = (async () => {
     const response = await sendRequest("auth/logout", {
       method: "POST",
       body: { token: session.refresh_token },
     })
-    if (generation !== attempt) throw authError()
-    if (response.status !== 204) {
-      throw new ApiError(response.status, {
-        source: "local",
-        key: "local.auth.logout_failed",
-      })
+    if (state.session?.refresh_token !== session.refresh_token) return
+    if (response.status === 204 || response.status === 401) {
+      clearSession()
+      return
     }
-
-    // Bypass automatic refresh and invalidation: failed verification must keep the UI open.
-    const [refreshResponse, accessResponse] = await Promise.all([
-      sendRequest("auth/refresh", {
-        method: "POST",
-        body: { token: session.refresh_token },
-      }),
-      sendRequest(SESSION_CHECK_PATH, SESSION_CHECK_OPTIONS, session.access_token),
-    ])
-    if (generation !== attempt) throw authError()
-    if (refreshResponse.status !== 401 || accessResponse.status !== 401) {
-      throw new ApiError(0, {
-        source: "local",
-        key: "local.auth.logout_failed",
-      })
-    }
-    clearSession()
+    throw await parseError(response)
   })()
   logoutPending = pending
   try {
@@ -121,11 +157,17 @@ export async function login(username: string, password: string): Promise<void> {
     body: { username, password },
   })
   if (!response.ok) throw await parseError(response)
-  const tokens = (await response.json()) as Partial<Session>
+  const tokens = await parseJson<Partial<Session>>(response)
   if (
-    typeof tokens.access_token !== "string" || expired(tokens.access_token) ||
-    typeof tokens.refresh_token !== "string" || expired(tokens.refresh_token)
-  ) throw authError()
+    typeof tokens.access_token !== "string" ||
+    typeof tokens.refresh_token !== "string"
+  ) {
+    throw authError()
+  }
+  syncClockOffset(tokens.access_token)
+  if (expired(tokens.access_token) || expired(tokens.refresh_token)) {
+    throw authError()
+  }
   if (generation !== attempt) throw authError()
 
   const session = {
@@ -144,16 +186,15 @@ async function refresh(): Promise<string> {
   if (!session || logoutPending) throw authError()
   const pending = (async () => {
     try {
-      if (expired(session.refresh_token)) throw authError()
       const response = await sendRequest("auth/refresh", {
         method: "POST",
         body: { token: session.refresh_token },
       })
       if (!response.ok) throw await parseError(response)
-      const tokens = (await response.json()) as { access_token?: unknown }
-      if (typeof tokens.access_token !== "string" || expired(tokens.access_token)) {
-        throw authError()
-      }
+      const tokens = await parseJson<{ access_token?: unknown }>(response)
+      if (typeof tokens.access_token !== "string") throw authError()
+      syncClockOffset(tokens.access_token)
+      if (expired(tokens.access_token)) throw authError()
       if (generation !== attempt) throw authError()
 
       const updated = { ...session, access_token: tokens.access_token }
@@ -180,10 +221,6 @@ export async function validateSession(): Promise<void> {
   if (validationPending) return validationPending
   const session = state.session
   if (!session || logoutPending) return
-  if (expired(session.refresh_token)) {
-    clearSession()
-    return
-  }
   const pending = sendAuthenticatedRequest(SESSION_CHECK_PATH, SESSION_CHECK_OPTIONS)
     .then(() => undefined)
   validationPending = pending
@@ -199,27 +236,12 @@ export async function restoreSession(): Promise<void> {
   const attempt = generation
   const pending = (async () => {
     try {
-      const stored: unknown = JSON.parse(
-        localStorage.getItem(AUTH_STORAGE_KEY) ?? "null"
-      )
-      if (
-        !stored ||
-        typeof stored !== "object" ||
-        !("username" in stored) ||
-        typeof stored.username !== "string" ||
-        !("access_token" in stored) ||
-        typeof stored.access_token !== "string" ||
-        !("refresh_token" in stored) ||
-        typeof stored.refresh_token !== "string"
-      ) {
+      const stored = parseStoredSession(localStorage.getItem(AUTH_STORAGE_KEY))
+      if (!stored) {
         clearSession()
         return
       }
-      publish({
-        username: stored.username,
-        access_token: stored.access_token,
-        refresh_token: stored.refresh_token,
-      }, true)
+      publish(stored, true)
     } catch {
       if (generation === attempt) clearSession()
       return
@@ -253,13 +275,39 @@ export function monitorSession() {
       expiresAt(state.session.access_token),
       expiresAt(state.session.refresh_token)
     )
-    expiryTimer = setTimeout(check, Math.max(0, Math.min(expiry - Date.now(), 2_147_483_647)))
+    const remaining = Math.max(0, expiry - serverNow())
+    if (remaining > 2_147_483_647) {
+      expiryTimer = setTimeout(scheduleExpiry, 2_147_483_647)
+    } else {
+      expiryTimer = setTimeout(check, remaining)
+    }
+  }
+  const handleStorage = (event: StorageEvent) => {
+    if (event.storageArea !== localStorage || event.key !== AUTH_STORAGE_KEY) return
+    if (event.newValue === null) {
+      if (state.session !== null) clearSession(false)
+      return
+    }
+    const next = parseStoredSession(event.newValue)
+    if (!next) {
+      if (state.session !== null) clearSession(false)
+      return
+    }
+    if (next.refresh_token !== state.session?.refresh_token) {
+      generation++
+      refreshPending = undefined
+      validationPending = undefined
+      publish(next)
+    } else if (next.access_token !== state.session.access_token) {
+      publish(next, state.isLoading)
+    }
   }
   const unsubscribe = subscribeToAuth(scheduleExpiry)
   scheduleExpiry()
   const interval = setInterval(check, 60_000)
   window.addEventListener("focus", check)
   window.addEventListener("pageshow", check)
+  window.addEventListener("storage", handleStorage)
   document.addEventListener("visibilitychange", check)
   return () => {
     unsubscribe()
@@ -267,6 +315,7 @@ export function monitorSession() {
     clearInterval(interval)
     window.removeEventListener("focus", check)
     window.removeEventListener("pageshow", check)
+    window.removeEventListener("storage", handleStorage)
     document.removeEventListener("visibilitychange", check)
   }
 }
@@ -276,7 +325,7 @@ export async function sendAuthenticatedRequest(
   path: string,
   options: RequestOptions = {}
 ): Promise<Response> {
-  if (logoutPending) await logoutPending
+  if (logoutPending) await logoutPending.catch(() => undefined)
   const attempt = generation
   const session = state.session
   if (!session) throw authError()
