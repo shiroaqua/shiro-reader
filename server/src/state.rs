@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{str::FromStr, sync::Mutex};
 
@@ -7,6 +7,7 @@ use argon2::Params;
 use dashmap::DashMap;
 use pdfium_render::prelude::{Pdfium, PdfiumError};
 use toasty::Db;
+use tracing::{debug, info, warn};
 
 use crate::application::identity::authentication::errors::AuthenticationApplicationError;
 use crate::application::identity::authentication::service::AuthenticationService;
@@ -18,13 +19,21 @@ use crate::domain::{EntityId, identity::user::entity::User};
 use crate::{
     application::library::book::file::service::BookFileService,
     config::Config,
-    infrastructure::{db, storage::book_file_storage::BookFileStorage},
+    infrastructure::{db, dependencies, storage::book_file_storage::BookFileStorage},
 };
 
 // 允许AppState可被重复build（供单元测试使用）
 static PDFIUM: Mutex<Option<Arc<Mutex<Pdfium>>>> = Mutex::new(None);
 
-fn shared_pdfium() -> anyhow::Result<Arc<Mutex<Pdfium>>> {
+fn bind_system_pdfium() -> Result<Pdfium, PdfiumError> {
+    match Pdfium::bind_to_system_library() {
+        Ok(bindings) => Ok(Pdfium::new(bindings)),
+        Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Ok(Pdfium::default()),
+        Err(error) => Err(error),
+    }
+}
+
+fn shared_pdfium(libs_dir: &Path) -> anyhow::Result<Arc<Mutex<Pdfium>>> {
     let mut shared = PDFIUM
         .lock()
         .map_err(|_| anyhow::anyhow!("Pdfium initialization lock poisoned"))?;
@@ -32,11 +41,43 @@ fn shared_pdfium() -> anyhow::Result<Arc<Mutex<Pdfium>>> {
         return Ok(pdfium.clone());
     }
 
-    let pdfium = match Pdfium::bind_to_system_library() {
-        Ok(bindings) => Pdfium::new(bindings),
-        Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Pdfium::default(),
-        Err(error) => return Err(error.into()),
+    let local_library = Pdfium::pdfium_platform_library_name_at_path(libs_dir);
+    let pdfium = if local_library.is_file() {
+        let resolved_path =
+            std::path::absolute(&local_library).unwrap_or_else(|_| local_library.clone());
+        match Pdfium::bind_to_library(&resolved_path) {
+            Ok(bindings) => {
+                info!(path = %resolved_path.display(), "loaded Pdfium library");
+                Pdfium::new(bindings)
+            }
+            Err(PdfiumError::PdfiumLibraryBindingsAlreadyInitialized) => Pdfium::default(),
+            Err(local_error) => {
+                warn!(
+                    path = %resolved_path.display(),
+                    error = %local_error,
+                    "failed to load Pdfium from libs directory, falling back to system library"
+                );
+                bind_system_pdfium().map_err(|system_error| {
+                    anyhow::anyhow!(
+                        "failed to load Pdfium from {} ({local_error}) and system library ({system_error})",
+                        resolved_path.display()
+                    )
+                })?
+            }
+        }
+    } else {
+        debug!(
+            path = %local_library.display(),
+            "Pdfium library not found in libs directory, loading system library"
+        );
+        bind_system_pdfium().with_context(|| {
+            format!(
+                "failed to load Pdfium (not found at {} and system library unavailable)",
+                local_library.display()
+            )
+        })?
     };
+
     let pdfium = Arc::new(Mutex::new(pdfium));
     *shared = Some(pdfium.clone());
     Ok(pdfium)
@@ -72,7 +113,7 @@ impl AppState {
             config.crypto.jwt_refresh_ttl_secs,
             config.crypto.jwt_validation_leeway_secs,
         ));
-        let pdfium = shared_pdfium()?;
+        let pdfium = shared_pdfium(&dependencies::libs_dir(&config.root_directory))?;
 
         let identity_db =
             db::pool::connect_identity(&config.root_directory.join("user.db")).await?;

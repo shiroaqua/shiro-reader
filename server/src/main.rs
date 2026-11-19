@@ -3,6 +3,7 @@ use shiro_reader_server::{
     app,
     application::identity::user::{commands::UserRegisterCommand, queries::GetUsersQuery},
     config::Config,
+    infrastructure::dependencies,
     state::AppState,
     telemetry,
 };
@@ -14,6 +15,7 @@ use tracing::info;
 async fn main() -> anyhow::Result<()> {
     let config = Config::load()?;
     telemetry::init(&config.telemetry)?;
+    dependencies::ensure_runtime_dependencies(&config.root_directory).await?;
 
     let state = AppState::build(&config).await?;
 
