@@ -142,7 +142,6 @@ impl Config {
         let jwt_secret = file
             .crypto
             .jwt_secret
-            .clone()
             .context("config file did not initialize the JWT secret")?;
         let jwt_secret = env_value("JWT_SECRET").unwrap_or(jwt_secret);
 

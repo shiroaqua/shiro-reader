@@ -1,16 +1,16 @@
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::domain::library::book::errors::BookDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed, Into)]
 pub struct BookId(Uuid);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed, Into)]
 pub struct BookTitle(String);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Into)]
 pub struct BookHash(pub(crate) blake3::Hash);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +23,7 @@ impl BookHash {
     pub fn as_hash(&self) -> &blake3::Hash {
         &self.0
     }
+    
 }
 
 impl BookId {

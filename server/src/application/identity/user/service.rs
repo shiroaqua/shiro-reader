@@ -4,7 +4,6 @@ use derive_new::new;
 use toasty::Db;
 
 use crate::{
-    application::MapDbResult,
     application::identity::{
         crypto::service::CryptoService,
         errors::{IdentityApplicationError, user_storage},
@@ -19,7 +18,7 @@ use crate::{
         },
     },
     domain::{
-        EntityCreate, EntityId, RequiresVerificationEntity,
+        EntityCreate, EntityId,
         identity::user::{
             entity::User,
             value_objects::{UserId, UserName, UserPasswordHash},
@@ -77,7 +76,7 @@ impl UserService {
     ) -> Result<(), IdentityApplicationError> {
         let id = UserId::parse(command.id)?;
         let mut db = self.db.clone();
-        let user = User::get_by_id(&mut db, &id).await.map_result()?;
+        let user = User::get_by_id(&mut db, &id).await.map_err(user_storage)?;
         user.delete().exec(&mut db).await.map_err(user_storage)?;
         self.user_database_provider
             .remove(&id.to_string())
@@ -90,7 +89,7 @@ impl UserService {
         let name = UserName::parse(command.name)?;
         let mut db = self.db.clone();
         let mut tx = db.transaction().await.map_err(user_storage)?;
-        let mut user = User::get_by_id(&mut tx, &id).await.map_result()?;
+        let mut user = User::get_by_id(&mut tx, &id).await.map_err(user_storage)?;
         user.rename(name)?
             .exec(&mut tx)
             .await
@@ -106,7 +105,7 @@ impl UserService {
         let password_hash = UserPasswordHash::parse(self.crypto.hash_password(&command.password)?)?;
         let mut db = self.db.clone();
         let mut tx = db.transaction().await.map_err(user_storage)?;
-        let mut user = User::get_by_id(&mut tx, &id).await.map_result()?;
+        let mut user = User::get_by_id(&mut tx, &id).await.map_err(user_storage)?;
         user.change_password_hash(password_hash)?
             .exec(&mut tx)
             .await
@@ -118,36 +117,31 @@ impl UserService {
         &self,
         query: GetUsersQuery,
     ) -> Result<Vec<GetUserOutput>, IdentityApplicationError> {
-        let user_ids = query
-            .user_ids
-            .iter()
-            .map(UserId::parse)
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut users = User::all();
-        if !user_ids.is_empty() {
-            users = users.filter(
+        let user_query = if query.user_ids.is_empty() {
+            User::all()
+        } else {
+            User::all().filter(
                 User::fields().id().inner().in_list(
-                    user_ids
+                    query
+                        .user_ids
                         .iter()
-                        .map(|id| *id.as_ref())
-                        .collect::<Vec<uuid::Uuid>>(),
+                        .map(|id| UserId::parse(id).map(Into::into))
+                        .collect::<Result<Vec<uuid::Uuid>, _>>()?,
                 ),
-            );
-        }
-        users
+            )
+        };
+        user_query
             .exec(&mut self.db.clone())
             .await
             .map_err(user_storage)?
             .into_iter()
             .map(|user| {
-                let user = user
-                    .verify()
-                    .map_err(|error| UserApplicationError::Storage(error.into()))?;
+                let user = user.into_inner();
                 Ok(GetUserOutput {
-                    id: user.id().to_string(),
-                    name: user.name().to_string(),
-                    created_at: user.created_at(),
-                    updated_at: user.updated_at(),
+                    id: user.id.to_string(),
+                    name: user.name.into(),
+                    created_at: user.created_at,
+                    updated_at: user.updated_at,
                 })
             })
             .collect()

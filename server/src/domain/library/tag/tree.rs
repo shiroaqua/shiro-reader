@@ -66,6 +66,38 @@ impl TagTree {
         self.by_id.get(id).map(|index| &self.tags[*index])
     }
 
+    pub fn definition_mut(&mut self, id: &TagId) -> Option<&mut TagDefinition> {
+        self.by_id.get(id).map(|index| &mut self.tags[*index])
+    }
+
+    pub fn into_nodes<T>(
+        self,
+        mut build: impl FnMut(TagDefinition, Vec<T>) -> T,
+    ) -> Vec<T> {
+        fn build_children<T>(
+            parent_id: Option<TagId>,
+            tags: &mut [Option<TagDefinition>],
+            children: &HashMap<Option<TagId>, Vec<usize>>,
+            build: &mut impl FnMut(TagDefinition, Vec<T>) -> T,
+        ) -> Vec<T> {
+            children
+                .get(&parent_id)
+                .into_iter()
+                .flatten()
+                .map(|&index| {
+                    let tag = tags[index]
+                        .take()
+                        .expect("valid tag tree visits each node once");
+                    let child_nodes = build_children(Some(tag.id().clone()), tags, children, build);
+                    build(tag, child_nodes)
+                })
+                .collect()
+        }
+
+        let mut tags: Vec<Option<TagDefinition>> = self.tags.into_iter().map(Some).collect();
+        build_children(None, &mut tags, &self.children, &mut build)
+    }
+
     pub fn has_sibling_name(
         &self,
         parent_id: Option<&TagId>,
@@ -104,13 +136,11 @@ impl TagTree {
             TagDeleteStrategy::Promote => {
                 let promoted_children = self
                     .children_of(Some(id))
-                    .map(|child| {
-                        Ok(TagParentChange {
-                            id: child.id().clone(),
-                            parent_id: tag.parent_id().cloned(),
-                        })
+                    .map(|child| TagParentChange {
+                        id: child.id().clone(),
+                        parent_id: tag.parent_id().cloned(),
                     })
-                    .collect::<Result<Vec<_>, TagDomainError>>()?;
+                    .collect();
                 Ok(TagDeletion {
                     deleted_ids: vec![id.clone()],
                     promoted_children,
@@ -170,6 +200,10 @@ impl TagDeletion {
     pub fn promoted_children(&self) -> &[TagParentChange] {
         &self.promoted_children
     }
+
+    pub fn into_parts(self) -> (Vec<TagId>, Vec<TagParentChange>) {
+        (self.deleted_ids, self.promoted_children)
+    }
 }
 
 #[derive(Debug)]
@@ -185,5 +219,9 @@ impl TagParentChange {
 
     pub fn parent_id(&self) -> Option<&TagId> {
         self.parent_id.as_ref()
+    }
+
+    pub fn into_parts(self) -> (TagId, Option<TagId>) {
+        (self.id, self.parent_id)
     }
 }

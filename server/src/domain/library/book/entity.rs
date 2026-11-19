@@ -3,7 +3,6 @@ use entity_derive::Entity;
 use jiff::Timestamp;
 
 use crate::domain::{
-    RequiresVerificationEntity,
     library::book::{
         errors::BookDomainError,
         value_objects::{BookHash, BookId, BookStatus, BookTitle},
@@ -69,18 +68,26 @@ impl Book {
             fields: BookFields::DELETED_AT | BookFields::UPDATED_AT,
         })
     }
-    pub fn restore(&mut self) -> Result<BookChange<'_>, BookDomainError> {
+    pub fn restore(&mut self, title: BookTitle) -> Result<BookChange<'_>, BookDomainError> {
         if self.status() == BookStatus::Active {
             return Err(BookDomainError::NotDeleted);
+        }
+        let mut fields = BookFields::DELETED_AT | BookFields::UPDATED_AT;
+        if self.title != title {
+            self.title = title;
+            fields |= BookFields::TITLE;
         }
         self.deleted_at = None;
         self.updated_at = Timestamp::now();
         Ok(BookChange {
             entity: self,
-            fields: BookFields::DELETED_AT | BookFields::UPDATED_AT,
+            fields,
         })
     }
     pub fn rename(&mut self, new_title: BookTitle) -> Result<BookChange<'_>, BookDomainError> {
+        if self.status() != BookStatus::Active {
+            return Err(BookDomainError::AlreadyDeleted);
+        }
         if self.title.eq(&new_title) {
             return Err(BookDomainError::TitleUnchanged);
         }
@@ -99,11 +106,5 @@ impl crate::domain::EntityId for Book {
 
     fn id(&self) -> &BookId {
         &self.id
-    }
-}
-
-impl RequiresVerificationEntity<BookDomainError> for Book {
-    fn verify(self) -> Result<Self, BookDomainError> {
-        Ok(self)
     }
 }

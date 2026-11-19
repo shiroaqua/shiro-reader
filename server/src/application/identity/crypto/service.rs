@@ -115,7 +115,7 @@ impl CryptoService {
             .expect("system clock is before UNIX_EPOCH");
         let claims = Claims {
             iss: self.jwt_parms.issuer.clone(),
-            sub: user_id.to_string(),
+            sub: user_id,
             aud: Audience::Single(self.jwt_parms.audience.clone()),
             iat: now,
             nbf: now,

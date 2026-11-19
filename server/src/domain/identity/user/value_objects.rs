@@ -1,14 +1,14 @@
 use std::fmt;
 
 use argon2::{Params, password_hash::phc::PasswordHash};
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use uuid::Uuid;
 
 use crate::domain::identity::user::errors::*;
 
 // ==================== UserId ====================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, toasty::Embed, Into)]
 pub struct UserId(Uuid);
 
 impl UserId {
@@ -31,7 +31,7 @@ impl Default for UserId {
 
 // ==================== UserName ====================
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed, Into)]
 pub struct UserName(String);
 
 impl UserName {

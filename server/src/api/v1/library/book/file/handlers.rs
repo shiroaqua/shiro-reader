@@ -27,38 +27,35 @@ pub async fn upload_book(
         let field = multipart.next_field().await?;
 
         match field {
-            Some(field) => {
-                let field_name = field.name().unwrap_or("").to_owned();
-                match field_name.as_str() {
-                    "hash" => {
-                        // 不允许重复的 hash 字段
-                        if hash.is_some() {
-                            return Err(BookFileAPIError::DuplicateHashField.into());
-                        }
-
-                        hash = Some(field.text().await?);
+            Some(field) => match field.name() {
+                Some("hash") => {
+                    // 不允许重复的 hash 字段
+                    if hash.is_some() {
+                        return Err(BookFileAPIError::DuplicateHashField.into());
                     }
-                    "file" => {
-                        if field.file_name().is_none() {
-                            continue;
-                        }
-                        if hash.is_none() {
-                            return Err(BookFileAPIError::MissingHashField.into());
-                        }
 
-                        let stream = field.map_err(std::io::Error::other);
-                        let reader = StreamReader::new(stream);
-
-                        state
-                            .bookfile_service
-                            .upload_book_file(hash.clone().unwrap(), reader)
-                            .await?;
-
-                        return Ok(StatusCode::CREATED);
-                    }
-                    _ => continue,
+                    hash = Some(field.text().await?);
                 }
-            }
+                Some("file") => {
+                    if field.file_name().is_none() {
+                        continue;
+                    }
+                    let Some(hash) = hash.take() else {
+                        return Err(BookFileAPIError::MissingHashField.into());
+                    };
+
+                    let stream = field.map_err(std::io::Error::other);
+                    let reader = StreamReader::new(stream);
+
+                    state
+                        .bookfile_service
+                        .upload_book_file(hash, reader)
+                        .await?;
+
+                    return Ok(StatusCode::CREATED);
+                }
+                _ => continue,
+            },
             None => break,
         }
     }

@@ -1,8 +1,6 @@
 use jiff::Timestamp;
 
 use entity_derive::Entity;
-
-use crate::domain::RequiresVerificationEntity;
 use crate::domain::library::book::value_objects::BookId;
 
 use super::{
@@ -205,6 +203,31 @@ impl BookTag {
             fields: BookTagFields::VALUE | BookTagFields::UPDATED_AT,
         })
     }
+
+    pub fn rebind(
+        &mut self,
+        definition: &TagDefinition,
+        value: Option<String>,
+    ) -> Result<BookTagChange<'_>, TagDomainError> {
+        definition.value_rule().validate(value.as_deref())?;
+        let mut fields = BookTagFields::empty();
+        if self.value != value {
+            self.value = value;
+            fields |= BookTagFields::VALUE;
+        }
+        if self.status() != BookTagStatus::Active {
+            self.deleted_at = None;
+            fields |= BookTagFields::DELETED_AT;
+        }
+        if !fields.is_empty() {
+            self.updated_at = Timestamp::now();
+            fields |= BookTagFields::UPDATED_AT;
+        }
+        Ok(BookTagChange {
+            entity: self,
+            fields,
+        })
+    }
 }
 
 impl crate::domain::EntityId for TagDefinition {
@@ -212,17 +235,5 @@ impl crate::domain::EntityId for TagDefinition {
 
     fn id(&self) -> &TagId {
         &self.id
-    }
-}
-
-impl RequiresVerificationEntity<TagDomainError> for TagDefinition {
-    fn verify(self) -> Result<Self, TagDomainError> {
-        Ok(self)
-    }
-}
-
-impl RequiresVerificationEntity<TagDomainError> for BookTag {
-    fn verify(self) -> Result<Self, TagDomainError> {
-        Ok(self)
     }
 }

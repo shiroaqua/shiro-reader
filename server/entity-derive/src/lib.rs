@@ -34,6 +34,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 
     let flags_name = format_ident!("{}Fields", input.ident);
     let change_name = format_ident!("{}Change", input.ident);
+    let inner_name = format_ident!("{}Inner", input.ident);
     let model_name = &input.ident;
     let key_name = keys[0].ident.as_ref().expect("named key field");
     let other_keys = keys.iter().skip(1).map(|field| {
@@ -48,6 +49,11 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         .iter()
         .map(|field| field.ident.as_ref().expect("named field"))
         .collect();
+    let inner_fields = fields.named.iter().map(|field| {
+        let name = field.ident.as_ref().expect("named field");
+        let ty = &field.ty;
+        quote! { pub #name: #ty }
+    });
     let create_setters = create_field_names
         .iter()
         .map(|name| quote! { .#name(#name) });
@@ -57,20 +63,19 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         let value = 1_u64 << index;
         quote! { const #name = #value; }
     });
-    let setters = fields
-        .named
-        .iter()
-        .filter(|field| !field.attrs.iter().any(|attr| attr.path().is_ident("key")))
-        .map(|field| {
-            let field_name = field.ident.as_ref().expect("named field");
-            let flag_name = format_ident!("{}", field_name.to_string().to_ascii_uppercase());
-            let setter_name = format_ident!("set_{}", field_name);
-            quote! {
-                if fields.contains(#flags_name::#flag_name) {
-                    update.#setter_name(entity.#field_name.clone());
-                }
+    let setters = fields.named.iter().filter_map(|field| {
+        if field.attrs.iter().any(|attr| attr.path().is_ident("key")) {
+            return None;
+        }
+        let field_name = field.ident.as_ref().expect("named field");
+        let flag_name = format_ident!("{}", field_name.to_string().to_ascii_uppercase());
+        let setter_name = format_ident!("set_{}", field_name);
+        Some(quote! {
+            if fields.contains(#flags_name::#flag_name) {
+                update.#setter_name(entity.#field_name.clone());
             }
-        });
+        })
+    });
 
     quote! {
         impl crate::domain::EntityCreate for #model_name {
@@ -109,6 +114,17 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
                 let mut update = #model_name::filter(filter).update();
                 #(#setters)*
                 update.exec(executor).await
+            }
+        }
+
+        #visibility struct #inner_name {
+            #(#inner_fields,)*
+        }
+
+        impl #model_name {
+            pub fn into_inner(self) -> #inner_name {
+                let Self { #(#create_field_names),* } = self;
+                #inner_name { #(#create_field_names),* }
             }
         }
     }

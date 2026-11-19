@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use derive_more::{AsRef, Display};
+use derive_more::{AsRef, Display, Into};
 use jiff::Timestamp;
 use regex::Regex;
 use uuid::Uuid;
@@ -13,7 +13,7 @@ pub enum BookTagStatus {
     Deleted { deleted_at: Timestamp },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, toasty::Embed, Into)]
 pub struct TagId(Uuid);
 
 impl TagId {
@@ -34,7 +34,7 @@ impl Default for TagId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed, Into)]
 pub struct TagName(String);
 
 impl TagName {
@@ -54,7 +54,7 @@ impl TagName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, Eq, Display, AsRef, toasty::Embed, Into)]
 pub struct TagColor(String);
 
 impl TagColor {

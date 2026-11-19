@@ -12,9 +12,3 @@ pub trait EntityCreate: Sized {
 
     fn create(self) -> Self::Create;
 }
-
-pub trait RequiresVerificationEntity<E> {
-    fn verify(self) -> Result<Self, E>
-    where
-        Self: Sized;
-}

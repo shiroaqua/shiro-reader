@@ -1,4 +1,3 @@
-use crate::domain::RequiresVerificationEntity;
 use crate::domain::identity::user::{
     errors::UserDomainError,
     value_objects::{UserId, UserName, UserPasswordHash},
@@ -78,11 +77,5 @@ impl crate::domain::EntityId for User {
 
     fn id(&self) -> &UserId {
         &self.id
-    }
-}
-
-impl RequiresVerificationEntity<UserDomainError> for User {
-    fn verify(self) -> Result<Self, UserDomainError> {
-        Ok(self)
     }
 }

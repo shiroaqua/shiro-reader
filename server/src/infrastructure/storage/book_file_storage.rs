@@ -69,17 +69,14 @@ impl BookFileStorage {
         let files = Arc::new(DashMap::new());
 
         std::fs::read_dir(&self.dir)?
-            .into_iter()
-            .filter(|res| {
+            .filter_map(|res| {
                 // 过滤出符合扩展名的文件
-                res.as_ref().is_ok_and(|entry| {
-                    entry.path().is_file()
-                        && entry.path().file_stem().is_some()
-                        && entry.path().extension().and_then(|s| s.to_str())
-                            == Some(self.ext.as_str())
-                })
+                let path = res.ok()?.path();
+                (path.is_file()
+                    && path.file_stem().is_some()
+                    && path.extension().and_then(|s| s.to_str()) == Some(self.ext.as_str()))
+                .then_some(path)
             })
-            .map(|res| res.unwrap().path())
             .par_bridge()
             .for_each(|path| {
                 // 并发计算每个文件名是否与计算出的hash匹配
@@ -180,12 +177,8 @@ impl BookFileStorage {
     }
 
     pub fn get_type(&self, key: &Hash) -> Option<BookFileType> {
-        if self.contains(key) {
-            // 书籍永不删除，因此这边的线程安全问题无需在意.
-            Some((*self.files.get(key).unwrap()).clone())
-        } else {
-            None
-        }
+        // 书籍永不删除，因此这边的线程安全问题无需在意.
+        self.files.get(key).map(|entry| entry.value().clone())
     }
 
     pub async fn save<R>(&self, hash: &Hash, mut reader: R) -> StorageResult<()>
