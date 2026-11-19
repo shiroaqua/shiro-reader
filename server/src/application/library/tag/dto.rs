@@ -1,11 +1,21 @@
 use crate::domain::EntityId;
-use crate::domain::library::tag::entity::TagDefinition;
+use crate::domain::library::tag::entity::{BookTag, TagDefinition};
 use jiff::Timestamp;
 
 #[derive(Debug)]
 pub struct BookTagOutput {
     pub tag_id: String,
     pub value: Option<String>,
+}
+
+impl From<BookTag> for BookTagOutput {
+    fn from(binding: BookTag) -> Self {
+        let binding = binding.into_inner();
+        Self {
+            tag_id: binding.tag_id.to_string(),
+            value: binding.value,
+        }
+    }
 }
 
 #[derive(Debug)]

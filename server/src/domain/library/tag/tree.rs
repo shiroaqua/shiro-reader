@@ -70,6 +70,16 @@ impl TagTree {
         self.by_id.get(id).map(|index| &mut self.tags[*index])
     }
 
+    pub fn take_definitions(self, ids: &[TagId]) -> Result<Vec<TagDefinition>, TagDomainError> {
+        let mut tags: Vec<Option<TagDefinition>> = self.tags.into_iter().map(Some).collect();
+        ids.iter()
+            .map(|id| {
+                let index = *self.by_id.get(id).ok_or(TagDomainError::NotFound)?;
+                tags[index].take().ok_or(TagDomainError::NotFound)
+            })
+            .collect()
+    }
+
     pub fn into_nodes<T>(
         self,
         mut build: impl FnMut(TagDefinition, Vec<T>) -> T,

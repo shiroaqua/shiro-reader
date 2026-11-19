@@ -15,11 +15,15 @@ use crate::application::identity::crypto::service::CryptoService;
 use crate::application::identity::errors::IdentityApplicationError;
 use crate::application::identity::user::service::UserService;
 
-use crate::domain::{EntityId, identity::user::entity::User};
+use crate::domain::EntityId;
 use crate::{
     application::library::book::file::service::BookFileService,
     config::Config,
-    infrastructure::{db, dependencies, storage::book_file_storage::BookFileStorage},
+    infrastructure::{
+        db, dependencies,
+        repositories::{session_repository::SessionRepository, user_repository::UserRepository},
+        storage::book_file_storage::BookFileStorage,
+    },
 };
 
 // 允许AppState可被重复build（供单元测试使用）
@@ -117,10 +121,11 @@ impl AppState {
 
         let identity_db =
             db::pool::connect_identity(&config.root_directory.join("user.db")).await?;
+        let user_repository = UserRepository::new(identity_db.clone());
+        let session_repository = SessionRepository::new(identity_db);
 
         let user_database_provider = Arc::new(UserDatabaseProvider::new(&config));
-        let users = User::all().exec(&mut identity_db.clone()).await?;
-        for user in users {
+        for user in user_repository.list(&[]).await? {
             user_database_provider
                 .append(&user.id().to_string())
                 .await?;
@@ -135,13 +140,14 @@ impl AppState {
 
         Ok(Self {
             user_service: Arc::new(UserService::new(
-                identity_db.clone(),
+                user_repository.clone(),
                 user_database_provider.clone(),
                 crypto_service.clone(),
             )),
             auth_service: Arc::new(AuthenticationService::new(
-                identity_db,
-                crypto_service.clone(),
+                user_repository,
+                session_repository,
+                crypto_service,
             )),
             bookfile_service: Arc::new(BookFileService::new(book_file_storage)),
             user_database_provider,

@@ -11,6 +11,9 @@ use crate::{
         library::{book::service::BookService, tag::service::TagService},
     },
     error::AppError,
+    infrastructure::repositories::{
+        book_repository::BookRepository, tag_repository::TagRepository,
+    },
     state::AppState,
 };
 
@@ -58,8 +61,11 @@ impl FromRequestParts<AppState> for RoutedState {
         })?;
 
         Ok(RoutedState {
-            book_service: BookService::new(db.clone(), state.bookfile_service.clone()),
-            tag_service: TagService::new(db),
+            book_service: BookService::new(
+                BookRepository::new(db.clone()),
+                state.bookfile_service.clone(),
+            ),
+            tag_service: TagService::new(TagRepository::new(db)),
         })
     }
 }

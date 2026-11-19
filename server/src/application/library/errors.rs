@@ -1,16 +1,15 @@
 use std::io::ErrorKind;
 
-use crate::application::errors::MapToastyError;
+use thiserror::Error;
+
 use crate::application::library::book::errors::BookApplicationError;
 use crate::application::library::book::file::errors::BookFileApplicationError;
 use crate::application::library::tag::errors::TagApplicationError;
-use crate::domain::library::book::entity::Book;
 use crate::domain::library::book::errors::BookDomainError;
-use crate::domain::library::tag::entity::{BookTag, TagDefinition};
 use crate::domain::library::tag::errors::TagDomainError;
-use crate::infrastructure::db::sqlite::sqlite_error;
+use crate::infrastructure::repositories::book_repository::BookRepositoryError;
+use crate::infrastructure::repositories::tag_repository::TagRepositoryError;
 use crate::infrastructure::storage::book_file_storage::BookFileStorageError;
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LibraryApplicationError {
@@ -55,58 +54,41 @@ impl From<BookDomainError> for LibraryApplicationError {
     }
 }
 
+impl From<BookRepositoryError> for BookApplicationError {
+    fn from(value: BookRepositoryError) -> Self {
+        match value {
+            BookRepositoryError::NotFound => Self::NotFound,
+            BookRepositoryError::TitleConflict => Self::TitleConflict,
+            BookRepositoryError::Storage(error) => Self::Storage(error),
+        }
+    }
+}
+
+impl From<BookRepositoryError> for LibraryApplicationError {
+    fn from(error: BookRepositoryError) -> Self {
+        Self::Book(error.into())
+    }
+}
+
 impl From<TagDomainError> for LibraryApplicationError {
     fn from(error: TagDomainError) -> Self {
         Self::Tag(error.into())
     }
 }
 
-impl MapToastyError<LibraryApplicationError> for Book {
-    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
-        if error.is_record_not_found() {
-            return BookApplicationError::NotFound.into();
+impl From<TagRepositoryError> for TagApplicationError {
+    fn from(value: TagRepositoryError) -> Self {
+        match value {
+            TagRepositoryError::NotFound => Self::Domain(TagDomainError::NotFound),
+            TagRepositoryError::ParentNotFound => Self::ParentNotFound,
+            TagRepositoryError::SiblingNameConflict => Self::SiblingNameConflict,
+            TagRepositoryError::Storage(error) => Self::Storage(error),
         }
-        if let Some(rusqlite::Error::SqliteFailure(code, message)) = sqlite_error(&error) {
-            match (code.extended_code, message.as_deref()) {
-                (rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE, Some(msg))
-                    if msg.contains("books.title") =>
-                {
-                    return BookApplicationError::TitleConflict.into();
-                }
-                _ => {}
-            }
-        }
-        BookApplicationError::Storage(error.into()).into()
     }
 }
 
-impl MapToastyError<LibraryApplicationError> for TagDefinition {
-    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
-        if error.is_record_not_found() {
-            return TagDomainError::NotFound.into();
-        }
-        if let Some(rusqlite::Error::SqliteFailure(code, message)) = sqlite_error(&error) {
-            match (code.extended_code, message.as_deref()) {
-                (rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE, Some(msg))
-                    if msg.contains("tag_definitions.name") =>
-                {
-                    return TagApplicationError::SiblingNameConflict.into();
-                }
-                (rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY, _) => {
-                    return TagApplicationError::ParentNotFound.into();
-                }
-                _ => {}
-            }
-        }
-        TagApplicationError::Storage(error.into()).into()
-    }
-}
-
-impl MapToastyError<LibraryApplicationError> for BookTag {
-    fn map_db_err(error: toasty::Error) -> LibraryApplicationError {
-        if error.is_record_not_found() {
-            return TagDomainError::NotFound.into();
-        }
-        TagApplicationError::Storage(error.into()).into()
+impl From<TagRepositoryError> for LibraryApplicationError {
+    fn from(error: TagRepositoryError) -> Self {
+        Self::Tag(error.into())
     }
 }

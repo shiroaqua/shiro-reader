@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
 use derive_new::new;
-use toasty::Db;
 
 use crate::{
     application::identity::{
         crypto::service::CryptoService,
-        errors::{IdentityApplicationError, user_storage},
+        errors::IdentityApplicationError,
         user::{
             commands::{
                 UserChangePasswordCommand, UserReanmeCommand, UserRegisterCommand,
@@ -18,18 +17,19 @@ use crate::{
         },
     },
     domain::{
-        EntityCreate, EntityId,
+        EntityId,
         identity::user::{
             entity::User,
             value_objects::{UserId, UserName, UserPasswordHash},
         },
     },
+    infrastructure::repositories::user_repository::UserRepository,
     state::UserDatabaseProvider,
 };
 
 #[derive(new)]
 pub struct UserService {
-    db: Db,
+    repository: UserRepository,
     user_database_provider: Arc<UserDatabaseProvider>,
     crypto: Arc<CryptoService>,
 }
@@ -47,8 +47,7 @@ impl UserService {
 
         match self.user_database_provider.append(&user_id).await {
             Ok(_) => {
-                let created = user.create().exec(&mut self.db.clone()).await;
-                if let Err(error) = created {
+                if let Err(error) = self.repository.create(user).await {
                     self.user_database_provider
                         .remove(&user_id)
                         .await
@@ -59,7 +58,7 @@ impl UserService {
                                 )),
                             )
                         })?;
-                    return Err(user_storage(error));
+                    return Err(error.into());
                 }
                 Ok(())
             }
@@ -75,9 +74,8 @@ impl UserService {
         command: UserUnregisterCommand,
     ) -> Result<(), IdentityApplicationError> {
         let id = UserId::parse(command.id)?;
-        let mut db = self.db.clone();
-        let user = User::get_by_id(&mut db, &id).await.map_err(user_storage)?;
-        user.delete().exec(&mut db).await.map_err(user_storage)?;
+        let user = self.repository.find_by_id(&id).await?;
+        self.repository.delete(user).await?;
         self.user_database_provider
             .remove(&id.to_string())
             .await
@@ -87,14 +85,12 @@ impl UserService {
     pub async fn rename(&self, command: UserReanmeCommand) -> Result<(), IdentityApplicationError> {
         let id = UserId::parse(command.id)?;
         let name = UserName::parse(command.name)?;
-        let mut db = self.db.clone();
-        let mut tx = db.transaction().await.map_err(user_storage)?;
-        let mut user = User::get_by_id(&mut tx, &id).await.map_err(user_storage)?;
-        user.rename(name)?
-            .exec(&mut tx)
-            .await
-            .map_err(user_storage)?;
-        tx.commit().await.map_err(user_storage)
+        let mut session = self.repository.session();
+        let mut tx = session.begin_transaction().await?;
+        let mut user = tx.find_by_id(&id).await?;
+        user.rename(name)?.exec(&mut tx).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn change_password(
@@ -103,47 +99,31 @@ impl UserService {
     ) -> Result<(), IdentityApplicationError> {
         let id = UserId::parse(command.id)?;
         let password_hash = UserPasswordHash::parse(self.crypto.hash_password(&command.password)?)?;
-        let mut db = self.db.clone();
-        let mut tx = db.transaction().await.map_err(user_storage)?;
-        let mut user = User::get_by_id(&mut tx, &id).await.map_err(user_storage)?;
+        let mut session = self.repository.session();
+        let mut tx = session.begin_transaction().await?;
+        let mut user = tx.find_by_id(&id).await?;
         user.change_password_hash(password_hash)?
             .exec(&mut tx)
-            .await
-            .map_err(user_storage)?;
-        tx.commit().await.map_err(user_storage)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn get_users(
         &self,
         query: GetUsersQuery,
     ) -> Result<Vec<GetUserOutput>, IdentityApplicationError> {
-        let user_query = if query.user_ids.is_empty() {
-            User::all()
-        } else {
-            User::all().filter(
-                User::fields().id().inner().in_list(
-                    query
-                        .user_ids
-                        .iter()
-                        .map(|id| UserId::parse(id).map(Into::into))
-                        .collect::<Result<Vec<uuid::Uuid>, _>>()?,
-                ),
-            )
-        };
-        user_query
-            .exec(&mut self.db.clone())
-            .await
-            .map_err(user_storage)?
+        let ids = query
+            .user_ids
+            .iter()
+            .map(UserId::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self
+            .repository
+            .list(&ids)
+            .await?
             .into_iter()
-            .map(|user| {
-                let user = user.into_inner();
-                Ok(GetUserOutput {
-                    id: user.id.to_string(),
-                    name: user.name.into(),
-                    created_at: user.created_at,
-                    updated_at: user.updated_at,
-                })
-            })
-            .collect()
+            .map(Into::into)
+            .collect())
     }
 }

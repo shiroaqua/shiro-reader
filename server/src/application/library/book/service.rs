@@ -1,60 +1,50 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use bytes::Bytes;
 use derive_new::new;
 use futures_util::Stream;
-use toasty::Db;
 
 use crate::{
-    application::{
-        errors::MapToastyError,
-        library::{
-            book::errors::BookApplicationError,
-            book::{
-                commands::{
-                    BookIdCommand, BookIdsCommand, CreateBookCommand, DeleteBookCommand,
-                    DeleteBooksCommand, GetBookCoverCommand, RenameBookCommand,
-                },
-                dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
-                file::{errors::BookFileApplicationError, service::BookFileService},
-                queries::GetBooksQuery,
+    application::library::{
+        book::{
+            commands::{
+                BookIdCommand, BookIdsCommand, CreateBookCommand, DeleteBookCommand,
+                DeleteBooksCommand, GetBookCoverCommand, RenameBookCommand,
             },
-            errors::LibraryApplicationError,
+            dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
+            errors::BookApplicationError,
+            file::{errors::BookFileApplicationError, service::BookFileService},
+            queries::GetBooksQuery,
         },
+        errors::LibraryApplicationError,
     },
     domain::{
-        EntityCreate, EntityId,
+        EntityId,
         library::{
             book::{
                 entity::Book,
                 errors::BookDomainError,
                 value_objects::{BookId, BookStatus, BookTitle},
             },
-            tag::{entity::BookTag, value_objects::BookTagStatus},
+            tag::value_objects::BookTagStatus,
         },
     },
+    infrastructure::repositories::book_repository::BookRepository,
 };
 
 #[derive(new)]
 pub struct BookService {
-    db: Db,
+    repository: BookRepository,
     bookfile: Arc<BookFileService>,
 }
 
-async fn available_restore_title(
-    tx: &mut impl toasty::Executor,
+fn available_restore_title(
+    occupied: &HashSet<String>,
     original: &BookTitle,
 ) -> Result<BookTitle, LibraryApplicationError> {
-    let occupied = Book::all()
-        .exec(tx)
-        .await
-        .map_err(Book::map_db_err)?
-        .into_iter()
-        .filter_map(|book| {
-            (book.status() == BookStatus::Active)
-                .then(|| -> String { book.into_inner().title.into() })
-        })
-        .collect::<std::collections::HashSet<_>>();
     let original_title: &String = original.as_ref();
     if !occupied.contains(original_title) {
         return Ok(original.clone());
@@ -73,30 +63,18 @@ impl BookService {
         &mut self,
         command: CreateBookCommand,
     ) -> Result<CreateBookOutput, LibraryApplicationError> {
-        let book = Book::new(
-            BookId::new(),
-            BookTitle::parse(command.title)?,
-            self.bookfile.parse_existing_hash(&command.hash)?,
-        )?;
-        let book = book
-            .create()
-            .exec(&mut self.db)
-            .await
-            .map_err(Book::map_db_err)?
-            .into_inner();
+        let title = BookTitle::parse(command.title)?;
+        let hash = self.bookfile.parse_existing_hash(&command.hash)?;
+        let file_type = self
+            .bookfile
+            .get_book_type(&hash)
+            .ok_or(BookFileApplicationError::Unsupported)?;
+        let book = self
+            .repository
+            .create(Book::new(BookId::new(), title, hash)?)
+            .await?;
 
-        Ok(CreateBookOutput {
-            id: book.id.to_string(),
-            title: book.title.into(),
-            hash: book.hash.as_hash().to_hex().to_string(),
-            file_type: self
-                .bookfile
-                .get_book_type(book.hash.as_hash())
-                .ok_or(BookFileApplicationError::Unsupported)?
-                .to_string(),
-            created_at: book.created_at,
-            updated_at: book.updated_at,
-        })
+        Ok((book, file_type).into())
     }
 
     pub async fn delete_book(
@@ -116,19 +94,19 @@ impl BookService {
         let ids = command
             .ids
             .iter()
-            .map(|id| BookId::parse(id).map(Into::into))
-            .collect::<Result<Vec<uuid::Uuid>, _>>()?;
+            .map(BookId::parse)
+            .collect::<Result<Vec<_>, _>>()?;
         if ids.is_empty() {
             return Ok(());
         }
-        let mut tx = self.db.transaction().await.map_err(Book::map_db_err)?;
-        let mut books = Book::filter(Book::fields().id().inner().in_list(ids.clone()))
-            .exec(&mut tx)
-            .await
-            .map_err(Book::map_db_err)?
+
+        let mut tx = self.repository.begin_transaction().await?;
+        let mut books = tx
+            .find_by_ids(&ids)
+            .await?
             .into_iter()
-            .map(|book| Ok((*book.id().as_ref(), book)))
-            .collect::<Result<std::collections::HashMap<_, _>, LibraryApplicationError>>()?;
+            .map(|book| (book.id().clone(), book))
+            .collect::<HashMap<_, _>>();
         for id in &ids {
             if !books.contains_key(id) {
                 return Err(BookApplicationError::NotFound.into());
@@ -140,21 +118,13 @@ impl BookService {
                 .expect("book existence checked")
                 .mark_deleted()?
                 .exec(&mut tx)
-                .await
-                .map_err(Book::map_db_err)?;
+                .await?;
         }
-        let bindings = BookTag::filter(BookTag::fields().book_id().inner().in_list(ids))
-            .exec(&mut tx)
-            .await
-            .map_err(BookTag::map_db_err)?;
-        for mut binding in bindings {
-            binding
-                .mark_deleted()?
-                .exec(&mut tx)
-                .await
-                .map_err(BookTag::map_db_err)?;
+        for mut binding in tx.list_tag_bindings(&ids).await? {
+            binding.mark_deleted()?.exec(&mut tx).await?;
         }
-        tx.commit().await.map_err(Book::map_db_err)
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn restore_book(
@@ -162,30 +132,21 @@ impl BookService {
         command: BookIdCommand,
     ) -> Result<(), LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
-        let mut tx = self.db.transaction().await.map_err(Book::map_db_err)?;
-        let mut book = Book::get_by_id(&mut tx, &id).await.map_err(Book::map_db_err)?;
+        let mut tx = self.repository.begin_transaction().await?;
+        let mut book = tx.find_by_id(&id).await?;
         if book.status() == BookStatus::Active {
             return Err(BookDomainError::NotDeleted.into());
         }
-        let restored_title = available_restore_title(&mut tx, book.title()).await?;
-        book.restore(restored_title)?
-            .exec(&mut tx)
-            .await
-            .map_err(Book::map_db_err)?;
-        let bindings = BookTag::filter(BookTag::fields().book_id().eq(id))
-            .exec(&mut tx)
-            .await
-            .map_err(BookTag::map_db_err)?;
-        for mut binding in bindings {
+        let occupied = tx.list_active_titles().await?;
+        let restored_title = available_restore_title(&occupied, book.title())?;
+        book.restore(restored_title)?.exec(&mut tx).await?;
+        for mut binding in tx.list_tag_bindings(std::slice::from_ref(&id)).await? {
             if binding.status() != BookTagStatus::Active {
-                binding
-                    .restore()?
-                    .exec(&mut tx)
-                    .await
-                    .map_err(BookTag::map_db_err)?;
+                binding.restore()?.exec(&mut tx).await?;
             }
         }
-        tx.commit().await.map_err(Book::map_db_err)
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn permanently_delete_books(
@@ -195,65 +156,44 @@ impl BookService {
         let ids = command
             .ids
             .iter()
-            .map(|id| BookId::parse(id).map(Into::into))
-            .collect::<Result<Vec<uuid::Uuid>, _>>()?;
+            .map(BookId::parse)
+            .collect::<Result<Vec<_>, _>>()?;
         if ids.is_empty() {
             return Ok(());
         }
-        let mut tx = self.db.transaction().await.map_err(Book::map_db_err)?;
-        let books = Book::filter(Book::fields().id().inner().in_list(ids.clone()))
-            .exec(&mut tx)
-            .await
-            .map_err(Book::map_db_err)?;
+
+        let mut tx = self.repository.begin_transaction().await?;
+        let books = tx.find_by_ids(&ids).await?;
         if books.len() != ids.len() {
             return Err(BookApplicationError::NotFound.into());
         }
-        for book in books {
-            if book.status() == BookStatus::Active {
-                return Err(BookApplicationError::NotFound.into());
-            }
+        if books.iter().any(|book| book.status() == BookStatus::Active) {
+            return Err(BookApplicationError::NotFound.into());
         }
-        Book::filter(Book::fields().id().inner().in_list(ids))
-            .delete()
-            .exec(&mut tx)
-            .await
-            .map_err(Book::map_db_err)?;
-        tx.commit().await.map_err(Book::map_db_err)
+        tx.delete_books(books).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn get_trash(&mut self) -> Result<Vec<TrashedBookOutput>, LibraryApplicationError> {
-        Book::all()
-            .exec(&mut self.db)
-            .await
-            .map_err(Book::map_db_err)?
+        self.repository
+            .list_trashed()
+            .await?
             .into_iter()
-            .filter_map(|book| {
+            .map(|book| {
                 let BookStatus::Deleted { deleted_at } = book.status() else {
-                    return None;
+                    return Err(BookApplicationError::NotDeleted.into());
                 };
-                Some((|| {
-                    let book = book.into_inner();
-                    let hash = book.hash.as_hash().to_hex().to_string();
-                    let file_hash = self.bookfile.parse_existing_hash(&hash)?;
-                    let file_type = self
-                        .bookfile
-                        .get_book_type(&file_hash)
-                        .ok_or(BookFileApplicationError::Unsupported)?
-                        .to_string();
-                    Ok(TrashedBookOutput {
-                        book: GetBookOutput {
-                            id: book.id.to_string(),
-                            title: book.title.into(),
-                            hash,
-                            file_type,
-                            created_at: book.created_at,
-                            updated_at: book.updated_at,
-                        },
-                        deleted_at,
-                    })
-                })())
+                let file_type = self
+                    .bookfile
+                    .get_book_type(book.hash())
+                    .ok_or(BookFileApplicationError::Unsupported)?;
+                Ok(TrashedBookOutput {
+                    book: (book, file_type).into(),
+                    deleted_at,
+                })
             })
-            .collect::<Result<Vec<_>, LibraryApplicationError>>()
+            .collect()
     }
 
     pub async fn rename_book(
@@ -262,69 +202,42 @@ impl BookService {
     ) -> Result<(), LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
         let new_title = BookTitle::parse(command.title)?;
-        let mut tx = self.db.transaction().await.map_err(Book::map_db_err)?;
-        let mut book = Book::get_by_id(&mut tx, &id).await.map_err(Book::map_db_err)?;
-        book.rename(new_title)?
-            .exec(&mut tx)
-            .await
-            .map_err(Book::map_db_err)?;
-        tx.commit().await.map_err(Book::map_db_err)
+        let mut tx = self.repository.begin_transaction().await?;
+        let mut book = tx.find_by_id(&id).await?;
+        book.rename(new_title)?.exec(&mut tx).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn get_books(
         &mut self,
         query: GetBooksQuery,
     ) -> Result<Vec<GetBookOutput>, LibraryApplicationError> {
-        let book_query = if query.book_ids.is_empty() {
-            Book::all()
-        } else {
-            Book::all().filter(
-                Book::fields().id().inner().in_list(
-                    query
-                        .book_ids
-                        .iter()
-                        .map(|id| BookId::parse(id).map(Into::into))
-                        .collect::<Result<Vec<uuid::Uuid>, _>>()?,
-                ),
-            )
-        };
-        book_query
-            .exec(&mut self.db)
-            .await
-            .map_err(Book::map_db_err)?
+        let ids = query
+            .book_ids
+            .iter()
+            .map(BookId::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.repository
+            .list_active(&ids)
+            .await?
             .into_iter()
-            .filter_map(|book| {
-                (book.status() == BookStatus::Active).then(|| {
-                    let book = book.into_inner();
-                    let hash = book.hash.as_hash().to_hex().to_string();
-                    let file_hash = self.bookfile.parse_existing_hash(&hash)?;
-
-                    Ok(GetBookOutput {
-                        id: book.id.to_string(),
-                        title: book.title.into(),
-                        hash,
-                        file_type: self
-                            .bookfile
-                            .get_book_type(&file_hash)
-                            .ok_or(BookFileApplicationError::Unsupported)?
-                            .to_string(),
-                        created_at: book.created_at,
-                        updated_at: book.updated_at,
-                    })
-                })
+            .map(|book| {
+                let file_type = self
+                    .bookfile
+                    .get_book_type(book.hash())
+                    .ok_or(BookFileApplicationError::Unsupported)?;
+                Ok((book, file_type).into())
             })
-            .collect::<Result<Vec<_>, LibraryApplicationError>>()
+            .collect()
     }
 
     pub async fn get_cover(
         &mut self,
         command: GetBookCoverCommand,
-    ) -> Result<
-        (impl Stream<Item = std::io::Result<Bytes>> + 'static, String),
-        LibraryApplicationError,
-    > {
+    ) -> Result<(impl Stream<Item = std::io::Result<Bytes>> + 'static, String), LibraryApplicationError> {
         let id = BookId::parse(command.id)?;
-        let book = Book::get_by_id(&mut self.db, &id).await.map_err(Book::map_db_err)?;
+        let book = self.repository.find_by_id(&id).await?;
         self.bookfile.download_book_cover_file(*book.hash()).await
     }
 }

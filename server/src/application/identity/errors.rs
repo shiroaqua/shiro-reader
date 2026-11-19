@@ -4,7 +4,8 @@ use crate::application::identity::authentication::errors::AuthenticationApplicat
 use crate::application::identity::crypto::errors::CryptoApplicationError;
 use crate::application::identity::user::errors::UserApplicationError;
 use crate::domain::identity::user::errors::UserDomainError;
-use crate::infrastructure::db::sqlite::sqlite_error;
+use crate::infrastructure::repositories::session_repository::SessionRepositoryError;
+use crate::infrastructure::repositories::user_repository::UserRepositoryError;
 
 #[derive(Debug, Error)]
 pub enum IdentityApplicationError {
@@ -40,14 +41,32 @@ impl From<UserDomainError> for IdentityApplicationError {
     }
 }
 
-pub(crate) fn user_storage(error: toasty::Error) -> IdentityApplicationError {
-    if error.is_record_not_found() {
-        return UserApplicationError::NotFound.into();
-    }
-    if let Some(rusqlite::Error::SqliteFailure(code, Some(message))) = sqlite_error(&error) {
-        if code.extended_code == 2067 && message.contains("users.name") {
-            return UserApplicationError::NameConflict.into();
+impl From<UserRepositoryError> for UserApplicationError {
+    fn from(value: UserRepositoryError) -> Self {
+        match value {
+            UserRepositoryError::NotFound => Self::NotFound,
+            UserRepositoryError::NameConflict => Self::NameConflict,
+            UserRepositoryError::Storage(error) => Self::Storage(error),
         }
     }
-    UserApplicationError::Storage(error.into()).into()
+}
+
+impl From<UserRepositoryError> for IdentityApplicationError {
+    fn from(error: UserRepositoryError) -> Self {
+        Self::User(error.into())
+    }
+}
+
+impl From<SessionRepositoryError> for AuthenticationApplicationError {
+    fn from(value: SessionRepositoryError) -> Self {
+        match value {
+            SessionRepositoryError::Storage(error) => Self::Storage(error),
+        }
+    }
+}
+
+impl From<SessionRepositoryError> for IdentityApplicationError {
+    fn from(error: SessionRepositoryError) -> Self {
+        Self::Authentication(error.into())
+    }
 }

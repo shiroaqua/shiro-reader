@@ -101,10 +101,10 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
         }
 
         impl #change_name<'_> {
-            pub async fn exec(
+            pub async fn exec<T: crate::domain::ChangeTarget<#model_name>>(
                 self,
-                executor: &mut dyn ::toasty::codegen_support::Executor,
-            ) -> ::toasty::Result<()> {
+                target: &mut T,
+            ) -> Result<(), T::Error> {
                 let Self { entity, fields } = self;
                 if fields.is_empty() {
                     return Ok(());
@@ -113,7 +113,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
                 #(#other_keys)*
                 let mut update = #model_name::filter(filter).update();
                 #(#setters)*
-                update.exec(executor).await
+                update.exec(target.executor()).await.map_err(T::map_error)
             }
         }
 

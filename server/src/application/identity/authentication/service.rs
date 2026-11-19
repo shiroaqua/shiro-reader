@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use derive_new::new;
-use toasty::Db;
 
 use crate::{
     application::identity::{
@@ -13,23 +12,21 @@ use crate::{
             errors::AuthenticationApplicationError,
         },
         crypto::service::CryptoService,
-        errors::{IdentityApplicationError, user_storage},
+        errors::IdentityApplicationError,
     },
-    domain::{
-        EntityCreate,
-        identity::{
-            session::{AuthAccessToken, AuthSession},
-            user::{
-                entity::User,
-                value_objects::{UserId, UserName},
-            },
-        },
+    domain::identity::{
+        session::{AuthAccessToken, AuthSession},
+        user::value_objects::{UserId, UserName},
+    },
+    infrastructure::repositories::{
+        session_repository::SessionRepository, user_repository::UserRepository,
     },
 };
 
 #[derive(new)]
 pub struct AuthenticationService {
-    db: Db,
+    user_repository: UserRepository,
+    session_repository: SessionRepository,
     crypto: Arc<CryptoService>,
 }
 
@@ -39,12 +36,12 @@ impl AuthenticationService {
         command: LoginCommand,
     ) -> Result<LoginOutput, IdentityApplicationError> {
         let name = UserName::parse(command.username)?;
-        let user = User::filter(User::fields().name().eq(name))
-            .first()
-            .exec(&mut self.db.clone())
-            .await
-            .map_err(user_storage)?
-            .ok_or(AuthenticationApplicationError::InvalidCredentials)?.into_inner();
+        let user = self
+            .user_repository
+            .find_by_name(name)
+            .await?
+            .ok_or(AuthenticationApplicationError::InvalidCredentials)?
+            .into_inner();
 
         if !self
             .crypto
@@ -56,15 +53,15 @@ impl AuthenticationService {
         let user_id = user.id.to_string();
         let access_token = self.crypto.issue_access_token(user_id.clone())?;
         let refresh_token = self.crypto.issue_refresh_token(user_id)?;
-        let acces_token = token_hash(&access_token);
+        let access_hash = token_hash(&access_token);
         let refresh_hash = token_hash(&refresh_token);
-        
-        let mut db = self.db.clone();
-        let mut tx = db.transaction().await.map_err(auth_storage)?;
-        let session = AuthSession::new(refresh_hash, user.id).create().exec(&mut tx).await.map_err(auth_storage)?;
-        let access = AuthAccessToken::new(acces_token, session.refresh_hash);
-        access.create().exec(&mut tx).await.map_err(auth_storage)?;
-        tx.commit().await.map_err(auth_storage)?;
+
+        let session = AuthSession::new(refresh_hash.clone(), user.id);
+        let access = AuthAccessToken::new(access_hash, refresh_hash);
+        self.session_repository
+            .create_session(session, access)
+            .await?;
+
         Ok(LoginOutput {
             access_token,
             refresh_token,
@@ -73,18 +70,12 @@ impl AuthenticationService {
 
     pub async fn logout(&self, command: LogoutCommand) -> Result<(), IdentityApplicationError> {
         let user_id = self.crypto.verify_refresh_token(&command.token)?;
-        let user_id = uuid::Uuid::parse_str(&user_id)
+        let user_id = UserId::parse(&user_id)
             .map_err(|error| AuthenticationApplicationError::Storage(error.into()))?;
-        AuthSession::filter(
-            AuthSession::fields()
-                .refresh_hash()
-                .eq(token_hash(&command.token))
-                .and(AuthSession::fields().user_id().inner().eq(user_id)),
-        )
-        .delete()
-        .exec(&mut self.db.clone())
-        .await
-        .map_err(auth_storage)
+        self.session_repository
+            .revoke(&user_id, token_hash(&command.token))
+            .await?;
+        Ok(())
     }
 
     pub async fn refresh_access_token(
@@ -92,29 +83,18 @@ impl AuthenticationService {
         command: RefreshAccessTokenCommand,
     ) -> Result<RefreshAccessTokenOutput, IdentityApplicationError> {
         let user_id = self.crypto.verify_refresh_token(&command.token)?;
-        let parsed_user_id: uuid::Uuid = UserId::parse(&user_id)
-            .map_err(|_| AuthenticationApplicationError::InvalidToken)?
-            .into();
+        let parsed_user_id =
+            UserId::parse(&user_id).map_err(|_| AuthenticationApplicationError::InvalidToken)?;
         let refresh_hash = token_hash(&command.token);
-        let mut db = self.db.clone();
-        let mut tx = db.transaction().await.map_err(auth_storage)?;
-        let session = AuthSession::filter(
-            AuthSession::fields()
-                .refresh_hash()
-                .eq(refresh_hash.clone())
-                .and(AuthSession::fields().user_id().inner().eq(parsed_user_id)),
-        )
-        .first()
-        .exec(&mut tx)
-        .await
-        .map_err(auth_storage)?;
-        if session.is_none() {
-            return Err(AuthenticationApplicationError::InvalidToken.into());
-        }
         let access_token = self.crypto.issue_access_token(user_id)?;
         let access = AuthAccessToken::new(token_hash(&access_token), refresh_hash);
-        access.create().exec(&mut tx).await.map_err(auth_storage)?;
-        tx.commit().await.map_err(auth_storage)?;
+        if !self
+            .session_repository
+            .add_access_token(&parsed_user_id, access)
+            .await?
+        {
+            return Err(AuthenticationApplicationError::InvalidToken.into());
+        }
         Ok(RefreshAccessTokenOutput { access_token })
     }
 
@@ -123,24 +103,15 @@ impl AuthenticationService {
         command: VerifyAccessToeknCommand,
     ) -> Result<VerifyAcessToeknOutput, IdentityApplicationError> {
         let user_id = self.crypto.verify_access_token(&command.token)?;
-        let access = AuthAccessToken::filter(
-            AuthAccessToken::fields()
-                .access_hash()
-                .eq(token_hash(&command.token)),
-        )
-        .first()
-        .exec(&mut self.db.clone())
-        .await
-        .map_err(auth_storage)?;
-        if access.is_none() {
+        if !self
+            .session_repository
+            .contains_access_token(token_hash(&command.token))
+            .await?
+        {
             return Err(AuthenticationApplicationError::InvalidToken.into());
         }
         Ok(VerifyAcessToeknOutput { user_id })
     }
-}
-
-fn auth_storage(error: toasty::Error) -> IdentityApplicationError {
-    AuthenticationApplicationError::Storage(error.into()).into()
 }
 
 fn token_hash(token: &str) -> String {
