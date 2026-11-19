@@ -31,6 +31,12 @@ export const bookshelf = {
         method: "DELETE",
         expectBody: false,
       }),
+    deleteBatch: (ids: Book["id"][]) =>
+      request<void>("bookshelf/books", {
+        method: "DELETE",
+        body: { ids },
+        expectBody: false,
+      }),
     getCover: async (id: Book["id"]): Promise<Blob> =>
       (
         await sendAuthenticatedRequest(

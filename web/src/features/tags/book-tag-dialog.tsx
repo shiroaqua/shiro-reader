@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { LoaderCircle, Settings2 } from "lucide-react"
 import { TagColorName } from "@/features/tags/tag-color-picker"
-import { library } from "@/api/library"
+import { ApiError, library } from "@/api/library"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
@@ -17,8 +17,9 @@ import {
 } from "@/features/tags/tag-dialog-parts"
 import { TagManageDialog } from "@/features/tags/tag-manage-dialog"
 import { TagValueInput } from "@/features/tags/tag-value-input"
+import { ErrorCode } from "@/lib/error-codes"
 import { translateTagName, useTranslation } from "@/lib/i18n"
-import { bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
+import { booksQueryKey, bookTagsQueryKey, tagsQueryKey } from "@/lib/query-keys"
 import { collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { isValueValid } from "@/lib/tag-value-patterns"
 import type { Book, BookTag, TagTreeNode } from "@/lib/types"
@@ -171,30 +172,7 @@ function BookTagForm({
   }
 
   // Unlike bindings, a color change is saved right away rather than on "Done".
-  const queryClient = useQueryClient()
-  const recolorMutation = useMutation({
-    mutationFn: ({ id, color }: { id: string; color: string }) =>
-      library.tag.recolor(id, color),
-    onMutate: async ({ id, color }) => {
-      await queryClient.cancelQueries({ queryKey: tagsQueryKey })
-      const previous = queryClient.getQueryData<TagTreeNode[]>(tagsQueryKey)
-      queryClient.setQueryData<TagTreeNode[]>(
-        tagsQueryKey,
-        (current) => current && recolorNode(current, id, color)
-      )
-      return { previous }
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previous)
-        queryClient.setQueryData(tagsQueryKey, context.previous)
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: tagsQueryKey }),
-  })
-
-  const recolor = (node: TagTreeNode, color: string) => {
-    if (color.toLowerCase() === node.color.toLowerCase()) return
-    recolorMutation.mutate({ id: node.id, color })
-  }
+  const recolor = useTagRecolor()
 
   const renderRow = (node: TagTreeNode, depth: number): ReactNode => (
     <BindTreeRow
@@ -285,6 +263,249 @@ function BookTagForm({
       <TagManageDialog open={managing} onOpenChange={setManaging} />
     </>
   )
+}
+
+/** Picks tags to bind to multiple books at once. Only binds; never unbinds or opens tag management. */
+export function BatchBookTagDialog({
+  bookIds,
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  bookIds: readonly string[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess?: () => void
+}) {
+  const queryClient = useQueryClient()
+  const saveMutation = useMutation({
+    mutationFn: async ({
+      targetBookIds,
+      bindings,
+    }: {
+      targetBookIds: readonly string[]
+      bindings: BookTag[]
+    }) => {
+      for (const bookId of targetBookIds) {
+        for (const binding of bindings) {
+          await library.bookshelf.book.bindTag(bookId, binding)
+        }
+      }
+    },
+    onSettled: async (_data, error, variables) => {
+      // Reload even after a failure: earlier requests may already have succeeded.
+      await Promise.all([
+        ...variables.targetBookIds.map((bookId) =>
+          queryClient.invalidateQueries({
+            queryKey: bookTagsQueryKey(bookId),
+            refetchType: "all",
+          })
+        ),
+        ...(error instanceof ApiError && error.code === ErrorCode.bookNotFound
+          ? [queryClient.invalidateQueries({ queryKey: booksQueryKey })]
+          : []),
+      ])
+      if (!error) {
+        onSuccess?.()
+        onOpenChange(false)
+      }
+    },
+  })
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!saveMutation.isPending) onOpenChange(next)
+      }}
+    >
+      <DialogContent className={TAG_DIALOG_CONTENT_CLASS_NAME}>
+        {open && (
+          <BatchBookTagForm
+            bookCount={bookIds.length}
+            isSaving={saveMutation.isPending}
+            onSave={(bindings) =>
+              saveMutation.mutate({ targetBookIds: [...bookIds], bindings })
+            }
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BatchBookTagForm({
+  bookCount,
+  isSaving,
+  onSave,
+}: {
+  bookCount: number
+  isSaving: boolean
+  onSave: (bindings: BookTag[]) => void
+}) {
+  const { t } = useTranslation()
+  const view = useTagTreeView()
+  const { tagsQuery, tree, expanded, toggleExpand } = view
+  const existingIds = useMemo(
+    () => new Set(tree.flatMap(collectSubtreeIds)),
+    [tree]
+  )
+  const [creating, setCreating] = useState(false)
+  const [selectionDraft, setSelected] = useState<ReadonlyMap<string, string>>(
+    () => new Map()
+  )
+  const selected = useMemo(
+    () =>
+      new Map([...selectionDraft].filter(([id]) => existingIds.has(id))),
+    [selectionDraft, existingIds]
+  )
+  const hasInvalidValue = useMemo(
+    () =>
+      [...selected].some(([id, value]) => {
+        const node = findTag(tree, id)
+        return node !== undefined && !isValueValid(node, value)
+      }),
+    [selected, tree]
+  )
+  const canSubmit =
+    bookCount > 0 &&
+    !isSaving &&
+    !tagsQuery.isPending &&
+    !tagsQuery.isError &&
+    !tagsQuery.isFetching &&
+    selected.size > 0 &&
+    !hasInvalidValue
+
+  const toggleSelect = (node: TagTreeNode, checked: boolean) =>
+    setSelected((current) => {
+      const next = new Map(current)
+      if (checked) next.set(node.id, next.get(node.id) ?? "")
+      else next.delete(node.id)
+      return next
+    })
+
+  const changeValue = (id: string, value: string) =>
+    setSelected((current) => new Map(current).set(id, value))
+
+  const submit = () => {
+    if (!canSubmit) return
+    const bindings: BookTag[] = [...selected].map(([tag_id, value]) => ({
+      tag_id,
+      value: value === "" ? null : value,
+    }))
+    onSave(bindings)
+  }
+
+  const recolor = useTagRecolor()
+
+  const renderRow = (node: TagTreeNode, depth: number): ReactNode => (
+    <BindTreeRow
+      key={node.id}
+      node={node}
+      depth={depth}
+      expanded={expanded}
+      selected={selected}
+      disabled={isSaving}
+      onToggleExpand={toggleExpand}
+      onToggleSelect={toggleSelect}
+      onChangeValue={changeValue}
+      onRecolor={recolor}
+      renderChild={(child) => renderRow(child, depth + 1)}
+    />
+  )
+
+  return (
+    <>
+      <TagDialogHeader
+        title={t("local.book.tags")}
+        start={
+          <DialogClose
+            disabled={isSaving}
+            render={<Button variant="ghost" size="sm" />}
+          >
+            {t("local.common.cancel")}
+          </DialogClose>
+        }
+        end={
+          <Button
+            size="sm"
+            disabled={!canSubmit}
+            aria-busy={isSaving}
+            onClick={submit}
+          >
+            {isSaving && (
+              <LoaderCircle aria-hidden="true" className="animate-spin" />
+            )}
+            {t("local.common.done")}
+          </Button>
+        }
+      />
+
+      <TagSearchBar
+        query={view.query}
+        disabled={isSaving}
+        onQueryChange={view.setQuery}
+        onDefine={() => setCreating(true)}
+      />
+
+      <TagTreeBox
+        tree={tree}
+        visibleTree={view.visibleTree}
+        isLoading={tagsQuery.isPending}
+        isError={tagsQuery.isError}
+        errorMessage={t("local.tag.load_failed")}
+        isRetrying={tagsQuery.isFetching}
+        onRetry={() => {
+          void tagsQuery.refetch()
+        }}
+        multiselectable
+        renderRow={(node) => renderRow(node, 0)}
+      />
+
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="shrink-0 tabular-nums">
+          {t("local.tag.selected_count").replace(
+            "{count}",
+            String(selected.size)
+          )}
+        </span>
+        <span className="truncate">
+          {t("local.book.batch_tags_hint").replace("{count}", String(bookCount))}
+        </span>
+      </div>
+
+      {creating && (
+        <CreateTagDialog parentId={null} onClose={() => setCreating(false)} />
+      )}
+    </>
+  )
+}
+
+function useTagRecolor() {
+  const queryClient = useQueryClient()
+  const recolorMutation = useMutation({
+    mutationFn: ({ id, color }: { id: string; color: string }) =>
+      library.tag.recolor(id, color),
+    onMutate: async ({ id, color }) => {
+      await queryClient.cancelQueries({ queryKey: tagsQueryKey })
+      const previous = queryClient.getQueryData<TagTreeNode[]>(tagsQueryKey)
+      queryClient.setQueryData<TagTreeNode[]>(
+        tagsQueryKey,
+        (current) => current && recolorNode(current, id, color)
+      )
+      return { previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous)
+        queryClient.setQueryData(tagsQueryKey, context.previous)
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: tagsQueryKey }),
+  })
+
+  return (node: TagTreeNode, color: string) => {
+    if (color.toLowerCase() === node.color.toLowerCase()) return
+    recolorMutation.mutate({ id: node.id, color })
+  }
 }
 
 function BindTreeRow({

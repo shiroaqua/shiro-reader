@@ -1,6 +1,13 @@
 import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { LoaderCircle, Pencil, Tag, Trash2 } from "lucide-react"
+import {
+  Check,
+  CircleCheck,
+  LoaderCircle,
+  Pencil,
+  Tag,
+  Trash2,
+} from "lucide-react"
 import { ApiError, library } from "@/api/library"
 import {
   ContextMenu,
@@ -16,12 +23,32 @@ import { useTranslation } from "@/lib/i18n"
 import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import type { Book } from "@/lib/types"
 import { ErrorCode } from "@/lib/error-codes"
+import { cn } from "cn"
 
-export function BookCard({ book }: { book: Book }) {
+export type SelectionPreview = "select" | "deselect" | null
+
+export function BookCard({
+  book,
+  selected,
+  isSelectionMode,
+  selectionPreview = null,
+  onToggleSelect,
+  onHoverChange,
+}: {
+  book: Book
+  selected: boolean
+  isSelectionMode: boolean
+  selectionPreview?: SelectionPreview
+  onToggleSelect: (shiftKey: boolean) => void
+  onHoverChange?: (hovering: boolean) => void
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [renaming, setRenaming] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const isRenaming = renaming && !isSelectionMode
+  const willSelect = !selected && selectionPreview === "select"
+  const willDeselect = selected && selectionPreview === "deselect"
 
   const updateBooks = (update: (books: Book[]) => Book[]) =>
     queryClient.setQueryData<Book[]>(
@@ -77,17 +104,109 @@ export function BookCard({ book }: { book: Book }) {
   }
 
   return (
-    <ContextMenu disabled={renaming}>
+    <ContextMenu disabled={isRenaming || isSelectionMode}>
       <ContextMenuTrigger
         render={<li />}
-        className="group/card flex min-w-0 flex-col gap-1"
+        data-selected={selected || undefined}
+        onMouseEnter={() => onHoverChange?.(true)}
+        onMouseLeave={() => onHoverChange?.(false)}
+        onMouseDown={(event) => {
+          if (isSelectionMode && event.shiftKey) event.preventDefault()
+        }}
+        onClick={(event) => {
+          if (!isSelectionMode || isRenaming) return
+          onToggleSelect(event.shiftKey)
+        }}
+        className={cn(
+          "group/card flex min-w-0 flex-col gap-1",
+          isSelectionMode && "cursor-pointer select-none"
+        )}
       >
-        <BookCover
-          bookId={book.id}
-          className="aspect-[3/4] w-full rounded-xl shadow-sm transition-all duration-200 group-hover/card:-translate-y-0.5 group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25"
-          imageClassName="transition-transform duration-200 group-hover/card:scale-[1.02]"
-        />
-        {renaming ? (
+        <div
+          className={cn(
+            "relative rounded-xl transition-all duration-200",
+            selected && !willDeselect
+              ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+              : willDeselect
+                ? "ring-2 ring-primary/30 ring-offset-2 ring-offset-background"
+                : willSelect
+                  ? "ring-2 ring-primary/45 ring-offset-2 ring-offset-background"
+                  : "group-hover/card:-translate-y-0.5"
+          )}
+        >
+          <BookCover
+            bookId={book.id}
+            className={cn(
+              "aspect-[3/4] w-full rounded-xl shadow-sm transition-shadow duration-200",
+              !selected &&
+                !willSelect &&
+                !willDeselect &&
+                "group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25"
+            )}
+            imageClassName={cn(
+              "transition-transform duration-200",
+              !selected && !isSelectionMode && "group-hover/card:scale-[1.02]"
+            )}
+          />
+          {!isRenaming && (
+            <>
+              <button
+                type="button"
+                aria-pressed={selected}
+                aria-label={t("local.book.select_item").replace(
+                  "{title}",
+                  book.title
+                )}
+                onMouseDown={(event) => {
+                  if (event.shiftKey) event.preventDefault()
+                }}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (event.detail > 0) event.currentTarget.blur()
+                  onToggleSelect(event.shiftKey)
+                }}
+                className={cn(
+                  "group/check peer/check absolute top-2 left-2 z-10 flex size-6 cursor-pointer items-center justify-center rounded-full transition-all duration-150 outline-none before:absolute before:-inset-1.5 before:content-[''] focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                  selected && !willDeselect
+                    ? "bg-primary text-primary-foreground opacity-100 shadow-sm ring-2 ring-background/80"
+                    : willDeselect
+                      ? "bg-primary/50 text-primary-foreground opacity-100 shadow-sm ring-2 ring-background/60"
+                      : willSelect
+                        ? "border-2 border-primary bg-primary/20 text-primary opacity-100 shadow-xs backdrop-blur-[2px]"
+                        : isSelectionMode
+                          ? "border-2 border-white/90 bg-black/25 text-white opacity-85 shadow-xs backdrop-blur-[2px] hover:border-white hover:bg-black/45 hover:opacity-100"
+                          : "border-2 border-white/85 bg-black/25 text-white opacity-0 shadow-xs backdrop-blur-[2px] group-hover/card:opacity-90 hover:border-white hover:bg-black/45 hover:opacity-100"
+                )}
+              >
+                <Check
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3.5 stroke-[2.75] transition-all duration-150",
+                    selected && !willDeselect
+                      ? "scale-100 opacity-100"
+                      : willDeselect
+                        ? "scale-90 opacity-80"
+                        : willSelect
+                          ? "scale-95 opacity-90"
+                          : "scale-90 opacity-0 group-hover/check:scale-100 group-hover/check:opacity-100"
+                  )}
+                />
+              </button>
+              <div
+                aria-hidden="true"
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 top-0 h-14 rounded-t-xl bg-gradient-to-b from-black/45 via-black/15 to-transparent transition-opacity duration-150",
+                  selected
+                    ? "opacity-0"
+                    : isSelectionMode
+                      ? "opacity-70 group-hover/card:opacity-100"
+                      : "opacity-0 peer-focus-visible/check:opacity-100 group-hover/card:opacity-100"
+                )}
+              />
+            </>
+          )}
+        </div>
+        {isRenaming ? (
           <Input
             autoFocus
             defaultValue={book.title}
@@ -125,6 +244,10 @@ export function BookCard({ book }: { book: Book }) {
         </time>
       </ContextMenuTrigger>
       <ContextMenuContent finalFocus={false}>
+        <ContextMenuItem onClick={() => onToggleSelect(false)}>
+          <CircleCheck aria-hidden="true" />
+          {t("local.book.select")}
+        </ContextMenuItem>
         <ContextMenuItem onClick={() => setRenaming(true)}>
           <Pencil aria-hidden="true" />
           {t("local.book.rename")}
@@ -146,7 +269,11 @@ export function BookCard({ book }: { book: Book }) {
           {t("local.book.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
-      <BookTagDialog book={book} open={tagsOpen} onOpenChange={setTagsOpen} />
+      <BookTagDialog
+        book={book}
+        open={tagsOpen && !isSelectionMode}
+        onOpenChange={setTagsOpen}
+      />
     </ContextMenu>
   )
 }

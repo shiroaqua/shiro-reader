@@ -44,6 +44,7 @@ export function DashboardScreen() {
   const { t } = useTranslation()
   const { username, logout } = useAuth()
   const [activeMenu, setActiveMenu] = useState<string>("bookshelf")
+  const [headerOverlay, setHeaderOverlay] = useState<HTMLDivElement | null>(null)
 
   const menus: DashboardMenu[] = [
     {
@@ -116,15 +117,23 @@ export function DashboardScreen() {
         </SidebarFooter>
       </Sidebar>
       <main className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="mx-1 data-vertical:h-4 data-vertical:self-center" />
-          <h1 className="text-base font-semibold tracking-tight">
-            {activeTitle}
-          </h1>
+        <header className="group/header flex h-14 shrink-0 items-center gap-2 border-b px-4 transition-colors has-data-[slot=selection-bar]:bg-muted/60">
+          <div className="flex min-w-0 items-center gap-2 group-has-data-[slot=selection-bar]/header:hidden">
+            <SidebarTrigger />
+            <Separator orientation="vertical" className="mx-1 data-vertical:h-4 data-vertical:self-center" />
+            <h1 className="truncate text-base font-semibold tracking-tight">
+              {activeTitle}
+            </h1>
+          </div>
+          <div
+            ref={setHeaderOverlay}
+            className="hidden min-w-0 flex-1 items-center group-has-data-[slot=selection-bar]/header:flex"
+          />
         </header>
         <div className="flex-1 overflow-y-auto">
-          {activeMenu === "bookshelf" && <BookshelfBooks />}
+          {activeMenu === "bookshelf" && (
+            <BookshelfBooks headerOverlay={headerOverlay} />
+          )}
           {activeMenu === "trash" && <TrashList />}
         </div>
       </main>
