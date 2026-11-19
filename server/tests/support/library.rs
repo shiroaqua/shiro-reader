@@ -1,7 +1,7 @@
 use super::*;
 use jiff::Timestamp;
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy)]
 pub enum SampleFile {
     Pdf,
     Epub,
@@ -54,7 +54,7 @@ pub fn epub_with_cover(cover: Option<&[u8]>) -> Vec<u8> {
     output.finish().unwrap().into_inner()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct BookData {
     pub id: String,
     pub title: String,
@@ -80,25 +80,34 @@ pub struct Book<'a> {
 
 impl TestApp {
     pub async fn trash(&self, session: &Session) -> Vec<TrashedBookData> {
-        let response = self.send(Method::GET, "/api/v1/library/bookshelf/trash", None, Some(session)).await;
+        let response = self.send(Method::GET, TRASH, None, Some(session)).await;
         response.assert_status(200);
         serde_json::from_value(response.json()).expect("trash list fields")
     }
 
     pub async fn restore_book(&self, session: &Session, id: &str) -> HttpResponse {
-        self.send(Method::POST, &format!("/api/v1/library/bookshelf/trash/{id}/restore"), None, Some(session)).await
+        self.send(
+            Method::POST,
+            &format!("{TRASH}/{id}/restore"),
+            None,
+            Some(session),
+        )
+        .await
     }
 
     pub async fn permanently_delete_book(&self, session: &Session, id: &str) -> HttpResponse {
-        self.send(Method::DELETE, &format!("/api/v1/library/bookshelf/trash/{id}"), None, Some(session)).await
+        self.send(Method::DELETE, &format!("{TRASH}/{id}"), None, Some(session))
+            .await
     }
 
     pub async fn delete_books(&self, session: &Session, ids: &[&str]) -> HttpResponse {
-        self.send(Method::DELETE, BOOKS, Some(json!({"ids": ids})), Some(session)).await
+        self.send(Method::DELETE, BOOKS, Some(json!({"ids": ids})), Some(session))
+            .await
     }
 
     pub async fn permanently_delete_books(&self, session: &Session, ids: &[&str]) -> HttpResponse {
-        self.send(Method::DELETE, "/api/v1/library/bookshelf/trash", Some(json!({"ids": ids})), Some(session)).await
+        self.send(Method::DELETE, TRASH, Some(json!({"ids": ids})), Some(session))
+            .await
     }
 
     pub async fn books(&self, session: &Session) -> Vec<BookData> {
@@ -160,12 +169,19 @@ impl TestApp {
         }
     }
 
-    pub fn book<'a>(&'a self, session: &Session, data: BookData) -> Book<'a> {
-        Book {
-            data,
-            app: self,
-            session: session.clone(),
-        }
+    pub async fn upload_and_add_book(
+        &self,
+        session: &Session,
+        title: &str,
+        bytes: &[u8],
+    ) -> BookData {
+        let hash = blake3::hash(bytes).to_hex().to_string();
+        self.upload_parts(Some(session), &[&hash], Some(bytes))
+            .await
+            .assert_empty(201);
+        let response = self.create_book(session, title, &hash).await;
+        response.assert_status(201);
+        serde_json::from_value(response.json()).expect("created book fields")
     }
 
     pub async fn rename_book(&self, session: &Session, id: &str, title: &str) -> HttpResponse {

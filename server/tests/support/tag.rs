@@ -1,9 +1,9 @@
 use super::*;
 use jiff::Timestamp;
 
-const TAGS: &str = "/api/v1/library/tags";
+const DEFAULT_TAG_COLOR: &str = "#000000";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TagDefinitionData {
     pub id: String,
@@ -113,43 +113,37 @@ pub enum TagError {
     NotFound,
     ParentNotFound,
     InvalidMove,
-    InvalidStrategy,
     InvalidColor,
     UnchangedColor,
 }
 
 impl TagError {
-    fn contract(self) -> (u16, &'static str) {
+    fn contract(self) -> (u16, u32, &'static str) {
         use TagError::*;
         match self {
-            InvalidId => (400, "library.tag.invalid_id"),
-            MissingName => (400, "library.tag.missing_name"),
-            InvalidName => (400, "library.tag.invalid_name_format"),
-            UnchangedName => (400, "library.tag.name_unchanged"),
-            SiblingNameConflict => (409, "library.tag.sibling_name_conflict"),
-            InvalidRegex => (400, "library.tag.invalid_value_regex"),
-            RegexNotAllowed => (400, "library.tag.value_regex_not_allowed"),
-            ValueRequired => (400, "library.tag.value_required"),
-            ValueNotAllowed => (400, "library.tag.value_not_allowed"),
-            RegexMismatch => (400, "library.tag.value_regex_mismatch"),
-            NotFound => (404, "library.tag.not_found"),
-            ParentNotFound => (404, "library.tag.parent_not_found"),
-            InvalidMove => (400, "library.tag.invalid_move"),
-            InvalidStrategy => (400, "library.tag.invalid_delete_strategy"),
-            InvalidColor => (400, "library.tag.invalid_color"),
-            UnchangedColor => (400, "library.tag.color_unchanged"),
+            InvalidId => (400, 2201, "library.tag.invalid_id"),
+            MissingName => (400, 2202, "library.tag.missing_name"),
+            InvalidName => (400, 2203, "library.tag.invalid_name_format"),
+            UnchangedName => (400, 2204, "library.tag.name_unchanged"),
+            InvalidColor => (400, 2205, "library.tag.invalid_color"),
+            UnchangedColor => (400, 2206, "library.tag.color_unchanged"),
+            InvalidRegex => (400, 2207, "library.tag.invalid_value_regex"),
+            RegexNotAllowed => (400, 2208, "library.tag.value_regex_not_allowed"),
+            ValueRequired => (400, 2209, "library.tag.value_required"),
+            ValueNotAllowed => (400, 2210, "library.tag.value_not_allowed"),
+            RegexMismatch => (400, 2211, "library.tag.value_regex_mismatch"),
+            NotFound => (404, 2214, "library.tag.not_found"),
+            ParentNotFound => (404, 2215, "library.tag.parent_not_found"),
+            InvalidMove => (400, 2216, "library.tag.invalid_move"),
+            SiblingNameConflict => (409, 2218, "library.tag.sibling_name_conflict"),
         }
     }
 }
 
 impl HttpResponse {
     pub fn assert_tag_error(&self, error: TagError) {
-        let (status, message) = error.contract();
-        self.assert_status(status);
-        assert_eq!(
-            self.json(),
-            json!({"error": {"code": expected_error_code(message), "message": message}})
-        );
+        let (status, code, message) = error.contract();
+        self.assert_error_contract(status, code, message);
     }
 }
 
@@ -205,8 +199,15 @@ impl TestApp {
         allows_value: bool,
         regex: Option<&str>,
     ) -> HttpResponse {
-        self.define_tag_with_color(session, name, parent, allows_value, regex, Some("#6f6862"))
-            .await
+        self.define_tag_with_color(
+            session,
+            name,
+            parent,
+            allows_value,
+            regex,
+            Some(DEFAULT_TAG_COLOR),
+        )
+        .await
     }
 
     pub async fn define_tag_with_color(
@@ -249,7 +250,7 @@ impl TestApp {
         regex: Option<&str>,
         color: Option<&str>,
     ) -> TagDefinitionData {
-        let color = color.unwrap_or("#000000");
+        let color = color.unwrap_or(DEFAULT_TAG_COLOR);
         let response = self
             .define_tag_with_color(session, name, parent, allows_value, regex, Some(color))
             .await;
@@ -353,71 +354,5 @@ impl TestApp {
             Some(session),
         )
         .await
-    }
-
-    pub async fn invalid_tag_deletion_strategies(
-        &self,
-        session: &Session,
-        id: &str,
-    ) -> Vec<HttpResponse> {
-        let mut responses = Vec::new();
-        for query in ["", "?strategy=", "?strategy=cascade", "?strategy=UNKNOWN"] {
-            responses.push(
-                self.send(
-                    Method::DELETE,
-                    &format!("{TAGS}/{id}{query}"),
-                    None,
-                    Some(session),
-                )
-                .await,
-            );
-        }
-        responses
-    }
-
-    pub async fn anonymous_tag_requests(&self) -> Vec<HttpResponse> {
-        let mut responses = Vec::new();
-        for (method, uri, body) in [
-            (Method::GET, TAGS.into(), None),
-            (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/tags"), None),
-            (
-                Method::POST,
-                TAGS.into(),
-                Some(json!({"name": "Tag", "allows_value": false})),
-            ),
-            (
-                Method::PATCH,
-                format!("{TAGS}/{UNKNOWN_ID}/name"),
-                Some(json!({"name": "Renamed"})),
-            ),
-            (
-                Method::PATCH,
-                format!("{TAGS}/{UNKNOWN_ID}/color"),
-                Some(json!({"color": "#FFFFFF"})),
-            ),
-            (
-                Method::PATCH,
-                format!("{TAGS}/{UNKNOWN_ID}/parent"),
-                Some(json!({"parent_id": null})),
-            ),
-            (
-                Method::DELETE,
-                format!("{TAGS}/{UNKNOWN_ID}?strategy=CASCADE"),
-                None,
-            ),
-            (
-                Method::POST,
-                format!("{BOOKS}/{UNKNOWN_ID}/tags"),
-                Some(json!({"tag_id": UNKNOWN_ID})),
-            ),
-            (
-                Method::DELETE,
-                format!("{BOOKS}/{UNKNOWN_ID}/tags"),
-                Some(json!({"tag_id": UNKNOWN_ID})),
-            ),
-        ] {
-            responses.push(self.send(method, &uri, body, None).await);
-        }
-        responses
     }
 }

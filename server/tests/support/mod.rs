@@ -3,13 +3,11 @@
 pub mod crypto;
 mod identity;
 mod library;
-mod lifecycle;
 mod runtime;
 mod tag;
 
 pub use identity::*;
 pub use library::*;
-pub use lifecycle::Restart;
 pub use tag::*;
 
 use axum::{
@@ -17,7 +15,7 @@ use axum::{
     body::{Body, Bytes, to_bytes},
     http::{HeaderMap, Method, Request, StatusCode},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use shiro_reader_server::{app::build_router, state::AppState};
 use tempfile::TempDir;
@@ -30,9 +28,12 @@ pub const UNKNOWN_HASH: &str = "ffffffffffffffffffffffffffffffffffffffffffffffff
 pub const INVALID_HASH: &str = "not-a-hash";
 pub const INVALID_TITLES: [&str; 6] = [" Book", "Book ", "\tBook", "Book\t", "\nBook", "Book\n"];
 const BOOKS: &str = "/api/v1/library/bookshelf/books";
+const TRASH: &str = "/api/v1/library/bookshelf/trash";
+const TAGS: &str = "/api/v1/library/tags";
 const FILES: &str = "/api/v1/library/files/book";
 const LOGIN: &str = "/api/v1/auth/login";
 const REFRESH: &str = "/api/v1/auth/refresh";
+const LOGOUT: &str = "/api/v1/auth/logout";
 
 pub struct TestApp {
     state: AppState,
@@ -134,11 +135,15 @@ impl HttpResponse {
     }
 
     pub fn assert_error(&self, error: HttpError) {
-        let (status, message) = error.contract();
+        let (status, code, message) = error.contract();
+        self.assert_error_contract(status, code, message);
+    }
+
+    pub(super) fn assert_error_contract(&self, status: u16, code: u32, message: &str) {
         self.assert_status(status);
         assert_eq!(
             self.json(),
-            json!({"error": {"code": expected_error_code(message), "message": message}})
+            json!({"error": {"code": code, "message": message}})
         );
     }
 
@@ -177,65 +182,6 @@ impl HttpResponse {
     }
 }
 
-fn expected_error_code(message: &str) -> u32 {
-    match message {
-        "identity.authentication.invalid_credentials" => 1001,
-        "identity.authentication.missing_bearer_token" => 1002,
-        "identity.authentication.invalid_token" => 1003,
-        "identity.authentication.user_not_found" => 1004,
-        "identity.authentication.invalid_token_type" => 1005,
-        "identity.user.invalid_id" => 1101,
-        "identity.user.missing_user_name" => 1102,
-        "identity.user.invalid_user_name_format" => 1103,
-        "identity.user.invalid_password_hash" => 1104,
-        "identity.user.not_found" => 1105,
-        "identity.user.name_conflict" => 1106,
-        "identity.user.name_unchanged" => 1107,
-        "identity.user.password_hash_unchanged" => 1108,
-        "library.book.invalid_id" => 2001,
-        "library.book.missing_title" => 2002,
-        "library.book.invalid_title_format" => 2003,
-        "library.book.invalid_hash_format" => 2004,
-        "library.book.invalid_file" => 2005,
-        "library.book.not_found" => 2006,
-        "library.book.title_conflict" => 2007,
-        "library.book.title_unchanged" => 2008,
-        "library.book.already_deleted" => 2009,
-        "library.book.not_deleted" => 2010,
-        "library.book.version_conflict" => 2011,
-        "library.book.file.upload.conflict" => 2101,
-        "library.book.file.already_exists" => 2102,
-        "library.book.file.invalid_hash_format" => 2103,
-        "library.book.file.hash_mismatch" => 2104,
-        "library.book.file.not_found" => 2105,
-        "library.book.file.unsupported" => 2106,
-        "library.book.file.upload.duplicate_hash" => 2110,
-        "library.book.file.upload.missing_hash" => 2111,
-        "library.book.file.upload.missing_file" => 2112,
-        "library.tag.invalid_id" => 2201,
-        "library.tag.missing_name" => 2202,
-        "library.tag.invalid_name_format" => 2203,
-        "library.tag.name_unchanged" => 2204,
-        "library.tag.invalid_color" => 2205,
-        "library.tag.color_unchanged" => 2206,
-        "library.tag.invalid_value_regex" => 2207,
-        "library.tag.value_regex_not_allowed" => 2208,
-        "library.tag.value_required" => 2209,
-        "library.tag.value_not_allowed" => 2210,
-        "library.tag.value_regex_mismatch" => 2211,
-        "library.tag.already_deleted" => 2212,
-        "library.tag.not_deleted" => 2213,
-        "library.tag.not_found" => 2214,
-        "library.tag.parent_not_found" => 2215,
-        "library.tag.invalid_move" => 2216,
-        "library.tag.invalid_delete_strategy" => 2217,
-        "library.tag.sibling_name_conflict" => 2218,
-        "common.payload_too_large" => 9001,
-        "common.internal_server_error" => 9002,
-        _ => panic!("missing expected error code for {message}"),
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum HttpError {
     MissingTitle,
@@ -260,38 +206,34 @@ pub enum HttpError {
     MissingBearer,
     InvalidToken,
     WrongTokenType,
-    UserNotFound,
-    AccountNotFound,
 }
 
 impl HttpError {
-    fn contract(self) -> (u16, &'static str) {
+    fn contract(self) -> (u16, u32, &'static str) {
         use HttpError::*;
         match self {
-            MissingTitle => (400, "library.book.missing_title"),
-            InvalidTitle => (400, "library.book.invalid_title_format"),
-            UnchangedTitle => (400, "library.book.title_unchanged"),
-            TitleConflict => (409, "library.book.title_conflict"),
-            BookAlreadyDeleted => (409, "library.book.already_deleted"),
-            BookNotDeleted => (409, "library.book.not_deleted"),
-            InvalidBookId => (400, "library.book.invalid_id"),
-            BookNotFound => (404, "library.book.not_found"),
-            InvalidHash => (400, "library.book.file.invalid_hash_format"),
-            FileNotFound => (404, "library.book.file.not_found"),
-            DuplicateFile => (409, "library.book.file.already_exists"),
-            MissingHash => (400, "library.book.file.upload.missing_hash"),
-            MissingFile => (400, "library.book.file.upload.missing_file"),
-            DuplicateHash => (400, "library.book.file.upload.duplicate_hash"),
-            HashMismatch => (400, "library.book.file.hash_mismatch"),
-            UnsupportedFile => (400, "library.book.file.unsupported"),
-            InvalidCredentials => (401, "identity.authentication.invalid_credentials"),
-            InvalidUsername => (400, "identity.user.invalid_user_name_format"),
-            MissingUsername => (400, "identity.user.missing_user_name"),
-            MissingBearer => (401, "identity.authentication.missing_bearer_token"),
-            InvalidToken => (401, "identity.authentication.invalid_token"),
-            WrongTokenType => (401, "identity.authentication.invalid_token_type"),
-            AccountNotFound => (404, "identity.user.not_found"),
-            UserNotFound => (404, "identity.authentication.user_not_found"),
+            InvalidCredentials => (401, 1001, "identity.authentication.invalid_credentials"),
+            MissingBearer => (401, 1002, "identity.authentication.missing_bearer_token"),
+            InvalidToken => (401, 1003, "identity.authentication.invalid_token"),
+            WrongTokenType => (401, 1005, "identity.authentication.invalid_token_type"),
+            MissingUsername => (400, 1102, "identity.user.missing_user_name"),
+            InvalidUsername => (400, 1103, "identity.user.invalid_user_name_format"),
+            InvalidBookId => (400, 2001, "library.book.invalid_id"),
+            MissingTitle => (400, 2002, "library.book.missing_title"),
+            InvalidTitle => (400, 2003, "library.book.invalid_title_format"),
+            BookNotFound => (404, 2006, "library.book.not_found"),
+            TitleConflict => (409, 2007, "library.book.title_conflict"),
+            UnchangedTitle => (400, 2008, "library.book.title_unchanged"),
+            BookAlreadyDeleted => (409, 2009, "library.book.already_deleted"),
+            BookNotDeleted => (409, 2010, "library.book.not_deleted"),
+            DuplicateFile => (409, 2102, "library.book.file.already_exists"),
+            InvalidHash => (400, 2103, "library.book.file.invalid_hash_format"),
+            HashMismatch => (400, 2104, "library.book.file.hash_mismatch"),
+            FileNotFound => (404, 2105, "library.book.file.not_found"),
+            UnsupportedFile => (400, 2106, "library.book.file.unsupported"),
+            DuplicateHash => (400, 2110, "library.book.file.upload.duplicate_hash"),
+            MissingHash => (400, 2111, "library.book.file.upload.missing_hash"),
+            MissingFile => (400, 2112, "library.book.file.upload.missing_file"),
         }
     }
 }

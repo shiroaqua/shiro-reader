@@ -77,32 +77,26 @@ async fn lookup_and_download_reject_invalid_and_missing_hashes() {
 // 重启扫描时必须同时校验文件大小和内容哈希，损坏的文件不可查询。
 #[tokio::test]
 async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
-    for corrupt_size in [true, false] {
-        let directory = tempfile::tempdir().unwrap();
-        let app = TestApp::at(directory.path()).await;
-        let reader = app.session("Reader").await;
-        app.upload(&reader, Epub).await;
-        drop(app);
+    let directory = tempfile::tempdir().unwrap();
+    let app = TestApp::at(directory.path()).await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    drop(app);
 
-        let app = TestApp::at(directory.path()).await;
-        app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
-        drop(app);
+    let path = directory
+        .path()
+        .join("books")
+        .join(format!("{}.book", Epub.hash()));
+    let original = std::fs::read(&path).unwrap();
+    assert_eq!(original[0], 1);
+    assert_eq!(
+        u64::from_be_bytes(original[34..42].try_into().unwrap()),
+        Epub.bytes().len() as u64
+    );
 
-        let path = directory
-            .path()
-            .join("books")
-            .join(format!("{}.book", Epub.hash()));
-        let mut stored = std::fs::read(&path).unwrap();
-        assert_eq!(stored[0], 1);
-        assert_eq!(
-            u64::from_be_bytes(stored[34..42].try_into().unwrap()),
-            Epub.bytes().len() as u64
-        );
-        if corrupt_size {
-            stored[41] ^= 1;
-        } else {
-            stored[42] ^= 1;
-        }
+    for corrupt_byte in [41, 42] {
+        let mut stored = original.clone();
+        stored[corrupt_byte] ^= 1;
         std::fs::write(&path, stored).unwrap();
 
         let app = TestApp::at(directory.path()).await;

@@ -1,6 +1,6 @@
 mod support;
 use HttpError::*;
-use support::crypto::{InvalidToken::*, invalid_token};
+use support::crypto::{InvalidToken, invalid_token};
 use support::*;
 
 // 验证用户名登录区分大小写，并支持 Unicode 用户名。
@@ -95,35 +95,20 @@ async fn bearer_scheme_is_case_insensitive_but_required() {
         .assert_status(200);
 }
 
-// 验证各类无效令牌统一返回不暴露校验细节的 HTTP 错误。
+// 验证各类无效令牌在访问、刷新和登出接口均返回不暴露校验细节的 HTTP 错误。
 #[tokio::test]
 async fn invalid_tokens_have_sanitized_http_errors() {
     let app = TestApp::new().await;
-    for case in [
-        Malformed,
-        Expired,
-        Future,
-        WrongIssuer,
-        WrongAudience,
-        MissingExpiry,
-        WrongSignature,
-        WrongAlgorithm,
-    ] {
+    for case in InvalidToken::ALL {
         app.access_with_token(&invalid_token(case, false))
             .await
             .assert_error(HttpError::InvalidToken);
         app.refresh_token(&invalid_token(case, true))
             .await
             .assert_error(HttpError::InvalidToken);
-    }
-}
-
-// 验证格式错误的登录和令牌刷新请求返回预期状态码。
-#[tokio::test]
-async fn malformed_login_and_refresh_requests_are_rejected() {
-    let app = TestApp::new().await;
-    for (response, expected_status) in app.malformed_auth_requests().await {
-        response.assert_status(expected_status);
+        app.logout_token(&invalid_token(case, true))
+            .await
+            .assert_error(HttpError::InvalidToken);
     }
 }
 
@@ -160,20 +145,9 @@ async fn invalid_logout_credentials_cannot_revoke_a_session() {
     app.logout_with_access(&reader)
         .await
         .assert_error(WrongTokenType);
-    for case in [
-        Malformed,
-        Expired,
-        Future,
-        WrongIssuer,
-        WrongAudience,
-        MissingExpiry,
-        WrongSignature,
-        WrongAlgorithm,
-    ] {
-        app.logout_token(&invalid_token(case, true))
-            .await
-            .assert_error(HttpError::InvalidToken);
-    }
+    app.logout_token(&invalid_token(InvalidToken::WrongSignature, true))
+        .await
+        .assert_error(HttpError::InvalidToken);
     app.access_books(&reader).await.assert_status(200);
     app.attempt_refresh(&reader).await.assert_status(200);
 }

@@ -20,10 +20,10 @@ async fn creation_rejects_a_name_already_used_by_a_sibling() {
     app.define_tag(&reader, "分类2026", None, false, None)
         .await
         .assert_tag_error(SiblingNameConflict);
-    let tree = app.tag_tree(&reader).await;
-    assert_eq!(tree.len(), 1);
-    assert!(tree.contains(&root.node(vec![child.node(vec![leaf.node(vec![])])])));
-    assert_eq!(app.tag_tree(&reader).await, tree);
+    assert_eq!(
+        app.tag_tree(&reader).await,
+        [root.node(vec![child.node(vec![leaf.node(vec![])])])]
+    );
 }
 
 // 验证标签名可以包含点号并作为翻译 key 原样保存和重命名。
@@ -733,7 +733,80 @@ async fn deleting_a_bound_book_preserves_the_tag_definition_and_other_books() {
 // 验证重启后保留标签 ID、名称、层级、值规则及绑定，且已完成的删除不会恢复。
 #[tokio::test]
 async fn restart_preserves_tag_identity_hierarchy_rules_and_completed_deletions() {
-    let restart = Restart::new();
-    restart.seed_tag_tree().await;
-    restart.assert_tag_tree_restored().await;
+    let directory = tempfile::tempdir().unwrap();
+    let app = TestApp::at(directory.path()).await;
+    let session = app.session("Reader").await;
+    app.upload(&session, Epub).await;
+    let book = app.add_book(&session, "Book", Epub).await.data;
+    let root = app.add_tag(&session, "Root", None, false, None).await;
+    let promoted = app
+        .add_tag(&session, "Rating", Some(&root.id), true, Some("[0-9]+"))
+        .await;
+    let leaf = app
+        .add_tag(&session, "Leaf", Some(&promoted.id), false, None)
+        .await;
+    let removed = app.add_tag(&session, "Removed", None, false, None).await;
+    let removed_child = app
+        .add_tag(&session, "RemovedChild", Some(&removed.id), false, None)
+        .await;
+    app.bind_tag(&session, &book.id, &promoted.id, Some("7"))
+        .await
+        .assert_empty(204);
+    app.change_tag_color(&session, &promoted.id, "#BB44CC")
+        .await
+        .assert_empty(204);
+    app.rename_tag(&session, &promoted.id, "Score")
+        .await
+        .assert_empty(204);
+    app.delete_tag(&session, &root.id, Promote)
+        .await
+        .assert_empty(204);
+    app.delete_tag(&session, &removed.id, Cascade)
+        .await
+        .assert_empty(204);
+    let tree = app.tag_tree(&session).await;
+    let persisted_promoted = TagDefinitionData::find(&tree, &promoted.id).unwrap();
+    let expected_promoted = promoted
+        .colored("#BB44CC")
+        .renamed("Score")
+        .under(None)
+        .modified_at(persisted_promoted.updated_at);
+    let deleted_ids = [root.id, removed.id, removed_child.id];
+    drop(app);
+
+    let app = TestApp::at(directory.path()).await;
+    assert_eq!(
+        app.tag_tree(&session).await,
+        [expected_promoted.node(vec![leaf.node(vec![])])]
+    );
+    assert_eq!(app.books(&session).await, [book.clone()]);
+    app.assert_book_tags(&session, &book.id, &[expected_promoted.binding(Some("7"))])
+        .await;
+    app.bind_tag(&session, &book.id, &expected_promoted.id, Some("bad"))
+        .await
+        .assert_tag_error(RegexMismatch);
+    app.bind_tag(&session, &book.id, &expected_promoted.id, Some("8"))
+        .await
+        .assert_empty(204);
+    for id in deleted_ids {
+        app.rename_tag(&session, &id, "Missing")
+            .await
+            .assert_tag_error(NotFound);
+    }
+    app.rename_tag(&session, &expected_promoted.id, "AfterRestart")
+        .await
+        .assert_empty(204);
+    let tree = app.tag_tree(&session).await;
+    let renamed = TagDefinitionData::find(&tree, &expected_promoted.id).unwrap();
+    assert_eq!(renamed.created_at, expected_promoted.created_at);
+    assert!(renamed.updated_at > expected_promoted.updated_at);
+    assert_eq!(
+        tree,
+        [expected_promoted
+            .renamed("AfterRestart")
+            .modified_at(renamed.updated_at)
+            .node(vec![leaf.node(vec![])])]
+    );
+    app.assert_book_tags(&session, &book.id, &[expected_promoted.binding(Some("8"))])
+        .await;
 }

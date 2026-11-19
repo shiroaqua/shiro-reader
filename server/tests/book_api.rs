@@ -138,6 +138,7 @@ async fn restoring_book_skips_tag_definitions_that_were_deleted() {
     assert!(app.book_tags(&reader, &book.data.id).await.is_empty());
 }
 
+// 恢复书籍时若原书名已被占用，自动添加数字后缀避免冲突。
 #[tokio::test]
 async fn restoring_book_renames_it_when_its_original_title_is_in_use() {
     let app = TestApp::new().await;
@@ -176,7 +177,7 @@ async fn batch_trash_and_permanent_delete_are_atomic() {
     assert!(app.trash(&reader).await.is_empty());
 }
 
-// 验证重命名、删除和获取封面时拒绝非法或不存在的书籍 ID。
+// 验证重命名、删除、恢复、彻底删除和获取封面时拒绝非法或不存在的书籍 ID。
 #[tokio::test]
 async fn unknown_and_invalid_book_ids_are_rejected() {
     let app = TestApp::new().await;
@@ -186,6 +187,10 @@ async fn unknown_and_invalid_book_ids_are_rejected() {
             .await
             .assert_error(error);
         app.delete_book(&reader, id).await.assert_error(error);
+        app.restore_book(&reader, id).await.assert_error(error);
+        app.permanently_delete_book(&reader, id)
+            .await
+            .assert_error(error);
         app.cover(&reader, id).await.assert_error(error);
     }
 }
@@ -200,81 +205,77 @@ async fn pdf_cover_is_png() {
     book.cover().await.assert_png();
 }
 
-// 验证 EPUB 封面格式无法识别时返回空白 PNG 封面。
-#[tokio::test]
-async fn epub_cover_with_unknown_format_falls_back_to_blank_png() {
-    let app = TestApp::new().await;
-    let reader = app.session("Reader").await;
-    app.upload(&reader, Epub).await;
-    let book = app.add_book(&reader, "EPUB", Epub).await;
-    book.cover().await.assert_blank_cover();
-}
-
-// 验证 EPUB 封面按实际字节识别格式并在重启后保留原始内容
+// 验证 EPUB 封面按实际字节识别格式并在重启后保留原始内容。
 #[tokio::test]
 async fn epub_cover_preserves_actual_format_and_bytes_after_restart() {
     use image::{DynamicImage, ImageFormat};
     use std::io::Cursor;
 
-    for format in [ImageFormat::Jpeg, ImageFormat::Png, ImageFormat::WebP] {
-        let directory = tempfile::tempdir().unwrap();
-        let app = TestApp::at(directory.path()).await;
-        let reader = app.session("Reader").await;
+    let directory = tempfile::tempdir().unwrap();
+    let app = TestApp::at(directory.path()).await;
+    let reader = app.session("Reader").await;
+    let mut books = Vec::new();
+
+    for (index, format) in [ImageFormat::Jpeg, ImageFormat::Png, ImageFormat::WebP]
+        .into_iter()
+        .enumerate()
+    {
         let mut cover = Vec::new();
         DynamicImage::new_rgb8(3, 5)
             .write_to(&mut Cursor::new(&mut cover), format)
             .unwrap();
         // The EPUB still declares an SVG: the actual image bytes determine the format.
         let epub = epub_with_cover(Some(&cover));
-        let hash = blake3::hash(&epub).to_hex().to_string();
-        app.upload_parts(Some(&reader), &[&hash], Some(&epub))
-            .await
-            .assert_empty(201);
-        let created = app.create_book(&reader, "EPUB", &hash).await;
-        created.assert_status(201);
-        let id = app.books(&reader).await.pop().unwrap().id;
+        let book = app
+            .upload_and_add_book(&reader, &format!("EPUB-{index}"), &epub)
+            .await;
 
-        let response = app.cover(&reader, &id).await;
+        let response = app.cover(&reader, &book.id).await;
         response.assert_image(format);
         response.assert_cover_bytes(&cover);
         let path = directory
             .path()
             .join("books/covers")
-            .join(&hash)
+            .join(&book.hash)
             .with_extension(format.extensions_str()[0]);
         assert_eq!(std::fs::read(&path).unwrap(), cover);
-        drop(app);
+        books.push((book.id, format, cover));
+    }
+    drop(app);
 
-        let app = TestApp::at(directory.path()).await;
+    let app = TestApp::at(directory.path()).await;
+    for (id, format, cover) in books {
         let response = app.cover(&reader, &id).await;
         response.assert_image(format);
         response.assert_cover_bytes(&cover);
     }
 }
 
-// 验证 EPUB 封面缺失、为空或无法识别时，重启前后均返回空白 PNG。
+// 验证 EPUB 封面缺失、为空或无法识别（含 SVG）时，重启前后均返回空白 PNG。
 #[tokio::test]
 async fn missing_or_unrecognized_epub_cover_uses_blank_png_after_restart() {
-    for cover in [
-        None,
-        Some(b"unrecognized image".as_slice()),
-        Some(b"".as_slice()),
-    ] {
-        let directory = tempfile::tempdir().unwrap();
-        let app = TestApp::at(directory.path()).await;
-        let reader = app.session("Reader").await;
-        let epub = epub_with_cover(cover);
-        let hash = blake3::hash(&epub).to_hex().to_string();
-        app.upload_parts(Some(&reader), &[&hash], Some(&epub))
-            .await
-            .assert_empty(201);
-        let created = app.create_book(&reader, "EPUB", &hash).await;
-        created.assert_status(201);
-        let id = app.books(&reader).await.pop().unwrap().id;
-        app.cover(&reader, &id).await.assert_blank_cover();
-        drop(app);
+    let directory = tempfile::tempdir().unwrap();
+    let app = TestApp::at(directory.path()).await;
+    let reader = app.session("Reader").await;
+    let samples = [
+        Epub.bytes(),
+        epub_with_cover(None),
+        epub_with_cover(Some(b"unrecognized image")),
+        epub_with_cover(Some(b"")),
+    ];
+    let mut ids = Vec::new();
 
-        let app = TestApp::at(directory.path()).await;
+    for (index, epub) in samples.iter().enumerate() {
+        let book = app
+            .upload_and_add_book(&reader, &format!("EPUB-{index}"), epub)
+            .await;
+        app.cover(&reader, &book.id).await.assert_blank_cover();
+        ids.push(book.id);
+    }
+    drop(app);
+
+    let app = TestApp::at(directory.path()).await;
+    for id in ids {
         app.cover(&reader, &id).await.assert_blank_cover();
     }
 }

@@ -4,9 +4,30 @@ use support::*;
 // 验证重启后保留用户、各自的书架和共享文件，且原有会话仍可访问和刷新。
 #[tokio::test]
 async fn restart_preserves_users_independent_books_files_and_existing_sessions() {
-    let restart = Restart::new();
-    restart.seed_users_and_books().await;
-    restart.assert_users_books_and_tokens_restored().await;
+    let root = tempfile::tempdir().unwrap();
+    let app = TestApp::at(root.path()).await;
+    let alice = app.session("Alice").await;
+    let bob = app.session("Bob").await;
+    app.upload(&alice, SampleFile::Epub).await;
+    let alice_book = app.add_book(&alice, "Abook", SampleFile::Epub).await.data;
+    let bob_book = app.add_book(&bob, "Bbook", SampleFile::Epub).await.data;
+    drop(app);
+
+    let app = TestApp::at(root.path()).await;
+    for (name, session, book) in [
+        ("Alice", alice, alice_book),
+        ("Bob", bob, bob_book),
+    ] {
+        let login = app.login(name, PASSWORD).await;
+        assert_eq!(login.user_id, session.user_id);
+        assert_eq!(app.books(&login).await, [book.clone()]);
+        assert_eq!(app.books(&session).await, [book.clone()]);
+        let refreshed = app.refresh(&session).await;
+        assert_eq!(app.books(&refreshed).await, [book]);
+        app.download(&login, &SampleFile::Epub.hash())
+            .await
+            .assert_file(&SampleFile::Epub);
+    }
 }
 
 // 验证多个应用状态可共用 Pdfium 并保持书库独立，销毁后重建仍可生成 PDF 封面。

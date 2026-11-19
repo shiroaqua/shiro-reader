@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
-use argon2::Params;
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
-use shiro_reader_server::application::identity::crypto::service::CryptoService;
 use uuid::Uuid;
 
 // Public test fixtures only; never use application credentials here.
@@ -12,22 +10,6 @@ pub const ISSUER: &str = "shiro-reader-test";
 pub const AUDIENCE: &str = "shiro-reader-test-api";
 pub const ACCESS_TTL: u64 = 3600;
 pub const REFRESH_TTL: u64 = 86400;
-
-pub fn crypto() -> CryptoService {
-    crypto_with(SECRET, 0)
-}
-
-pub fn crypto_with(secret: &[u8], leeway: u64) -> CryptoService {
-    CryptoService::new(
-        Params::new(1024, 1, 1, Some(32)).unwrap(),
-        secret,
-        ISSUER.into(),
-        AUDIENCE.into(),
-        ACCESS_TTL,
-        REFRESH_TTL,
-        leeway,
-    )
-}
 
 pub fn claims(user_id: &str) -> Value {
     let now = now_sec();
@@ -53,24 +35,6 @@ pub fn access_token(claims: &Value) -> String {
     sign(claims, Some("at+jwt"), Algorithm::HS256, SECRET)
 }
 
-pub fn verified_claims(token: &str) -> Value {
-    let mut validation = Validation::new(Algorithm::HS256);
-    validation.leeway = 0;
-    validation.validate_nbf = true;
-    validation.set_issuer(&[ISSUER]);
-    validation.set_audience(&[AUDIENCE]);
-    decode::<Value>(
-        token,
-        &DecodingKey::from_secret(SECRET).expect("Invalid jwt secret key format."),
-        &validation,
-    )
-    .unwrap()
-    .claims
-}
-
-#[path = "crypto_checks.rs"]
-pub mod checks;
-
 #[derive(Clone, Copy, Debug)]
 pub enum InvalidToken {
     Malformed,
@@ -81,6 +45,19 @@ pub enum InvalidToken {
     MissingExpiry,
     WrongSignature,
     WrongAlgorithm,
+}
+
+impl InvalidToken {
+    pub const ALL: [Self; 8] = [
+        Self::Malformed,
+        Self::Expired,
+        Self::Future,
+        Self::WrongIssuer,
+        Self::WrongAudience,
+        Self::MissingExpiry,
+        Self::WrongSignature,
+        Self::WrongAlgorithm,
+    ];
 }
 
 pub fn invalid_token(case: InvalidToken, refresh: bool) -> String {
@@ -107,6 +84,6 @@ pub fn invalid_token(case: InvalidToken, refresh: bool) -> String {
     )
 }
 
-fn now_sec() -> u64 {
+pub fn now_sec() -> u64 {
     jiff::Timestamp::now().as_second().try_into().unwrap()
 }

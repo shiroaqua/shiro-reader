@@ -8,7 +8,7 @@ use shiro_reader_server::application::identity::{
     },
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct Session {
     pub user_id: String,
     pub(super) access_token: String,
@@ -118,13 +118,8 @@ impl TestApp {
         self.logout_token(&session.refresh_token).await
     }
     pub async fn logout_token(&self, token: &str) -> HttpResponse {
-        self.send(
-            Method::POST,
-            "/api/v1/auth/logout",
-            Some(json!({"token": token})),
-            None,
-        )
-        .await
+        self.send(Method::POST, LOGOUT, Some(json!({"token": token})), None)
+            .await
     }
     pub async fn logout_with_access(&self, session: &Session) -> HttpResponse {
         self.logout_token(&session.access_token).await
@@ -197,12 +192,62 @@ impl TestApp {
                 Some(json!({"title": "Book", "hash": UNKNOWN_HASH})),
             ),
             (
+                Method::DELETE,
+                BOOKS.into(),
+                Some(json!({"ids": [UNKNOWN_ID]})),
+            ),
+            (
                 Method::PATCH,
                 format!("{BOOKS}/{UNKNOWN_ID}"),
                 Some(json!({"title": "Renamed"})),
             ),
             (Method::DELETE, format!("{BOOKS}/{UNKNOWN_ID}"), None),
             (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/cover"), None),
+            (Method::GET, TRASH.into(), None),
+            (
+                Method::DELETE,
+                TRASH.into(),
+                Some(json!({"ids": [UNKNOWN_ID]})),
+            ),
+            (Method::DELETE, format!("{TRASH}/{UNKNOWN_ID}"), None),
+            (Method::POST, format!("{TRASH}/{UNKNOWN_ID}/restore"), None),
+            (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/tags"), None),
+            (
+                Method::POST,
+                format!("{BOOKS}/{UNKNOWN_ID}/tags"),
+                Some(json!({"tag_id": UNKNOWN_ID})),
+            ),
+            (
+                Method::DELETE,
+                format!("{BOOKS}/{UNKNOWN_ID}/tags"),
+                Some(json!({"tag_id": UNKNOWN_ID})),
+            ),
+            (Method::GET, TAGS.into(), None),
+            (
+                Method::POST,
+                TAGS.into(),
+                Some(json!({"name": "Tag", "color": "#000000", "allows_value": false})),
+            ),
+            (
+                Method::PATCH,
+                format!("{TAGS}/{UNKNOWN_ID}/name"),
+                Some(json!({"name": "Renamed"})),
+            ),
+            (
+                Method::PATCH,
+                format!("{TAGS}/{UNKNOWN_ID}/color"),
+                Some(json!({"color": "#FFFFFF"})),
+            ),
+            (
+                Method::PATCH,
+                format!("{TAGS}/{UNKNOWN_ID}/parent"),
+                Some(json!({"parent_id": null})),
+            ),
+            (
+                Method::DELETE,
+                format!("{TAGS}/{UNKNOWN_ID}?strategy=CASCADE"),
+                None,
+            ),
             (Method::GET, format!("{FILES}?hash={UNKNOWN_HASH}"), None),
             (Method::GET, format!("{FILES}/{UNKNOWN_HASH}"), None),
         ] {
@@ -212,34 +257,6 @@ impl TestApp {
             self.upload_parts(None, &[UNKNOWN_HASH], Some(b"file"))
                 .await,
         );
-        responses
-    }
-    pub async fn malformed_auth_requests(&self) -> Vec<(HttpResponse, u16)> {
-        let mut responses = Vec::new();
-        for uri in [LOGIN, REFRESH, "/api/v1/auth/logout"] {
-            for (body, content_type, status) in [
-                ("{}", "application/json", 422),
-                ("{", "application/json", 400),
-                ("{}", "text/plain", 415),
-                (
-                    r#"{"username":42,"password":[],"token":42}"#,
-                    "application/json",
-                    422,
-                ),
-            ] {
-                responses.push((
-                    self.request(
-                        Method::POST,
-                        uri,
-                        Body::from(body),
-                        Some(content_type),
-                        None,
-                    )
-                    .await,
-                    status,
-                ));
-            }
-        }
         responses
     }
 }
