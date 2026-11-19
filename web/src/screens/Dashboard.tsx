@@ -14,7 +14,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
-  Search,
   Clock,
   LibraryBig,
   LoaderCircle,
@@ -36,6 +35,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { BrandMark } from "@/components/brand-mark"
 import { BookshelfBooks } from "@/features/books/bookshelf-books"
+import { BookSearch } from "@/features/books/book-search"
 import { TrashList } from "@/features/books/trash-list"
 import { ApiError } from "@/api/http"
 import { useTranslation } from "@/lib/i18n"
@@ -47,13 +47,9 @@ export function DashboardScreen() {
   const { username, logout } = useAuth()
   const [activeMenu, setActiveMenu] = useState<string>("bookshelf")
   const [headerOverlay, setHeaderOverlay] = useState<HTMLDivElement | null>(null)
+  const [bookSearch, setBookSearch] = useState("")
 
   const menus: DashboardMenu[] = [
-    {
-      id: "search",
-      icon: <Search />,
-      name: t("local.dashboard.search"),
-    },
     {
       id: "bookshelf",
       icon: <LibraryBig />,
@@ -131,10 +127,17 @@ export function DashboardScreen() {
             ref={setHeaderOverlay}
             className="hidden min-w-0 flex-1 items-center group-has-data-[slot=selection-bar]/header:flex"
           />
+          {activeMenu === "bookshelf" && (
+            <BookSearch value={bookSearch} onChange={setBookSearch} />
+          )}
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {activeMenu === "bookshelf" && (
-            <BookshelfBooks headerOverlay={headerOverlay} />
+            <BookshelfBooks
+              headerOverlay={headerOverlay}
+              search={bookSearch}
+              onSearchChange={setBookSearch}
+            />
           )}
           {activeMenu === "trash" && <TrashList />}
         </div>

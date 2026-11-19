@@ -7,6 +7,7 @@ import {
   LibraryBig,
   LoaderCircle,
   RotateCcw,
+  SearchX,
   Tag,
   Trash2,
   X,
@@ -27,8 +28,18 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BookCard } from "@/features/books/book-card"
+import { ActiveSearchFilters } from "@/features/books/book-search"
 import { UploadBookButton } from "@/features/books/upload-book-button"
+import { useBookTagIndex } from "@/features/books/use-book-tag-index"
 import { BatchBookTagDialog } from "@/features/tags/book-tag-dialog"
+import {
+  matchesBookSearch,
+  parseBookSearch,
+  removeSegment,
+  removeTagSegments,
+  tokenizeBookSearch,
+  type TagSegment,
+} from "@/lib/book-search"
 import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import {
   loadBookSort,
@@ -46,8 +57,12 @@ type SelectionAnchor = {
 
 export function BookshelfBooks({
   headerOverlay = null,
+  search = "",
+  onSearchChange,
 }: {
   headerOverlay?: HTMLElement | null
+  search?: string
+  onSearchChange?: (search: string) => void
 }) {
   const { t, locale } = useTranslation()
   const queryClient = useQueryClient()
@@ -66,10 +81,39 @@ export function BookshelfBooks({
     () => (books ? sortBooks(books, sort, locale) : []),
     [books, sort, locale]
   )
-
-  const [selectedDraft, setSelectedDraft] = useState<ReadonlySet<string>>(
-    () => new Set()
+  const parsedSearch = useMemo(() => parseBookSearch(search), [search])
+  const {
+    index: tagIndex,
+    isLoading: isTagIndexLoading,
+    isError: isTagIndexError,
+    retry: retryTagIndex,
+  } = useBookTagIndex(parsedSearch.tagFilters.length > 0)
+  const visibleBooks = useMemo(
+    () =>
+      parsedSearch.isEmpty
+        ? sortedBooks
+        : sortedBooks.filter((book) =>
+            matchesBookSearch(book, parsedSearch, tagIndex)
+          ),
+    [sortedBooks, parsedSearch, tagIndex]
   )
+  const activeTagSegments = useMemo(
+    () =>
+      tokenizeBookSearch(search).filter(
+        (segment): segment is TagSegment =>
+          segment.kind === "tag" && segment.complete
+      ),
+    [search]
+  )
+
+  const [selectionState, setSelectionState] = useState<{
+    search: string
+    ids: ReadonlySet<string>
+  }>(() => ({ search, ids: EMPTY_ID_SET }))
+  const selectedDraft =
+    selectionState.search === search ? selectionState.ids : EMPTY_ID_SET
+  const setSelectedDraft = (ids: ReadonlySet<string>) =>
+    setSelectionState({ search, ids })
   const [anchor, setAnchor] = useState<SelectionAnchor | null>(null)
   const [hoveredBookId, setHoveredBookId] = useState<string | null>(null)
   const [shiftPressed, setShiftPressed] = useState(false)
@@ -77,16 +121,16 @@ export function BookshelfBooks({
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
 
   const validBookIds = useMemo(
-    () => new Set(sortedBooks.map((book) => book.id)),
-    [sortedBooks]
+    () => new Set(visibleBooks.map((book) => book.id)),
+    [visibleBooks]
   )
   const selectedIds = useMemo(
     () => new Set([...selectedDraft].filter((id) => validBookIds.has(id))),
     [selectedDraft, validBookIds]
   )
   const selectedBooks = useMemo(
-    () => sortedBooks.filter((book) => selectedIds.has(book.id)),
-    [sortedBooks, selectedIds]
+    () => visibleBooks.filter((book) => selectedIds.has(book.id)),
+    [visibleBooks, selectedIds]
   )
   const selectedBookIds = useMemo(
     () => selectedBooks.map((book) => book.id),
@@ -94,7 +138,7 @@ export function BookshelfBooks({
   )
   const isSelectionMode = selectedIds.size > 0
   const isAllSelected =
-    sortedBooks.length > 0 && selectedIds.size === sortedBooks.length
+    visibleBooks.length > 0 && selectedIds.size === visibleBooks.length
 
   const clearSelection = () => {
     setSelectedDraft(new Set())
@@ -107,21 +151,21 @@ export function BookshelfBooks({
     if (isAllSelected) {
       clearSelection()
     } else {
-      setSelectedDraft(new Set(sortedBooks.map((book) => book.id)))
+      setSelectedDraft(new Set(visibleBooks.map((book) => book.id)))
       setAnchor(null)
     }
   }
 
   const toggleSelectBook = (bookId: string, shiftKey: boolean) => {
     if (shiftKey && isSelectionMode && anchor) {
-      const anchorIndex = sortedBooks.findIndex((book) => book.id === anchor.id)
-      const targetIndex = sortedBooks.findIndex((book) => book.id === bookId)
+      const anchorIndex = visibleBooks.findIndex((book) => book.id === anchor.id)
+      const targetIndex = visibleBooks.findIndex((book) => book.id === bookId)
       if (anchorIndex !== -1 && targetIndex !== -1) {
         const start = Math.min(anchorIndex, targetIndex)
         const end = Math.max(anchorIndex, targetIndex)
         const next = new Set(selectedIds)
         for (let index = start; index <= end; index += 1) {
-          const id = sortedBooks[index].id
+          const id = visibleBooks[index].id
           if (anchor.action === "select") next.add(id)
           else next.delete(id)
         }
@@ -157,8 +201,8 @@ export function BookshelfBooks({
     if (!isSelectionMode || !shiftPressed || !anchor || !hoveredBookId) {
       return null
     }
-    const anchorIndex = sortedBooks.findIndex((book) => book.id === anchor.id)
-    const hoverIndex = sortedBooks.findIndex(
+    const anchorIndex = visibleBooks.findIndex((book) => book.id === anchor.id)
+    const hoverIndex = visibleBooks.findIndex(
       (book) => book.id === hoveredBookId
     )
     if (anchorIndex === -1 || hoverIndex === -1) return null
@@ -166,10 +210,10 @@ export function BookshelfBooks({
     const end = Math.max(anchorIndex, hoverIndex)
     const ids = new Set<string>()
     for (let index = start; index <= end; index += 1) {
-      ids.add(sortedBooks[index].id)
+      ids.add(visibleBooks[index].id)
     }
     return { ids, action: anchor.action }
-  }, [isSelectionMode, shiftPressed, anchor, hoveredBookId, sortedBooks])
+  }, [isSelectionMode, shiftPressed, anchor, hoveredBookId, visibleBooks])
 
   useEffect(() => {
     if (!isSelectionMode) return
@@ -179,7 +223,7 @@ export function BookshelfBooks({
       if (isEditableTarget(event.target) || hasOpenOverlay()) return
       if (event.key === "Escape") {
         event.preventDefault()
-        setSelectedDraft(new Set())
+        setSelectionState({ search, ids: EMPTY_ID_SET })
         setAnchor(null)
         setHoveredBookId(null)
         setShiftPressed(false)
@@ -188,7 +232,10 @@ export function BookshelfBooks({
         event.key.toLowerCase() === "a"
       ) {
         event.preventDefault()
-        setSelectedDraft(new Set(sortedBooks.map((book) => book.id)))
+        setSelectionState({
+          search,
+          ids: new Set(visibleBooks.map((book) => book.id)),
+        })
         setAnchor(null)
       }
     }
@@ -204,7 +251,7 @@ export function BookshelfBooks({
       window.removeEventListener("keyup", handleKeyUp)
       window.removeEventListener("blur", handleBlur)
     }
-  }, [isSelectionMode, batchTagOpen, batchDeleteOpen, sortedBooks])
+  }, [isSelectionMode, batchTagOpen, batchDeleteOpen, visibleBooks, search])
 
   const batchDeleteMutation = useMutation({
     mutationFn: (ids: string[]) =>
@@ -250,7 +297,8 @@ export function BookshelfBooks({
       <PageToolbar
         start={
           books &&
-          books.length > 0 && (
+          books.length > 0 &&
+          (parsedSearch.isEmpty ? (
             <span className="tabular-nums">
               {formatCountMessage(
                 books.length,
@@ -259,7 +307,29 @@ export function BookshelfBooks({
                 t
               )}
             </span>
-          )
+          ) : (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="flex items-center gap-1.5 tabular-nums">
+                {isTagIndexLoading && (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-3.5 animate-spin"
+                  />
+                )}
+                {t("local.search.result_count")
+                  .replace("{count}", String(visibleBooks.length))
+                  .replace("{total}", String(books.length))}
+              </span>
+              <ActiveSearchFilters
+                segments={activeTagSegments}
+                index={tagIndex}
+                onRemove={(segment) =>
+                  onSearchChange?.(removeSegment(search, segment))
+                }
+                onClear={() => onSearchChange?.(removeTagSegments(search))}
+              />
+            </div>
+          ))
         }
         end={
           <>
@@ -313,9 +383,60 @@ export function BookshelfBooks({
           title={t("local.book.empty")}
           description={t("local.book.empty_hint")}
         />
+      ) : visibleBooks.length === 0 ? (
+        <EmptyState
+          tone={!isTagIndexLoading && isTagIndexError ? "destructive" : "default"}
+          icon={
+            isTagIndexLoading ? (
+              <LoaderCircle aria-hidden="true" className="animate-spin" />
+            ) : isTagIndexError ? (
+              <CircleAlert aria-hidden="true" />
+            ) : (
+              <SearchX aria-hidden="true" />
+            )
+          }
+          title={
+            isTagIndexLoading
+              ? t("local.common.loading")
+              : isTagIndexError
+                ? t("local.tag.bind_load_failed")
+                : t("local.search.no_result")
+          }
+          description={
+            isTagIndexLoading || isTagIndexError
+              ? undefined
+              : t("local.search.no_result_hint")
+          }
+          action={
+            !isTagIndexLoading && (
+              <div className="flex items-center gap-2">
+                {isTagIndexError && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={retryTagIndex}
+                  >
+                    <RotateCcw aria-hidden="true" />
+                    {t("local.common.retry")}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSearchChange?.("")}
+                >
+                  <X aria-hidden="true" />
+                  {t("local.search.clear")}
+                </Button>
+              </div>
+            )
+          }
+        />
       ) : (
         <ul aria-label={t("local.book.list")} className={GRID_CLASS_NAME}>
-          {sortedBooks.map((book) => (
+          {visibleBooks.map((book) => (
             <BookCard
               key={book.id}
               book={book}
@@ -509,6 +630,8 @@ function hasOpenOverlay(): boolean {
     ) !== null
   )
 }
+
+const EMPTY_ID_SET: ReadonlySet<string> = new Set()
 
 const GRID_CLASS_NAME =
   "grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-x-5 gap-y-8 sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]"
