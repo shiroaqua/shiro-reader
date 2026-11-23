@@ -162,7 +162,7 @@ export function BookCard({
               !selected &&
                 !willSelect &&
                 !willDeselect &&
-                "group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08] dark:group-hover/card:shadow-black/25"
+                "group-hover/card:shadow-lg group-hover/card:shadow-black/[0.08]"
             )}
           />
           {!isRenaming && (

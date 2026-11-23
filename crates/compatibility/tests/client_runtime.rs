@@ -7,7 +7,7 @@ use std::{
 
 use futures_util::TryStreamExt;
 use shiro_compatibility::{
-    ClientRuntime, DeleteTagStrategyDto, ErrorSink, InitialSetupRequest, LaunchMode,
+    AppTheme, ClientRuntime, DeleteTagStrategyDto, ErrorSink, InitialSetupRequest, LaunchMode,
     PlatformCapabilities, StartupPhase, UpdateSettingsRequest,
 };
 use shiro_error_catalog::{AppLocale, ErrorCode, ErrorEventPayload};
@@ -761,4 +761,50 @@ async fn concurrent_complete_initial_setup_serializes_and_locks_second_caller() 
     });
     assert_eq!(ok_count, 1);
     assert_eq!(locked_count, 1);
+}
+
+#[tokio::test]
+async fn theme_selection_applies_before_setup_and_persists_across_restart() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    let default_root = tmp.path().join("default_lib");
+    let sink = Arc::new(RecordingSink::default());
+
+    let runtime = ClientRuntime::initialize(
+        &config_dir,
+        desktop_caps(default_root.clone()),
+        AppLocale::En,
+        None,
+        sink.clone(),
+    )
+    .await;
+    assert_eq!(runtime.bootstrap_state().theme, AppTheme::Default);
+
+    // Before setup: applied in memory only, settings.json is not created yet.
+    let boot = runtime.set_theme(AppTheme::Mint).expect("set theme");
+    assert_eq!(boot.theme, AppTheme::Mint);
+    assert!(!config_dir.join("settings.json").exists());
+
+    runtime
+        .complete_initial_setup(InitialSetupRequest {
+            mode: LaunchMode::Local,
+            locale: AppLocale::En,
+            local_library_root: None,
+            cloud_origin: None,
+        })
+        .await
+        .expect("complete setup");
+    let boot = runtime.set_theme(AppTheme::Peach).expect("set theme");
+    assert_eq!(boot.theme, AppTheme::Peach);
+    drop(runtime);
+
+    let restarted = ClientRuntime::initialize(
+        &config_dir,
+        desktop_caps(default_root),
+        AppLocale::En,
+        None,
+        sink,
+    )
+    .await;
+    assert_eq!(restarted.bootstrap_state().theme, AppTheme::Peach);
 }

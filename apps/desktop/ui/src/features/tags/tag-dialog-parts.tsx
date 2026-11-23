@@ -429,7 +429,7 @@ export function CreateTagDialog({
                   type="button"
                   aria-label={t("local.tag.color.choose")}
                   disabled={createMutation.isPending}
-                  className="flex h-8 items-center gap-2 rounded-lg border border-input px-2.5 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+                  className="flex h-8 items-center gap-2 rounded-lg border border-input px-2.5 text-sm font-normal transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
                 >
                   <Hash
                     aria-hidden="true"

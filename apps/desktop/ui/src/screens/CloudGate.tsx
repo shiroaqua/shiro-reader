@@ -131,7 +131,7 @@ export function CloudGateScreen() {
         <div className="absolute -bottom-1/4 -left-1/4 size-[500px] rounded-full bg-primary/5 blur-3xl" />
       </div>
 
-      <div className="relative z-10 w-full max-w-lg space-y-5 rounded-2xl border bg-card p-5 shadow-xl sm:p-6 shadow-black/[0.03] dark:shadow-black/20">
+      <div className="relative z-10 w-full max-w-lg space-y-5 rounded-2xl border bg-card p-5 shadow-xl sm:p-6 shadow-black/[0.03]">
         {/* Header + Language switcher */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">

@@ -141,7 +141,7 @@ export function CloudOriginInput({
             {status === "valid" && (
               <Check
                 aria-label={t("local.cloud.origin_valid")}
-                className="size-4 text-emerald-600 dark:text-emerald-400"
+                className="size-4 text-emerald-600"
               />
             )}
             {status === "invalid" && (

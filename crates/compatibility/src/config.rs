@@ -16,6 +16,19 @@ pub enum LaunchMode {
     Cloud,
 }
 
+/// UI color theme persisted in client settings and applied via `data-theme` in the UI.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppTheme {
+    #[default]
+    #[serde(alias = "lavender")]
+    Default,
+    Sakura,
+    Mint,
+    Sky,
+    Peach,
+}
+
 /// Configurable log level for desktop clients (`settings.json`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -103,6 +116,8 @@ pub struct ClientConfig {
     pub schema_version: u32,
     pub mode: Option<LaunchMode>,
     pub locale: AppLocale,
+    #[serde(default)]
+    pub theme: AppTheme,
     pub local_library_root: Option<PathBuf>,
     pub cloud_origin: Option<String>,
     #[serde(default)]
@@ -115,6 +130,7 @@ impl ClientConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
             mode: None,
             locale: detected_locale,
+            theme: AppTheme::default(),
             local_library_root: None,
             cloud_origin: None,
             log_level: None,
@@ -347,6 +363,11 @@ mod tests {
         .unwrap();
         let loaded = store.load().unwrap().expect("loaded config");
         assert_eq!(loaded.log_level, None);
+        assert_eq!(loaded.theme, AppTheme::Default);
+        assert_eq!(
+            serde_json::from_str::<AppTheme>("\"lavender\"").unwrap(),
+            AppTheme::Default
+        );
 
         let desktop = PlatformCapabilities {
             can_pick_library_dir: true,

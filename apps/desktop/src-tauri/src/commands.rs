@@ -1,12 +1,14 @@
 use std::{io, path::PathBuf};
 
 use shiro_compatibility::{
-    BookTagOutput, BootstrapStateDto, CloudOriginCheckResult, DeleteTagStrategyDto, GetBookOutput,
-    ImportBookItemFailure, ImportBooksResult, ImportProgressEvent, InitialSetupRequest, LaunchMode,
-    RestoreBooksResult, TagDefinitionOutput, TagTreeNodeOutput, TrashedBookOutput,
-    UpdateSettingsRequest, is_cloud_abort_import_code, is_opaque_book_file_name,
+    AppTheme, BookTagOutput, BootstrapStateDto, CloudOriginCheckResult, DeleteTagStrategyDto,
+    GetBookOutput, ImportBookItemFailure, ImportBooksResult, ImportProgressEvent,
+    InitialSetupRequest, LaunchMode, RestoreBooksResult, TagDefinitionOutput, TagTreeNodeOutput,
+    TrashedBookOutput, UpdateSettingsRequest, is_cloud_abort_import_code, is_opaque_book_file_name,
 };
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode};
+#[cfg(target_os = "android")]
+use tauri::Manager;
 use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_fs::{FsExt, OpenOptions};
@@ -23,8 +25,10 @@ const PROGRESS_EMIT_STEP_BYTES: u64 = 256 * 1024;
 // -----------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_bootstrap_state(state: State<'_, DesktopAppState>) -> BootstrapStateDto {
-    state.runtime.bootstrap_state()
+pub fn get_bootstrap_state(app: AppHandle, state: State<'_, DesktopAppState>) -> BootstrapStateDto {
+    let snapshot = state.runtime.bootstrap_state();
+    sync_android_status_bar(&app, snapshot.theme);
+    snapshot
 }
 
 #[tauri::command]
@@ -59,6 +63,77 @@ pub fn set_app_locale(
     crate::sync_window_title(&app, snapshot.locale);
     Ok(snapshot)
 }
+
+#[tauri::command]
+pub fn set_app_theme(
+    app: AppHandle,
+    state: State<'_, DesktopAppState>,
+    theme: AppTheme,
+) -> Result<BootstrapStateDto, CommandErrorPayload> {
+    let snapshot = state.runtime.set_theme(theme)?;
+    sync_android_status_bar(&app, snapshot.theme);
+    Ok(snapshot)
+}
+
+#[cfg(target_os = "android")]
+fn sync_android_status_bar(app: &AppHandle, theme: AppTheme) {
+    use jni::objects::JValue;
+
+    let Some(webview) = app.get_webview_window("main") else {
+        return;
+    };
+    // Keep these values aligned with --theme-system-bar-color in index.css.
+    let color = match theme {
+        AppTheme::Default => "#fafafa",
+        AppTheme::Sakura => "#fff4fe",
+        AppTheme::Mint => "#effff2",
+        AppTheme::Sky => "#e8ffff",
+        AppTheme::Peach => "#fff8e9",
+    }
+    .to_owned();
+
+    if let Err(error) = webview.with_webview(move |webview| {
+        webview.jni_handle().exec(move |env, activity, _| {
+            let result = (|| {
+                let window = env
+                    .call_method(activity, "getWindow", "()Landroid/view/Window;", &[])?
+                    .l()?;
+                let java_color = env.new_string(color)?;
+                let color = env
+                    .call_static_method(
+                        "android/graphics/Color",
+                        "parseColor",
+                        "(Ljava/lang/String;)I",
+                        &[JValue::Object(&java_color)],
+                    )?
+                    .i()?;
+                env.call_method(&window, "setStatusBarColor", "(I)V", &[JValue::Int(color)])?;
+                let decor_view = env
+                    .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
+                    .l()?;
+                env.call_method(
+                    &decor_view,
+                    "setBackgroundColor",
+                    "(I)V",
+                    &[JValue::Int(color)],
+                )?;
+                Ok::<(), jni::errors::Error>(())
+            })();
+
+            if let Err(error) = result {
+                warn!(?error, "failed to synchronize Android status bar color");
+            }
+        });
+    }) {
+        warn!(
+            ?error,
+            "failed to access Android WebView for status bar color"
+        );
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn sync_android_status_bar(_app: &AppHandle, _theme: AppTheme) {}
 
 #[tauri::command]
 pub async fn pick_library_dir(

@@ -3,11 +3,10 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/inter";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Inter Variable', "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    --color-theme-gradient-foreground: var(--theme-gradient-foreground);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -48,73 +47,157 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.925 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+/*
+ * Multi-theme palette (OKLCH) with a neutral default theme.
+ *
+ * Each theme sets its hue and chroma scale. All shadcn tokens are derived below with
+ * FIXED lightness steps, so all themes (and all hues inside one theme, e.g.
+ * charts) share the same perceived lightness. Chroma steps stay inside the sRGB
+ * gamut of every hue at that lightness.
+ *
+ *   --theme-hue            OKLCH hue angle of the theme
+ *   --theme-chroma-strong  chroma of the deep "anchor" primary (L 0.46-0.54)
+ *
+ * Pastel primary fills use dark foreground text for strong contrast. Surface
+ * foreground tokens retain the palette's fixed lightness contrast steps.
+ *
+ * Tokens are declared on `:root` AND on every `[data-theme]` element so a
+ * nested element (e.g. a theme swatch) can preview another theme in place.
+ */
+:root,
+[data-theme="sakura"] {
+    --theme-system-bar-color: #fff4fe;
+    --mobile-nav-active: rgb(99, 65, 76);
+    --mobile-nav-inactive: rgb(118, 98, 107);
+    --theme-hue: 345;
+    --theme-chroma-strong: 0.11;
+    --theme-chroma-scale: 0.7;
+    --theme-primary-lightness: 0.78;
+    --theme-primary-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
 }
 
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.922 0 0);
-    --sidebar-primary-foreground: oklch(0.205 0 0);
-    --sidebar-accent: oklch(0.28 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+[data-theme="default"] {
+    --theme-system-bar-color: #fafafa;
+    --mobile-nav-active: rgb(64, 64, 64);
+    --mobile-nav-inactive: rgb(112, 112, 112);
+    --theme-hue: 0;
+    --theme-chroma-strong: 0;
+    --theme-chroma-scale: 0;
+    --theme-primary-lightness: 0.9;
+    --theme-primary-foreground: oklch(0.24 0 0);
+}
+
+[data-theme]:not([data-theme="default"]) {
+    --theme-primary-lightness: 0.78;
+    --theme-primary-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
+}
+
+[data-theme="mint"] {
+    --theme-system-bar-color: #effff2;
+    --mobile-nav-active: rgb(52, 89, 71);
+    --mobile-nav-inactive: rgb(102, 128, 116);
+    --theme-hue: 150;
+    --theme-chroma-strong: 0.1;
+    --theme-chroma-scale: 0.7;
+}
+
+[data-theme="sky"] {
+    --theme-system-bar-color: #e8ffff;
+    --mobile-nav-active: rgb(49, 86, 97);
+    --mobile-nav-inactive: rgb(101, 127, 135);
+    --theme-hue: 198;
+    --theme-chroma-strong: 0.1;
+    --theme-chroma-scale: 0.7;
+}
+
+[data-theme="peach"] {
+    --theme-system-bar-color: #fff8e9;
+    --mobile-nav-active: rgb(92, 79, 46);
+    --mobile-nav-inactive: rgb(126, 112, 75);
+    --theme-hue: 70;
+    --theme-chroma-strong: 0.105;
+    --theme-chroma-scale: 0.7;
+}
+
+:root,
+[data-theme] {
+    color-scheme: light;
+
+    /* Surfaces: near-white with a whisper of the theme hue. */
+    --background: var(--theme-system-bar-color);
+    --foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
+    --card: oklch(0.995 calc(0.025 * var(--theme-chroma-scale)) var(--theme-hue));
+    --card-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
+    --popover: oklch(0.995 calc(0.025 * var(--theme-chroma-scale)) var(--theme-hue));
+    --popover-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
+
+    /* Pastel primary fill with a dark, high-contrast foreground. */
+    --primary: oklch(var(--theme-primary-lightness) calc(var(--theme-chroma-strong) * var(--theme-chroma-scale)) var(--theme-hue));
+    --primary-foreground: var(--theme-primary-foreground);
+
+    /* Soft tones: L 0.88-0.95, theme-scaled chroma. */
+    --secondary: oklch(0.93 calc(0.055 * var(--theme-chroma-scale)) var(--theme-hue));
+    --secondary-foreground: oklch(0.32 calc(0.06 * var(--theme-chroma-scale)) var(--theme-hue));
+    --muted: oklch(0.95 calc(0.04 * var(--theme-chroma-scale)) var(--theme-hue));
+    --muted-foreground: oklch(0.48 calc(0.03 * var(--theme-chroma-scale)) var(--theme-hue));
+    --accent: oklch(0.9 calc(0.08 * var(--theme-chroma-scale)) var(--theme-hue));
+    --accent-foreground: oklch(0.32 calc(0.06 * var(--theme-chroma-scale)) var(--theme-hue));
+
+    --destructive: oklch(0.577 0.245 27.325);
+
+    /* Theme-scaled strokes. */
+    --border: oklch(0.9 calc(0.025 * var(--theme-chroma-scale)) var(--theme-hue));
+    --input: oklch(0.87 calc(0.03 * var(--theme-chroma-scale)) var(--theme-hue));
+    --ring: oklch(0.68 calc(0.08 * var(--theme-chroma-scale)) var(--theme-hue));
+
+    /* Equal-lightness hue rotation for data viz. */
+    --chart-1: oklch(0.74 0.09 var(--theme-hue));
+    --chart-2: oklch(0.74 0.09 calc(var(--theme-hue) + 72));
+    --chart-3: oklch(0.74 0.09 calc(var(--theme-hue) + 144));
+    --chart-4: oklch(0.74 0.09 calc(var(--theme-hue) + 216));
+    --chart-5: oklch(0.74 0.09 calc(var(--theme-hue) + 288));
+
+    --radius: 0.625rem;
+
+    --sidebar: oklch(0.96 calc(0.055 * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-primary: oklch(var(--theme-primary-lightness) calc(var(--theme-chroma-strong) * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-primary-foreground: var(--theme-primary-foreground);
+    --sidebar-accent: oklch(0.92 calc(0.075 * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-accent-foreground: oklch(0.32 calc(0.06 * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-border: oklch(0.9 calc(0.025 * var(--theme-chroma-scale)) var(--theme-hue));
+    --sidebar-ring: oklch(0.68 calc(0.08 * var(--theme-chroma-scale)) var(--theme-hue));
+
+    /* Micro-gradients: same hue, light top -> deeper bottom. */
+    --theme-gradient: linear-gradient(
+        to bottom,
+        oklch(0.92 calc(0.04 * var(--theme-chroma-scale)) var(--theme-hue)),
+        oklch(0.82 calc(0.07 * var(--theme-chroma-scale)) var(--theme-hue))
+    );
+    --theme-gradient-foreground: oklch(0.26 calc(0.06 * var(--theme-chroma-scale)) var(--theme-hue));
+    --theme-gradient-primary: linear-gradient(
+        to bottom,
+        oklch(0.54 calc(var(--theme-chroma-strong) * var(--theme-chroma-scale)) var(--theme-hue)),
+        oklch(0.46 calc(var(--theme-chroma-strong) * var(--theme-chroma-scale)) var(--theme-hue))
+    );
+    --theme-gradient-subtle: linear-gradient(
+        to bottom,
+        oklch(0.96 calc(0.018 * var(--theme-chroma-scale)) var(--theme-hue)),
+        oklch(0.99 calc(0.004 * var(--theme-chroma-scale)) var(--theme-hue))
+    );
+}
+
+/* Micro-gradient backgrounds as Tailwind utilities. */
+@utility bg-theme-gradient {
+    background-image: var(--theme-gradient);
+}
+
+@utility bg-theme-gradient-primary {
+    background-image: var(--theme-gradient-primary);
+}
+
+@utility bg-theme-gradient-subtle {
+    background-image: var(--theme-gradient-subtle);
 }
 
 @layer base {

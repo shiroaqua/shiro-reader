@@ -963,7 +963,7 @@ function Highlight({ text, keyword }: { text: string; keyword: string }) {
   return (
     <>
       {text.slice(0, position)}
-      <mark className="rounded-[3px] bg-amber-300/40 px-px text-inherit dark:bg-amber-400/25">
+      <mark className="rounded-[3px] bg-amber-300/40 px-px text-inherit">
         {text.slice(position, position + keyword.length)}
       </mark>
       {text.slice(position + keyword.length)}

@@ -1,18 +1,30 @@
 import { useId, useState } from "react"
-import { Cloud, FolderOpen, HardDrive, LoaderCircle } from "lucide-react"
+import { Check, Cloud, FolderOpen, HardDrive, LoaderCircle } from "lucide-react"
 import type { LaunchMode } from "@/api/tauri-bridge"
 import { BrandMark } from "@/components/brand-mark"
 import { CloudOriginInput } from "@/components/cloud-origin-input"
 import { Button } from "@/components/ui/button"
 import { useAppRuntime } from "@/context/app-runtime-context"
 import { useTranslation, type Locale } from "@/lib/i18n"
+import {
+  APP_THEME_LABEL_KEYS,
+  APP_THEMES,
+  DEFAULT_APP_THEME,
+  type AppTheme,
+} from "@/lib/theme"
 import { cn } from "cn"
 
 export function SetupScreen() {
   const { t, locale } = useTranslation()
-  const { bootstrap, changeLocale, completeSetup, pickLibraryDir } =
-    useAppRuntime()
+  const {
+    bootstrap,
+    changeLocale,
+    changeTheme,
+    completeSetup,
+    pickLibraryDir,
+  } = useAppRuntime()
   const cloudInputId = useId()
+  const themeLabelId = useId()
 
   const [mode, setMode] = useState<LaunchMode>("local")
   const [customRoot, setCustomRoot] = useState<string>(
@@ -25,6 +37,7 @@ export function SetupScreen() {
   const [cloudOriginValid, setCloudOriginValid] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
+  const theme = bootstrap?.theme ?? DEFAULT_APP_THEME
   const canPickDir = bootstrap?.canPickLibraryDir ?? false
   const effectiveLocalPath =
     customRoot.trim() || bootstrap?.defaultLibraryRoot || ""
@@ -32,6 +45,15 @@ export function SetupScreen() {
   const handleLocaleChange = async (nextLocale: Locale) => {
     try {
       await changeLocale(nextLocale)
+    } catch {
+      // Rust host already emits localized error notification.
+    }
+  }
+
+  const handleThemeChange = async (nextTheme: AppTheme) => {
+    if (nextTheme === theme) return
+    try {
+      await changeTheme(nextTheme)
     } catch {
       // Rust host already emits localized error notification.
     }
@@ -88,7 +110,7 @@ export function SetupScreen() {
 
         <form
           onSubmit={handleSubmit}
-          className="space-y-5 rounded-2xl border bg-card p-6 shadow-xl shadow-black/[0.03] dark:shadow-black/20"
+          className="space-y-5 rounded-2xl border bg-card p-6 shadow-xl shadow-primary/[0.06]"
         >
           {/* Language */}
           <div className="space-y-2">
@@ -115,6 +137,56 @@ export function SetupScreen() {
             </div>
           </div>
 
+          {/* Color theme */}
+          <div className="space-y-2">
+            <span id={themeLabelId} className="block text-sm font-medium">
+              {t("local.setup.theme")}
+            </span>
+            <div
+              role="radiogroup"
+              aria-labelledby={themeLabelId}
+              className="grid grid-cols-5 gap-2"
+            >
+              {APP_THEMES.map((option) => {
+                const selected = option === theme
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    data-theme={option}
+                    disabled={submitting}
+                    onClick={() => void handleThemeChange(option)}
+                    className={cn(
+                      "flex min-w-0 flex-col items-center gap-1.5 rounded-xl border bg-card px-1 py-2.5 text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50",
+                      selected
+                        ? "border-primary ring-1 ring-primary"
+                        : "hover:bg-muted/60"
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="flex size-8 items-center justify-center rounded-full bg-primary text-primary-foreground ring-1 ring-border"
+                    >
+                      {selected && <Check className="size-4" />}
+                    </span>
+                    <span
+                      className={cn(
+                        "max-w-full truncate",
+                        selected
+                          ? "font-medium text-foreground"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      {t(APP_THEME_LABEL_KEYS[option])}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* Launch mode */}
           <div className="space-y-2">
             <span className="block text-sm font-medium">
@@ -128,7 +200,7 @@ export function SetupScreen() {
                 className={cn(
                   "flex flex-col items-start gap-1.5 rounded-xl border p-3.5 text-left transition-colors",
                   mode === "local"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    ? "border-primary bg-muted ring-1 ring-primary"
                     : "border-border hover:bg-muted/50"
                 )}
               >
@@ -148,7 +220,7 @@ export function SetupScreen() {
                 className={cn(
                   "flex flex-col items-start gap-1.5 rounded-xl border p-3.5 text-left transition-colors",
                   mode === "cloud"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                    ? "border-primary bg-muted ring-1 ring-primary"
                     : "border-border hover:bg-muted/50"
                 )}
               >

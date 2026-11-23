@@ -212,6 +212,7 @@ pub fn run() {
             commands::complete_initial_setup,
             commands::update_settings,
             commands::set_app_locale,
+            commands::set_app_theme,
             commands::pick_library_dir,
             commands::repair_local_library_root,
             commands::retry_startup,

@@ -1,6 +1,7 @@
 import { useId, useState } from "react"
 import {
   AlertCircle,
+  Check,
   Cloud,
   FolderOpen,
   HardDrive,
@@ -21,6 +22,8 @@ import {
 } from "@/components/ui/dialog"
 import { useAppRuntime } from "@/context/app-runtime-context"
 import { useTranslation, type Locale } from "@/lib/i18n"
+import { APP_THEME_LABEL_KEYS, APP_THEMES, type AppTheme } from "@/lib/theme"
+import { cn } from "cn"
 
 export function SettingsDialog({
   open,
@@ -49,11 +52,13 @@ function SettingsForm({ onClose }: { onClose: () => void }) {
   const {
     bootstrap,
     changeLocale,
+    changeTheme,
     updateSettings,
     pickLibraryDir,
     exitApp,
   } = useAppRuntime()
   const cloudInputId = useId()
+  const themeLabelId = useId()
 
   const [nextMode, setNextMode] = useState<LaunchMode>(
     bootstrap?.configuredMode ?? "local"
@@ -82,6 +87,15 @@ function SettingsForm({ onClose }: { onClose: () => void }) {
   const handleLocale = async (nextLocale: Locale) => {
     try {
       await changeLocale(nextLocale)
+    } catch {
+      // Host emits localized error event.
+    }
+  }
+
+  const handleTheme = async (nextTheme: AppTheme) => {
+    if (nextTheme === bootstrap.theme) return
+    try {
+      await changeTheme(nextTheme)
     } catch {
       // Host emits localized error event.
     }
@@ -165,6 +179,56 @@ function SettingsForm({ onClose }: { onClose: () => void }) {
             >
               English
             </Button>
+          </div>
+        </div>
+
+        {/* Color theme */}
+        <div className="space-y-1.5 border-t pt-3">
+          <span id={themeLabelId} className="block text-sm font-medium">
+            {t("local.settings.theme")}
+          </span>
+          <div
+            role="radiogroup"
+            aria-labelledby={themeLabelId}
+            className="grid grid-cols-5 gap-2"
+          >
+            {APP_THEMES.map((option) => {
+              const selected = option === bootstrap.theme
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  data-theme={option}
+                  disabled={saving}
+                  onClick={() => void handleTheme(option)}
+                  className={cn(
+                    "flex min-w-0 flex-col items-center gap-1.5 rounded-md border bg-card px-1 py-2 text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50",
+                    selected
+                      ? "border-primary ring-1 ring-primary"
+                      : "hover:bg-muted/60"
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground ring-1 ring-border"
+                  >
+                    {selected && <Check className="size-4" />}
+                  </span>
+                  <span
+                    className={cn(
+                      "max-w-full truncate",
+                      selected
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {t(APP_THEME_LABEL_KEYS[option])}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
 

@@ -170,7 +170,7 @@ export function TagColorPalette({
 
 /**
  * Text color for a tag name. The default color falls back to the theme's
- * foreground so default tags stay readable in dark mode.
+ * foreground so default tags stay readable on every color theme.
  */
 export function tagNameColor(color: string): string | undefined {
   return color.toLowerCase() === DEFAULT_TAG_COLOR ? undefined : color

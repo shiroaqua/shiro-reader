@@ -505,7 +505,7 @@ function MobileNav({
   return (
     <nav
       aria-label={label}
-      className="flex shrink-0 border-t bg-background pb-[env(safe-area-inset-bottom)]"
+      className="flex shrink-0 border-t bg-sidebar pb-[env(safe-area-inset-bottom)]"
     >
       {menus.map((item) => (
         <button
@@ -513,7 +513,14 @@ function MobileNav({
           type="button"
           aria-current={item.isActive ? "page" : undefined}
           onClick={item.onSelect}
-          className="flex h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium text-muted-foreground outline-none transition-colors active:bg-accent aria-[current=page]:text-foreground [&_svg]:size-5 [&_svg]:shrink-0"
+          className={cn(
+            "flex h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium outline-none transition-colors [&_svg]:size-5 [&_svg]:shrink-0"
+          )}
+          style={{
+            color: item.isActive
+              ? "var(--mobile-nav-active)"
+              : "var(--mobile-nav-inactive)",
+          }}
         >
           {item.icon}
           <span className="max-w-full truncate">{item.name}</span>

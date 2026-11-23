@@ -7,7 +7,7 @@ export function BrandMark({ className }: { className?: string }) {
     <span
       aria-hidden="true"
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary shadow-sm [&_svg:not([class*='size-'])]:size-4",
+        "flex size-8 shrink-0 items-center justify-center rounded-lg bg-theme-gradient text-theme-gradient-foreground shadow-sm [&_svg:not([class*='size-'])]:size-4",
         className
       )}
     >

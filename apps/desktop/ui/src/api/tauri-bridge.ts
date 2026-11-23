@@ -2,6 +2,7 @@ import { Channel, invoke, isTauri } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { notifyLocalError, type RustErrorEvent } from "@/lib/error-notifications"
 import type { Locale } from "@/lib/i18n"
+import type { AppTheme } from "@/lib/theme"
 import type {
   Book,
   BookTag,
@@ -65,6 +66,7 @@ export interface BootstrapState {
   configuredMode: LaunchMode | null
   pendingRestart: boolean
   locale: Locale
+  theme: AppTheme
   configuredLibraryRoot: string
   defaultLibraryRoot: string
   cloudOrigin: string | null
@@ -236,6 +238,8 @@ export const tauriBridge = {
     invokeTauri<BootstrapState>("update_settings", { request }),
   setAppLocale: (locale: Locale) =>
     invokeTauri<BootstrapState>("set_app_locale", { locale }),
+  setAppTheme: (theme: AppTheme) =>
+    invokeTauri<BootstrapState>("set_app_theme", { theme }),
   pickLibraryDir: () => invokeTauri<string | null>("pick_library_dir"),
   repairLocalLibraryRoot: (path: string) =>
     invokeTauri<BootstrapState>("repair_local_library_root", { path }),

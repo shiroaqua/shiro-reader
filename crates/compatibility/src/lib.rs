@@ -11,8 +11,8 @@ pub use cloud_client::{
     is_cloud_abort_import_code, is_session_invalid_code,
 };
 pub use config::{
-    ClientConfig, ClientLogLevel, ConfigLoadError, ConfigStore, LaunchMode, PlatformCapabilities,
-    normalize_cloud_origin,
+    AppTheme, ClientConfig, ClientLogLevel, ConfigLoadError, ConfigStore, LaunchMode,
+    PlatformCapabilities, normalize_cloud_origin,
 };
 pub use credentials::{
     CloudCredentials, CloudUserInfo, CredentialStore, CredentialStoreError,

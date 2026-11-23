@@ -182,6 +182,12 @@ export const enLocal: Record<keyof typeof zhLocal, string> = {
   "local.setup.subtitle":
     "Choose your language and launch mode to complete initial setup.",
   "local.setup.language": "Language",
+  "local.setup.theme": "Color Theme",
+  "local.theme.default": "Gray",
+  "local.theme.sakura": "Pink",
+  "local.theme.mint": "Green",
+  "local.theme.sky": "Blue",
+  "local.theme.peach": "Yellow",
   "local.setup.mode": "Launch Mode",
   "local.setup.mode_fixed_hint":
     "The launch mode is fixed for the current session. You can change it in Settings for the next restart.",
@@ -231,6 +237,7 @@ export const enLocal: Record<keyof typeof zhLocal, string> = {
   "local.settings.mode_restart_hint":
     "Changes take effect after restarting the app.",
   "local.settings.language": "Language",
+  "local.settings.theme": "Color Theme",
   "local.settings.library_dir": "Library Folder",
   "local.settings.pick_dir": "Change Folder",
   "local.settings.reset_dir": "Reset to Default",

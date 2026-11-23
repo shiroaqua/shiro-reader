@@ -158,6 +158,7 @@ export function makeBootstrapState(
     configuredMode: "local",
     pendingRestart: false,
     locale: "en",
+    theme: "default",
     configuredLibraryRoot: "/tmp/shiro-library",
     defaultLibraryRoot: "/tmp/shiro-library",
     cloudOrigin: null,

@@ -3,7 +3,10 @@ use shiro_application::library::book::dto::GetBookOutput;
 use shiro_domain::library::tag::value_objects::TagDeleteStrategy;
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorEventPayload};
 
-use crate::{config::LaunchMode, credentials::CloudUserInfo};
+use crate::{
+    config::{AppTheme, LaunchMode},
+    credentials::CloudUserInfo,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -155,6 +158,7 @@ pub struct BootstrapStateDto {
     pub configured_mode: Option<LaunchMode>,
     pub pending_restart: bool,
     pub locale: AppLocale,
+    pub theme: AppTheme,
     pub configured_library_root: String,
     pub default_library_root: String,
     pub cloud_origin: Option<String>,

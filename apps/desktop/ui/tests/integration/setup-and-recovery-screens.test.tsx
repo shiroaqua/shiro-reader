@@ -60,6 +60,37 @@ describe("SetupScreen and StartupErrorScreen", () => {
       })
     })
 
+    it("switches the color theme through the Rust settings store", async () => {
+      tauriTestHost.onInvoke("get_bootstrap_state", () => setupRequiredState())
+      tauriTestHost.onInvoke("set_app_theme", (args) =>
+        setupRequiredState({ theme: args?.theme as "mint" })
+      )
+
+      const { user } = renderWithProviders(<SetupScreen />, {
+        withRuntime: true,
+      })
+
+      const defaultTheme = await screen.findByRole("radio", { name: "Gray" })
+      await waitFor(() => {
+        expect(document.documentElement.dataset.theme).toBe("default")
+      })
+      expect(defaultTheme).toHaveAttribute("aria-checked", "true")
+
+      await user.click(screen.getByRole("radio", { name: "Green" }))
+
+      await waitFor(() => {
+        expect(document.documentElement.dataset.theme).toBe("mint")
+      })
+      expect(tauriTestHost.invokeCalls("set_app_theme")[0].args).toEqual({
+        theme: "mint",
+      })
+      expect(screen.getByRole("radio", { name: "Green" })).toHaveAttribute(
+        "aria-checked",
+        "true"
+      )
+      expect(defaultTheme).toHaveAttribute("aria-checked", "false")
+    })
+
     it("hides folder picker and displays private storage hint when platform cannot pick directories", async () => {
       tauriTestHost.onInvoke("get_bootstrap_state", () =>
         setupRequiredState({ canPickLibraryDir: false })

@@ -32,7 +32,10 @@ use uuid::Uuid;
 
 use crate::{
     cloud_client::{CloudClient, CloudProbeOutcome, SessionVerifyOutcome, is_session_invalid_code},
-    config::{ClientConfig, ConfigStore, LaunchMode, PlatformCapabilities, normalize_cloud_origin},
+    config::{
+        AppTheme, ClientConfig, ConfigStore, LaunchMode, PlatformCapabilities,
+        normalize_cloud_origin,
+    },
     credentials::{CredentialStore, EncryptedFileCredentialStore},
     dto::{
         BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
@@ -305,6 +308,7 @@ impl ClientRuntime {
             configured_mode: guard.config.mode,
             pending_restart: mode_changed || local_root_changed || cloud_origin_changed,
             locale: guard.config.locale,
+            theme: guard.config.theme,
             configured_library_root: configured_root.display().to_string(),
             default_library_root: self.capabilities.default_library_root.display().to_string(),
             cloud_origin: guard.config.cloud_origin.clone(),
@@ -480,6 +484,34 @@ impl ClientRuntime {
             && let Err(err) = self.config_store.save_atomic(&config)
         {
             error!(error = %err, "failed to persist locale change");
+            return Err(self
+                .error_dispatcher
+                .dispatch_operation(ErrorCode::ConfigSaveFailed));
+        }
+
+        Ok(self.bootstrap_state())
+    }
+
+    /// Immediately updates the UI color theme and persists it if configured.
+    pub fn set_theme(&self, theme: AppTheme) -> Result<BootstrapStateDto, CommandErrorPayload> {
+        let config_to_save = {
+            let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
+            guard.config.theme = theme;
+            let config_corrupted = matches!(
+                guard.state,
+                ActiveRuntimeState::StartupFailed {
+                    config_corrupted: true,
+                    ..
+                }
+            );
+            (!config_corrupted && (self.config_store.exists() || guard.config.mode.is_some()))
+                .then(|| guard.config.clone())
+        };
+
+        if let Some(config) = config_to_save
+            && let Err(err) = self.config_store.save_atomic(&config)
+        {
+            error!(error = %err, "failed to persist theme change");
             return Err(self
                 .error_dispatcher
                 .dispatch_operation(ErrorCode::ConfigSaveFailed));

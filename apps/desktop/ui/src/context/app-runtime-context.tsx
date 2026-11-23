@@ -26,6 +26,7 @@ import {
   notifyRustError,
 } from "@/lib/error-notifications"
 import { setAppLocaleOverride, type Locale } from "@/lib/i18n"
+import { applyAppTheme, type AppTheme } from "@/lib/theme"
 
 interface AppRuntimeContextValue {
   isTauri: boolean
@@ -34,6 +35,7 @@ interface AppRuntimeContextValue {
   completeSetup: (request: InitialSetupRequest) => Promise<BootstrapState>
   updateSettings: (request: UpdateSettingsRequest) => Promise<BootstrapState>
   changeLocale: (locale: Locale) => Promise<BootstrapState>
+  changeTheme: (theme: AppTheme) => Promise<BootstrapState>
   pickLibraryDir: () => Promise<string | null>
   repairLibraryRoot: (path: string) => Promise<BootstrapState>
   retryStartup: () => Promise<BootstrapState | void>
@@ -61,6 +63,7 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
   const applyBootstrap = useCallback(
     (next: BootstrapState, replayBuffered = false) => {
       setAppLocaleOverride(next.locale)
+      applyAppTheme(next.theme)
       setCoverUrlBase(next.coverUrlBase)
 
       // Clear cached React Query library data whenever leaving ready state or switching cloud user.
@@ -162,6 +165,15 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
     [applyBootstrap]
   )
 
+  const changeTheme = useCallback(
+    async (theme: AppTheme) => {
+      const next = await tauriBridge.setAppTheme(theme)
+      applyBootstrap(next)
+      return next
+    },
+    [applyBootstrap]
+  )
+
   const pickLibraryDir = useCallback(() => tauriBridge.pickLibraryDir(), [])
 
   const repairLibraryRoot = useCallback(
@@ -235,6 +247,7 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
         completeSetup,
         updateSettings,
         changeLocale,
+        changeTheme,
         pickLibraryDir,
         repairLibraryRoot,
         retryStartup,
