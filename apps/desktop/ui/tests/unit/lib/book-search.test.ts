@@ -202,8 +202,8 @@ describe("book-search", () => {
 
       const groups = buildSuggestions("#", context, index, books)
       expect(groups).toHaveLength(1)
-      expect(groups[0].id).toBe("tags")
-      expect(groups[0].items.map((item) => item.key)).toEqual([
+      expect(groups[0]!.id).toBe("tags")
+      expect(groups[0]!.items.map((item) => item.key)).toEqual([
         "tag:tag-author",
         "tag:tag-scifi",
         "tag:tag-space",
@@ -217,8 +217,8 @@ describe("book-search", () => {
 
       const groups = buildSuggestions("#Author:", context, index, books)
       expect(groups).toHaveLength(1)
-      expect(groups[0].id).toBe("values")
-      expect(groups[0].items.map((item) => item.kind)).toEqual([
+      expect(groups[0]!.id).toBe("values")
+      expect(groups[0]!.items.map((item) => item.kind)).toEqual([
         "any-value",
         "value",
         "value",
@@ -229,7 +229,7 @@ describe("book-search", () => {
       const { index, books } = createSampleLibrary()
       const context = getSearchContext("#Auth", 5)
       const [group] = buildSuggestions("#Auth", context, index, books)
-      const authorSuggestion = group.items[0]
+      const authorSuggestion = group!.items[0]!
 
       const edit = applySuggestion("#Auth", context, authorSuggestion, index)
       expect(edit).toEqual({
@@ -243,7 +243,7 @@ describe("book-search", () => {
 
       const tagContext = getSearchContext("#Sci", 4)
       const [tagGroup] = buildSuggestions("#Sci", tagContext, index, books)
-      expect(applySuggestion("#Sci", tagContext, tagGroup.items[0], index)).toEqual({
+      expect(applySuggestion("#Sci", tagContext, tagGroup!.items[0]!, index)).toEqual({
         query: "#SciFi ",
         caret: "#SciFi ".length,
       })
@@ -261,7 +261,7 @@ describe("book-search", () => {
       const taggedBookEdit = applySuggestion(
         "#SciFi Dun",
         taggedBookContext,
-        taggedBookGroup!.items[0],
+        taggedBookGroup!.items[0]!,
         index
       )
       expect(taggedBookEdit.query).toBe("#SciFi Dune Messiah ")
@@ -282,7 +282,7 @@ describe("book-search", () => {
       const hashTitleEdit = applySuggestion(
         "Found",
         hashTitleContext,
-        hashTitleGroup!.items[0],
+        hashTitleGroup!.items[0]!,
         index
       )
       expect(hashTitleEdit.query).toBe("Foundation 2 ")
@@ -295,7 +295,7 @@ describe("book-search", () => {
       const query = '#SciFi dune #Author:"Frank Herbert" messiah'
       const segments = tokenizeBookSearch(query)
 
-      expect(removeSegment(query, segments[0])).toBe(
+      expect(removeSegment(query, segments[0]!)).toBe(
         'dune #Author:"Frank Herbert" messiah'
       )
       expect(removeTagSegments(query)).toBe("dune messiah")

@@ -70,7 +70,7 @@ describe("tauri-bridge", () => {
 
       await expect(tauriBridge.booksList()).rejects.toThrow("IPC pipe closed")
       expect(getErrorNotifications()).toHaveLength(1)
-      expect(getErrorNotifications()[0].translation).toEqual({
+      expect(getErrorNotifications()[0]!.translation).toEqual({
         source: "local",
         key: "local.common.error.unknown",
       })
@@ -98,14 +98,14 @@ describe("tauri-bridge", () => {
       })
       await tauriBridge.bookTagBind("b1", { tag_id: "t1", value: "Alice" })
 
-      expect(tauriTestHost.invokeCalls("tag_define")[0].args).toEqual({
+      expect(tauriTestHost.invokeCalls("tag_define")[0]!.args).toEqual({
         name: "Author",
         parentId: "root",
         color: "#000000",
         allowsValue: true,
         valueRegex: ".+",
       })
-      expect(tauriTestHost.invokeCalls("book_tag_bind")[0].args).toEqual({
+      expect(tauriTestHost.invokeCalls("book_tag_bind")[0]!.args).toEqual({
         bookId: "b1",
         tagId: "t1",
         value: "Alice",

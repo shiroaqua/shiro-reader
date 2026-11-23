@@ -108,7 +108,7 @@ describe("CloudGateScreen and SettingsDialog", () => {
       })
       await user.click(connectBtn)
       expect(
-        tauriTestHost.invokeCalls("cloud_update_origin")[0].args
+        tauriTestHost.invokeCalls("cloud_update_origin")[0]!.args
       ).toEqual({ origin: "https://new.example.com" })
 
       // Switch to local mode -> notice displayed and button removed
@@ -185,7 +185,7 @@ describe("CloudGateScreen and SettingsDialog", () => {
         expect(saveBtn).toBeEnabled()
       })
       await user.click(saveBtn)
-      expect(tauriTestHost.invokeCalls("update_settings")[0].args).toEqual({
+      expect(tauriTestHost.invokeCalls("update_settings")[0]!.args).toEqual({
         request: {
           mode: "cloud",
           locale: null,

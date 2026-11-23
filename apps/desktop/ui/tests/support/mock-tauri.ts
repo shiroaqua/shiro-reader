@@ -17,7 +17,7 @@ export class FakeChannel<T = unknown> {
 
 export type InvokeCall = {
   command: string
-  args?: Record<string, unknown>
+  args?: Record<string, unknown> | undefined
 }
 
 type InvokeHandler = (args?: Record<string, unknown>) => unknown

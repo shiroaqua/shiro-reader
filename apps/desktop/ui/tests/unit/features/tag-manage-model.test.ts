@@ -58,8 +58,8 @@ describe("tag-manage-model", () => {
       ])
 
       expect(root.children).toHaveLength(0)
-      expect(nextTree[0].children[0].id).toBe("d-child")
-      expect(nextTree[0].children[0].children[0].id).toBe("d-grand")
+      expect(nextTree[0]!.children[0]!.id).toBe("d-child")
+      expect(nextTree[0]!.children[0]!.children[0]!.id).toBe("d-grand")
     })
 
     it("defers moving an ancestor under a former descendant until that descendant moves out", () => {
@@ -87,9 +87,9 @@ describe("tag-manage-model", () => {
       )
 
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe("child")
-      expect(result[0].parent_id).toBeNull()
-      expect(result[0].children.map((node) => node.id)).toEqual([
+      expect(result[0]!.id).toBe("child")
+      expect(result[0]!.parent_id).toBeNull()
+      expect(result[0]!.children.map((node) => node.id)).toEqual([
         "grand",
         "root",
       ])

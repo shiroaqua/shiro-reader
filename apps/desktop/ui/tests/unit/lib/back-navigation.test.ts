@@ -64,7 +64,7 @@ describe("back-navigation", () => {
         expect(dispatchBack()).toBe(true)
         expect(handler).not.toHaveBeenCalled()
         expect(keydownListener).toHaveBeenCalledTimes(1)
-        const event = keydownListener.mock.calls[0][0] as KeyboardEvent
+        const event = keydownListener.mock.calls[0]![0] as KeyboardEvent
         expect(event.key).toBe("Escape")
       } finally {
         unsub()

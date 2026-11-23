@@ -49,7 +49,7 @@ describe("SetupScreen and StartupErrorScreen", () => {
         )
       })
       expect(
-        tauriTestHost.invokeCalls("complete_initial_setup")[0].args
+        tauriTestHost.invokeCalls("complete_initial_setup")[0]!.args
       ).toEqual({
         request: {
           mode: "local",
@@ -81,7 +81,7 @@ describe("SetupScreen and StartupErrorScreen", () => {
       await waitFor(() => {
         expect(document.documentElement.dataset.theme).toBe("mint")
       })
-      expect(tauriTestHost.invokeCalls("set_app_theme")[0].args).toEqual({
+      expect(tauriTestHost.invokeCalls("set_app_theme")[0]!.args).toEqual({
         theme: "mint",
       })
       expect(screen.getByRole("radio", { name: "Green" })).toHaveAttribute(
@@ -150,7 +150,7 @@ describe("SetupScreen and StartupErrorScreen", () => {
         )
       })
       expect(
-        tauriTestHost.invokeCalls("complete_initial_setup")[0].args
+        tauriTestHost.invokeCalls("complete_initial_setup")[0]!.args
       ).toEqual({
         request: {
           mode: "cloud",
@@ -243,7 +243,7 @@ describe("SetupScreen and StartupErrorScreen", () => {
 
       await user.click(reconfigBtn)
       expect(
-        tauriTestHost.invokeCalls("complete_initial_setup")[0].args
+        tauriTestHost.invokeCalls("complete_initial_setup")[0]!.args
       ).toEqual({
         request: {
           mode: "local",
@@ -254,7 +254,7 @@ describe("SetupScreen and StartupErrorScreen", () => {
       })
 
       await user.click(screen.getByRole("button", { name: "中文" }))
-      expect(tauriTestHost.invokeCalls("set_app_locale")[0].args).toEqual({
+      expect(tauriTestHost.invokeCalls("set_app_locale")[0]!.args).toEqual({
         locale: "zh",
       })
     })

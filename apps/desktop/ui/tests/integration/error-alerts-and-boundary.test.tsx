@@ -34,7 +34,7 @@ describe("ApiErrorAlerts and ErrorBoundary", () => {
       expect(alerts[1]).toHaveTextContent("First failure")
 
       const closeButtons = screen.getAllByRole("button", { name: "Close" })
-      fireEvent.click(closeButtons[0])
+      fireEvent.click(closeButtons[0]!)
 
       expect(screen.queryByText("Second failure")).not.toBeInTheDocument()
       expect(screen.getByText("First failure")).toBeInTheDocument()

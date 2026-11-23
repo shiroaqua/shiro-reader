@@ -45,7 +45,7 @@ describe("error-notifications", () => {
     const unsubscribe = subscribeToErrors(listener)
 
     notifyLocalError("local.common.error.unknown")
-    const initialId = getErrorNotifications()[0].id
+    const initialId = getErrorNotifications()[0]!.id
 
     vi.advanceTimersByTime(500)
     notifyRustError(makeRustErrorEvent({ errorId: "r1", message: "R1" }))
@@ -82,12 +82,12 @@ describe("error-notifications", () => {
     notifyRustError(makeRustErrorEvent({ errorId: "b", message: "Second" }))
 
     const [first, second] = getErrorNotifications()
-    dismissError(first.id)
+    dismissError(first!.id)
 
     // Remaining error was created at t=1000ms, so it dismisses at t=4000ms
     vi.advanceTimersByTime(2999)
     expect(getErrorNotifications()).toHaveLength(1)
-    expect(getErrorNotifications()[0].id).toBe(second.id)
+    expect(getErrorNotifications()[0]!.id).toBe(second!.id)
 
     vi.advanceTimersByTime(1)
     expect(getErrorNotifications()).toHaveLength(0)

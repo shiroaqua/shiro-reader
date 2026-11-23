@@ -57,8 +57,8 @@ describe("tag-tree and tag-filter", () => {
       const filtered = filterTagTree(tree, "cyber", "en")
 
       expect(filtered).toHaveLength(1)
-      expect(filtered[0].id).toBe("fiction")
-      expect(filtered[0].children.map((node) => node.id)).toEqual(["cyberpunk"])
+      expect(filtered[0]!.id).toBe("fiction")
+      expect(filtered[0]!.children.map((node) => node.id)).toEqual(["cyberpunk"])
     })
 
     it("retains the entire subtree when an ancestor itself matches", () => {
@@ -67,7 +67,7 @@ describe("tag-tree and tag-filter", () => {
       const filtered = filterTagTree(tree, "fict", "en")
 
       expect(filtered).toHaveLength(1)
-      expect(filtered[0].children.map((node) => node.id)).toEqual([
+      expect(filtered[0]!.children.map((node) => node.id)).toEqual([
         "fantasy",
         "cyberpunk",
       ])
