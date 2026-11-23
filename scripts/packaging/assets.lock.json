@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 2,
+  "pdfium": {
+    "wrapperCrate": "pdfium-render",
+    "wrapperVersion": "0.9.5",
+    "wrapperFeature": "pdfium_7763",
+    "upstreamReleaseTag": "chromium/7763",
+    "licenseName": "BSD-3-Clause (PDFium / Chromium)",
+    "targets": {
+      "windows-x64": {
+        "rustTarget": "x86_64-pc-windows-msvc",
+        "abi": "x64",
+        "assetName": "pdfium-win-x64.tgz",
+        "downloadUrl": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-win-x64.tgz",
+        "archiveSizeBytes": 3697293,
+        "archiveSha256": "45c4cc5d052ef8ec6380b946b548a76100f4675e38362000a4c732e16d5e8eda",
+        "binaryMember": "bin/pdfium.dll",
+        "extractedBinarySizeBytes": 7122944,
+        "extractedBinarySha256": "a63949dc46a7314bba619ac6cc1b3849627e137f542ae31b2b36b302841f77ae",
+        "licenseMember": "LICENSE",
+        "licenseSha256": "8854f4388f1ca13b3ad9baa42e95f5546b4c0b17109c159256d3eca7be39b09b",
+        "requiredLicenseMembers": [
+          "LICENSE",
+          "licenses/pdfium.txt"
+        ],
+        "stagedBinaryRelativePath": "native/pdfium.dll",
+        "stagedLicenseRelativePath": "native/PDFIUM-LICENSE.txt"
+      },
+      "android-arm64": {
+        "rustTarget": "aarch64-linux-android",
+        "abi": "arm64-v8a",
+        "assetName": "pdfium-android-arm64.tgz",
+        "downloadUrl": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-android-arm64.tgz",
+        "archiveSizeBytes": 3287156,
+        "archiveSha256": "7e6a25f1a64171c174e748065a10f95edc844ee85f09fe566d5e1c50cfae14a9",
+        "binaryMember": "lib/libpdfium.so",
+        "extractedBinarySizeBytes": 6326888,
+        "extractedBinarySha256": "dc2558982c43f058d01549c5d211a37602cc59715842ae2c707da0488e33f1ff",
+        "licenseMember": "LICENSE",
+        "licenseSha256": "ba26c1263131696b86c10496b5066b918a20b7161822a80c274d0080105f6c93",
+        "requiredLicenseMembers": [
+          "LICENSE",
+          "licenses/pdfium.txt"
+        ],
+        "allowedDtNeeded": [
+          "libc.so",
+          "libm.so",
+          "libdl.so",
+          "liblog.so",
+          "libandroid.so"
+        ],
+        "stagedBinaryRelativePath": "jniLibs/arm64-v8a/libpdfium.so",
+        "stagedLicenseRelativePath": "assets/native/PDFIUM-LICENSE.txt"
+      },
+      "linux-x64": {
+        "rustTarget": "x86_64-unknown-linux-gnu",
+        "abi": "x86_64",
+        "assetName": "pdfium-linux-x64.tgz",
+        "downloadUrl": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz",
+        "archiveSizeBytes": 3590383,
+        "archiveSha256": "e3f0c66b2daad710cb6c8edd4a8c45c8902995e359dc0775917fc16e2e56349d",
+        "binaryMember": "lib/libpdfium.so",
+        "extractedBinarySizeBytes": 7524000,
+        "extractedBinarySha256": "9167f6d9190f217fab5bfb864620108e280c124b7f7762cc4ef66e1078e0ec62",
+        "licenseMember": "LICENSE",
+        "licenseSha256": "ba26c1263131696b86c10496b5066b918a20b7161822a80c274d0080105f6c93",
+        "requiredLicenseMembers": [
+          "LICENSE",
+          "licenses/pdfium.txt"
+        ],
+        "allowedDtNeeded": [
+          "libpthread.so.0",
+          "libm.so.6",
+          "libgcc_s.so.1",
+          "libc.so.6",
+          "ld-linux-x86-64.so.2"
+        ],
+        "stagedBinaryRelativePath": "native/libpdfium.so",
+        "stagedLicenseRelativePath": "native/PDFIUM-LICENSE.txt"
+      }
+    }
+  }
+}

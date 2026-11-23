@@ -1,0 +1,12 @@
+[package]
+name = "shiro-http-contract"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Shared ShiroReader HTTP v1 API protocol constants, paths, and DTOs"
+
+[dependencies]
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

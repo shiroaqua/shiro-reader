@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=
+Comment=ShiroReader Tauri 2 client
+Exec=shiro-reader-desktop
+Icon=shiro-reader-desktop
+Name=ShiroReader
+Name[zh_CN]=白读
+Terminal=false
+Type=Application

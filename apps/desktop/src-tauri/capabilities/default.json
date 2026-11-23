@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for ShiroReader Tauri 2 client",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:app:allow-exit",
+    "os:default"
+  ]
+}

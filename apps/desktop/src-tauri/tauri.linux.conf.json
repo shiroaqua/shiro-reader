@@ -1,0 +1,20 @@
+{
+  "bundle": {
+    "resources": {
+      "staging/linux-x64/native": "native"
+    },
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/desktop.template"
+      },
+      "rpm": {
+        "desktopTemplate": "linux/desktop.template"
+      },
+      "appimage": {
+        "files": {
+          "/usr/share/applications/ShiroReader.desktop": "linux/ShiroReader.desktop"
+        }
+      }
+    }
+  }
+}

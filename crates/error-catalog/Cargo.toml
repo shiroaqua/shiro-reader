@@ -1,0 +1,16 @@
+[package]
+name = "shiro-error-catalog"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Single source of truth for ShiroReader error codes and zh/en localized messages"
+
+[features]
+default = []
+application = ["dep:shiro-application", "dep:shiro-domain"]
+
+[dependencies]
+serde.workspace = true
+shiro-application = { path = "../application", optional = true }
+shiro-domain = { path = "../domain", optional = true }
+uuid.workspace = true

@@ -1,0 +1,31 @@
+[package]
+name = "shiro-reader-desktop"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "ShiroReader Tauri 2 client"
+
+[lib]
+name = "shiro_reader_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+futures-util.workspace = true
+shiro-compatibility = { path = "../../../crates/compatibility" }
+shiro-error-catalog = { path = "../../../crates/error-catalog" }
+shiro-infrastructure = { path = "../../../crates/infrastructure" }
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-fs.workspace = true
+tauri-plugin-os.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "io-util", "net", "sync", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

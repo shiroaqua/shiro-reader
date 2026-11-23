@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "resources": {
+      "staging/windows-x64/native": "native"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      },
+      "nsis": {
+        "languages": ["English", "SimpChinese"],
+        "installerHooks": "windows/hooks.nsh"
+      }
+    }
+  }
+}

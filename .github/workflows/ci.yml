@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-crates:
+    name: Rust crates
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -q --workspace --exclude shiro-reader-server --exclude shiro-reader-desktop
+
+  server-tests:
+    name: Server tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -q -p shiro-reader-server
+
+  desktop-tests:
+    name: Desktop tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl file libayatana-appindicator3-dev librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -q -p shiro-reader-desktop --lib
+
+  ui-tests:
+    name: UI tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/desktop/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  packaging-tests:
+    name: Packaging tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: scripts/packaging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test

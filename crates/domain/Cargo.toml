@@ -1,0 +1,20 @@
+[package]
+name = "shiro-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+identity = ["dep:argon2"]
+
+[dependencies]
+argon2 = { workspace = true, optional = true }
+bitflags.workspace = true
+blake3.workspace = true
+derive_more.workspace = true
+entity-derive.workspace = true
+jiff.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

@@ -1,0 +1,45 @@
+[package]
+name = "shiro-reader-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+argon2.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+dashmap.workspace = true
+dotenvy.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+reqwest.workspace = true
+securepass.workspace = true
+serde.workspace = true
+shiro-application = { path = "../../crates/application", features = ["identity"] }
+shiro-domain = { path = "../../crates/domain", features = ["identity"] }
+shiro-error-catalog = { path = "../../crates/error-catalog" }
+shiro-http-contract = { path = "../../crates/http-contract" }
+shiro-infrastructure = { path = "../../crates/infrastructure", features = ["identity"] }
+tar.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+toasty.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "fs", "io-util"] }
+tokio-util.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+blake3.workspace = true
+image.workspace = true
+jiff.workspace = true
+jsonwebtoken.workspace = true
+serde_json.workspace = true
+tower.workspace = true
+uuid.workspace = true
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }

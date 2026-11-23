@@ -1,0 +1,20 @@
+{
+  "name": "shiro-reader-packaging",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "prepare:windows": "node ./package.mjs prepare --target windows-x64",
+    "prepare:android": "node ./package.mjs prepare --target android-arm64",
+    "prepare:linux": "node ./package.mjs prepare --target linux-x64",
+    "build:windows": "node ./package.mjs build --target windows-x64",
+    "build:android": "node ./package.mjs build --target android-arm64 --format apk",
+    "build:android:aab": "node ./package.mjs build --target android-arm64 --format aab",
+    "build:linux": "node ./package.mjs build --target linux-x64 --format deb",
+    "build:all": "bash ../build-all.sh",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "tar": "^7.5.23"
+  }
+}

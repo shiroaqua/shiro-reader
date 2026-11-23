@@ -10,9 +10,22 @@ target/
 # =========================
 
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
+
+# =========================
+# Server runtime data & dependencies
+# =========================
+
+/config.toml
+/libs/
+/books/
+/users/
+/apps/server/config.toml
+/apps/server/libs/
+/apps/server/books/
+/apps/server/users/
 
 
 # =========================
@@ -37,6 +50,8 @@ target/
 *.pem
 *.p12
 *.pfx
+*.jks
+*.keystore
 
 
 # =========================
@@ -49,6 +64,7 @@ target/
 *.upload
 *.tmp
 *.temp
+core.[0-9]*
 
 
 # =========================
@@ -57,13 +73,18 @@ target/
 
 /logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 
 # =========================
 # Coverage / profiling
 # =========================
 
-/coverage/
+coverage/
 /tarpaulin-report.html
 *.profraw
 *.profdata
@@ -73,12 +94,14 @@ target/
 # IDE / editor files
 # =========================
 
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
+.vscode/
 .idea/
-*.swp
-*.swo
+.claude/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 *~
 
 
@@ -120,43 +143,50 @@ docker-compose.override.yml
 *.backup
 *.old
 
-# =========================
-# Logs
-# =========================
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
+# =========================
+# Node / Frontend
+# =========================
+
+node_modules/
 .pnpm-store/
-dist
-dist-ssr
+dist/
+dist-ssr/
 *.local
+*.tsbuildinfo
+.eslintcache
 
 
 # =========================
-# Editor directories and files
+# Python
 # =========================
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 
+__pycache__/
+*.py[cod]
 
 
 # =========================
-# LLM
+# LLM / Project-specific
 # =========================
+
 AGENTS.md
 
-web/tests
-web/scripts
+
+# =========================
+# Packaging & Native Staging
+# =========================
+
+.cache/
+apps/desktop/src-tauri/staging/
+apps/desktop/src-tauri/gen/schemas/
+apps/desktop/src-tauri/gen/android/app/src/main/jniLibs/
+apps/desktop/src-tauri/gen/android/app/src/main/assets/native/
+*.apk
+*.aab
+*.apks
+*.idsig
+*.deb
+*.rpm
+*.AppImage
+*.msi
+*.dmg

@@ -1,0 +1,28 @@
+[package]
+name = "shiro-application"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+identity = ["shiro-domain/identity"]
+
+[dependencies]
+anyhow.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+dashmap.workspace = true
+derive-new.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+shiro-domain = { path = "../domain" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+
+[[test]]
+name = "user_service"
+required-features = ["identity"]
