@@ -11,6 +11,7 @@ use futures_util::{StreamExt, stream};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use rayon::prelude::*;
+use rbook::Epub;
 use shiro_application::library::ports::{BookFileStorageError, BookFileStore, CoverByteStream};
 use shiro_domain::library::book::file::entity::BookFileType;
 use tokio::{
@@ -431,14 +432,12 @@ fn extract_pdf_cover(file: &mut std::fs::File, pdfium: &Mutex<Pdfium>) -> anyhow
 
 fn extract_epub_cover(file: &mut std::fs::File) -> anyhow::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(0))?;
-    let mut epub = epub::doc::EpubDoc::from_reader(std::io::BufReader::new(file))?;
-    if let Some((bytes, _mime)) = epub.get_cover() {
-        Ok(bytes)
-    } else {
-        Err(anyhow::anyhow!(
-            "epub does not declare an extractable cover"
-        ))
-    }
+    let epub = Epub::read(file.try_clone()?)?;
+    let cover = epub
+        .manifest()
+        .cover_image()
+        .ok_or_else(|| anyhow::anyhow!("epub does not declare a cover image"))?;
+    Ok(cover.read_bytes()?)
 }
 
 /// Attempts to extract an embedded document title from a staged book file (e.g. EPUB `<dc:title>`)
@@ -448,9 +447,10 @@ pub fn extract_book_metadata_title(file: &mut std::fs::File) -> Option<String> {
     file.seek(SeekFrom::Start(0)).ok()?;
     match file_type {
         BookFileType::EPUB => {
-            let epub = epub::doc::EpubDoc::from_reader(std::io::BufReader::new(file)).ok()?;
-            epub.get_title()
-                .map(|t| t.trim().to_owned())
+            let epub = Epub::read(file.try_clone().ok()?).ok()?;
+            epub.metadata()
+                .title()
+                .map(|title| title.value().trim().to_owned())
                 .filter(|t| !t.is_empty())
         }
         BookFileType::PDF => None,
