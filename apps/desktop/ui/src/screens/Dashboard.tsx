@@ -278,7 +278,7 @@ type DashboardMenu = {
   id: string
   name: string
   icon: ReactNode
-  isActive?: boolean
+  isActive?: boolean | undefined
   onSelect?: () => void
 }
 
@@ -308,7 +308,7 @@ function UserProfileMenu({
 }: {
   leading?: ReactNode
   username: string | null
-  subtitle?: string | null
+  subtitle?: string | null | undefined
   pendingRestart?: boolean
   onOpenSettings: () => void
   onLogout?: () => Promise<void>
@@ -422,7 +422,7 @@ function MobileAccountMenu({
   onLogout,
 }: {
   username: string | null
-  subtitle?: string | null
+  subtitle?: string | null | undefined
   pendingRestart?: boolean
   onOpenSettings: () => void
   onLogout?: () => Promise<void>

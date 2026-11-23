@@ -65,7 +65,7 @@ export function TagColorSwatch({
   color: string
   selected: boolean
   label: string
-  disabled?: boolean
+  disabled?: boolean | undefined
   onSelect: (color: string) => void
 }) {
   return (
@@ -100,7 +100,7 @@ export function TagColorPalette({
   onSelect,
 }: {
   color: string
-  disabled?: boolean
+  disabled?: boolean | undefined
   onSelect: (color: string) => void
 }) {
   const { t } = useTranslation()
@@ -187,7 +187,7 @@ export function TagColorName({
 }: {
   name: string
   color: string
-  disabled?: boolean
+  disabled?: boolean | undefined
   label: string
   className?: string
   onSelect: (color: string) => void
@@ -226,7 +226,7 @@ export function TagColorPopover({
   trigger,
 }: {
   color: string
-  disabled?: boolean
+  disabled?: boolean | undefined
   onSelect: (color: string) => void
   trigger: ReactNode
 }) {

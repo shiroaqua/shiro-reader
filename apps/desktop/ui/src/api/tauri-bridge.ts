@@ -180,11 +180,11 @@ export function isCommandErrorPayload(
   if (typeof value !== "object" || value === null) return false
   const record = value as Record<string, unknown>
   return (
-    typeof record.operationId === "string" &&
-    typeof record.errorId === "string" &&
-    typeof record.code === "number" &&
-    typeof record.key === "string" &&
-    (record.itemId === null || typeof record.itemId === "string")
+    typeof record["operationId"] === "string" &&
+    typeof record["errorId"] === "string" &&
+    typeof record["code"] === "number" &&
+    typeof record["key"] === "string" &&
+    (record["itemId"] === null || typeof record["itemId"] === "string")
   )
 }
 

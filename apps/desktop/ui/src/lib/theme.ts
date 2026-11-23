@@ -18,5 +18,5 @@ export const APP_THEME_LABEL_KEYS = {
 /** Applies the theme to the document root so every CSS token resolves against it. */
 export function applyAppTheme(theme: AppTheme) {
   if (typeof document === "undefined") return
-  document.documentElement.dataset.theme = theme
+  document.documentElement.dataset["theme"] = theme
 }

@@ -64,19 +64,19 @@ export function tokenizeBookSearch(query: string): SearchSegment[] {
   let index = 0
   while (index < query.length) {
     const start = index
-    if (/\s/.test(query[index])) {
-      while (index < query.length && /\s/.test(query[index])) index += 1
+    if (/\s/.test(query[index]!)) {
+      while (index < query.length && /\s/.test(query[index]!)) index += 1
       segments.push({ kind: "space", start, end: index, raw: query.slice(start, index) })
       continue
     }
     if (query[index] !== "#") {
-      while (index < query.length && !/\s/.test(query[index])) index += 1
+      while (index < query.length && !/\s/.test(query[index]!)) index += 1
       segments.push({ kind: "text", start, end: index, raw: query.slice(start, index) })
       continue
     }
 
     index += 1
-    while (index < query.length && !TAG_NAME_STOP.test(query[index])) index += 1
+    while (index < query.length && !TAG_NAME_STOP.test(query[index]!)) index += 1
     const nameEnd = index
     const name = query.slice(start + 1, nameEnd)
     let hasColon = false
@@ -93,9 +93,9 @@ export function tokenizeBookSearch(query: string): SearchSegment[] {
         index += 1
         valueStart = index
         while (index < query.length) {
-          const char = query[index]
+          const char = query[index]!
           if (char === "\\" && index + 1 < query.length) {
-            value += query[index + 1]
+            value += query[index + 1]!
             index += 2
             continue
           }
@@ -108,13 +108,13 @@ export function tokenizeBookSearch(query: string): SearchSegment[] {
           index += 1
         }
       } else {
-        while (index < query.length && !/\s/.test(query[index])) index += 1
+        while (index < query.length && !/\s/.test(query[index]!)) index += 1
         value = query.slice(valueStart, index)
       }
     }
     const tokenEnd = index
     // Swallow anything glued to the token so it stays one segment.
-    while (index < query.length && !/\s/.test(query[index])) index += 1
+    while (index < query.length && !/\s/.test(query[index]!)) index += 1
     const hasTrailing = index > tokenEnd
     segments.push({
       kind: "tag",
@@ -476,7 +476,7 @@ export function removeTagSegments(query: string): string {
     (segment): segment is TagSegment => segment.kind === "tag" && segment.complete
   )
   for (let i = tags.length - 1; i >= 0; i -= 1) {
-    result = removeSegment(result, tags[i])
+    result = removeSegment(result, tags[i]!)
   }
   return result
 }
@@ -538,7 +538,7 @@ export function partitionSearchChips(
     let prefixEnd = 0
     let isLeadingPrefix = true
     for (const chip of chips) {
-      while (prefixEnd < value.length && /\s/.test(value[prefixEnd])) {
+      while (prefixEnd < value.length && /\s/.test(value[prefixEnd]!)) {
         prefixEnd += 1
       }
       if (chip.start !== prefixEnd) {
@@ -548,13 +548,13 @@ export function partitionSearchChips(
       prefixEnd = chip.end
     }
     if (isLeadingPrefix) {
-      if (prefixEnd < value.length && /\s/.test(value[prefixEnd])) {
+      if (prefixEnd < value.length && /\s/.test(value[prefixEnd]!)) {
         prefixEnd += 1
       }
       draft = value.slice(prefixEnd)
     } else {
       for (let i = chips.length - 1; i >= 0; i -= 1) {
-        draft = removeSegment(draft, chips[i])
+        draft = removeSegment(draft, chips[i]!)
       }
     }
   }
@@ -575,9 +575,9 @@ function spliceOutTag(
 } {
   let removeStart = segment.start
   let removeEnd = segment.end
-  if (removeEnd < text.length && /\s/.test(text[removeEnd])) {
+  if (removeEnd < text.length && /\s/.test(text[removeEnd]!)) {
     removeEnd += 1
-  } else if (removeStart > 0 && /\s/.test(text[removeStart - 1])) {
+  } else if (removeStart > 0 && /\s/.test(text[removeStart - 1]!)) {
     removeStart -= 1
   }
   const removedLength = removeEnd - removeStart
@@ -632,7 +632,7 @@ export function commitSearchDraft(
   let adjustedCaret = clamped
   let activeStartInDraft = activeTag ? activeTag.start : null
   for (let i = promoted.length - 1; i >= 0; i -= 1) {
-    const spliced = spliceOutTag(remainingDraft, promoted[i], adjustedCaret)
+    const spliced = spliceOutTag(remainingDraft, promoted[i]!, adjustedCaret)
     remainingDraft = spliced.text
     adjustedCaret = spliced.caret
     if (

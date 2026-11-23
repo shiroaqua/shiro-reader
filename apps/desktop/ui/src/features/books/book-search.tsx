@@ -284,9 +284,10 @@ export function BookSearch({
           ? 0
           : items.length - 1
         : (current + step + items.length) % items.length
-    setActiveKey(items[next].key)
+    const nextItem = items[next]!
+    setActiveKey(nextItem.key)
     document
-      .getElementById(optionId(listboxId, items[next].key))
+      .getElementById(optionId(listboxId, nextItem.key))
       ?.scrollIntoView({ block: "nearest" })
   }
 
@@ -315,7 +316,7 @@ export function BookSearch({
           inputRef.current?.selectionEnd === 0
         ) {
           event.preventDefault()
-          removeChip(chips[chips.length - 1])
+          removeChip(chips[chips.length - 1]!)
         }
         break
       case "ArrowDown":

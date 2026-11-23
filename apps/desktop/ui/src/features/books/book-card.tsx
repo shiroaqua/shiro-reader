@@ -42,7 +42,7 @@ export function BookCard({
   isSelectionMode: boolean
   selectionPreview?: SelectionPreview
   onToggleSelect: (shiftKey: boolean) => void
-  onHoverChange?: (hovering: boolean) => void
+  onHoverChange?: ((hovering: boolean) => void) | undefined
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()

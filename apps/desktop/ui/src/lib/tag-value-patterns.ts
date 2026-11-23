@@ -361,6 +361,7 @@ function isValidIssnIsbn(value: string): boolean {
 /** Rejects dates that match the pattern but do not exist, such as 2026-02-31. */
 function isCalendarDate(value: string): boolean {
   const [year, month, day] = value.split("-").map(Number)
+  if (year === undefined || month === undefined || day === undefined) return false
   const date = new Date(0)
   date.setUTCFullYear(year, month - 1, day)
   return (

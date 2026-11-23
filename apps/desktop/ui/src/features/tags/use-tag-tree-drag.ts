@@ -100,7 +100,7 @@ export function useTagTreeDrag({
       const treeRoot = hit?.closest<HTMLElement>("[data-tag-tree-root]")
       if (!treeRoot) return null
       const row = hit?.closest<HTMLElement>("[data-tag-id]")
-      const parentId = row?.dataset.tagId ?? null
+      const parentId = row?.dataset["tagId"] ?? null
       if (
         parentId === node.parent_id ||
         (parentId &&

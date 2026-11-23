@@ -55,7 +55,7 @@ export function translateTagName(
 ): string {
   if (!name.includes(".")) return name
   const messages = locale === "zh" ? zhTagNames : enTagNames
-  return Object.hasOwn(messages, name) ? messages[name] : name
+  return Object.hasOwn(messages, name) ? messages[name]! : name
 }
 
 export function translateMessage(

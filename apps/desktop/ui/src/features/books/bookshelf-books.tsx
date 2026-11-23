@@ -170,7 +170,7 @@ export function BookshelfBooks({
         const end = Math.max(anchorIndex, targetIndex)
         const next = new Set(selectedIds)
         for (let index = start; index <= end; index += 1) {
-          const id = visibleBooks[index].id
+          const id = visibleBooks[index]!.id
           if (anchor.action === "select") next.add(id)
           else next.delete(id)
         }
@@ -215,7 +215,7 @@ export function BookshelfBooks({
     const end = Math.max(anchorIndex, hoverIndex)
     const ids = new Set<string>()
     for (let index = start; index <= end; index += 1) {
-      ids.add(visibleBooks[index].id)
+      ids.add(visibleBooks[index]!.id)
     }
     return { ids, action: anchor.action }
   }, [isSelectionMode, shiftPressed, anchor, hoveredBookId, visibleBooks])

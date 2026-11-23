@@ -299,6 +299,7 @@ export function BatchBookTagDialog({
           while (!aborted && cursor < tasks.length) {
             const task = tasks[cursor]
             cursor += 1
+            if (!task) continue
             try {
               await library.bookshelf.book.bindTag(task.bookId, task.binding)
             } catch (error) {

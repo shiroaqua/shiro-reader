@@ -87,7 +87,9 @@ function enqueue(translation: TranslationMessage) {
     ...notifications.filter((item) => item !== existing),
     {
       id: existing?.id ?? ++nextId,
-      errorId: translation.source === "rust" ? translation.errorId : undefined,
+      ...(translation.source === "rust"
+        ? { errorId: translation.errorId }
+        : {}),
       translation,
       createdAt: Date.now(),
     },

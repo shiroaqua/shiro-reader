@@ -40,7 +40,7 @@ export function ApiErrorAlerts() {
         const alert = container.children[notifications.length - 1 - index]
         if (!alert) break
         overflow -= alert.getBoundingClientRect().height + gap
-        overflowIds.push(notifications[index].id)
+        overflowIds.push(notifications[index]!.id)
       }
       if (overflowIds.length > 0) {
         dismissErrors(overflowIds)
