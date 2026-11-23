@@ -150,7 +150,12 @@ impl HttpResponse {
     }
 
     pub fn assert_status(&self, status: u16) {
-        assert_eq!(self.status.as_u16(), status, "unexpected HTTP status");
+        assert_eq!(
+            self.status.as_u16(),
+            status,
+            "unexpected HTTP status, response body: {:?}",
+            String::from_utf8_lossy(&self.bytes)
+        );
     }
 
     pub fn assert_empty(&self, status: u16) {
@@ -221,12 +226,15 @@ impl HttpResponse {
 pub enum HttpError {
     MissingTitle,
     InvalidTitle,
+    InvalidChapterTitle,
     UnchangedTitle,
     TitleConflict,
     BookAlreadyDeleted,
     BookNotDeleted,
     InvalidBookId,
+    InvalidChapterLocation,
     BookNotFound,
+    PositionConflict,
     InvalidHash,
     FileNotFound,
     DuplicateFile,
@@ -256,6 +264,9 @@ impl HttpError {
             InvalidBookId => (400, 2001, "library.book.invalid_id"),
             MissingTitle => (400, 2002, "library.book.missing_title"),
             InvalidTitle => (400, 2003, "library.book.invalid_title_format"),
+            InvalidChapterTitle => (400, 2011, "library.book.invalid_chapter_title"),
+            InvalidChapterLocation => (400, 2004, "library.book.invalid_location"),
+            PositionConflict => (409, 2005, "library.book.position_conflict"),
             BookNotFound => (404, 2006, "library.book.not_found"),
             TitleConflict => (409, 2007, "library.book.title_conflict"),
             UnchangedTitle => (400, 2008, "library.book.title_unchanged"),

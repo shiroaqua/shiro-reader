@@ -18,8 +18,10 @@ use shiro_infrastructure::{
     library_runtime::{SqliteBookFileService, SqliteLibraryContext},
     pdfium::load_server_pdfium,
     repositories::{
-        book_repository::SqliteBookRepository, session_repository::SqliteSessionRepository,
-        tag_repository::SqliteTagRepository, user_repository::SqliteUserRepository,
+        book_repository::SqliteBookRepository,
+        session_repository::SqliteSessionRepository,
+        tag_repository::SqliteTagRepository,
+        user_repository::SqliteUserRepository,
     },
     storage::book_file_storage::LocalBookFileStorage,
 };
@@ -128,7 +130,7 @@ impl UserDatabaseProvider {
         let db = self.route_db(user_id)?;
         Ok(LibraryContext::new(
             SqliteBookRepository::new(db.clone()),
-            SqliteTagRepository::new(db),
+            SqliteTagRepository::new(db.clone()),
             book_files,
         ))
     }

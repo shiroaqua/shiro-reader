@@ -2,8 +2,11 @@ use std::{io::ErrorKind, sync::Arc};
 
 use blake3::Hash;
 use dashmap::DashSet;
-use shiro_domain::library::book::file::entity::BookFileType;
-use tokio::{fs::File, io::AsyncRead};
+use shiro_domain::library::book::file::entity::{BookFileChapter, BookFileType};
+use tokio::{
+    fs::File,
+    io::{AsyncRead, Take},
+};
 
 use crate::library::{
     book::file::errors::BookFileApplicationError,
@@ -53,7 +56,10 @@ impl<S: BookFileStore> BookFileService<S> {
         }
     }
 
-    pub async fn download_book_file(&self, hash: &str) -> Result<File, LibraryApplicationError> {
+    pub async fn download_book_file(
+        &self,
+        hash: &str,
+    ) -> Result<Take<File>, LibraryApplicationError> {
         let hash = Self::to_hex(hash)?;
         if self.storage.contains(&hash) {
             self.storage
@@ -87,6 +93,10 @@ impl<S: BookFileStore> BookFileService<S> {
 
     pub fn get_book_type(&self, hash: &Hash) -> Option<BookFileType> {
         self.storage.get_type(hash)
+    }
+
+    pub fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter> {
+        self.storage.get_chapters(hash)
     }
 
     pub async fn delete_book_file(&self, hash: &str) -> Result<(), LibraryApplicationError> {

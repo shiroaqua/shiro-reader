@@ -14,7 +14,10 @@ use shiro_application::library::{
 
 use crate::{
     db::pool::connect_library,
-    repositories::{book_repository::SqliteBookRepository, tag_repository::SqliteTagRepository},
+    repositories::{
+        book_repository::SqliteBookRepository,
+        tag_repository::SqliteTagRepository,
+    },
     storage::book_file_storage::LocalBookFileStorage,
 };
 
@@ -64,7 +67,7 @@ impl LocalLibrary {
         let book_files = Arc::new(BookFileService::new(storage));
         let context = LibraryContext::new(
             SqliteBookRepository::new(db.clone()),
-            SqliteTagRepository::new(db),
+            SqliteTagRepository::new(db.clone()),
             book_files,
         );
 

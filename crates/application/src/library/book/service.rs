@@ -6,6 +6,7 @@ use std::{
 use derive_new::new;
 use shiro_domain::library::{
     book::{
+        chapter::{Chapter, ChapterId, ChapterLocation, ChapterTitle},
         entity::Book,
         errors::BookDomainError,
         value_objects::{BookId, BookStatus, BookTitle},
@@ -16,13 +17,14 @@ use shiro_domain::library::{
 use crate::library::{
     book::{
         commands::{
-            RestoreBookIdCommand, PermanentlyDeleteBooksCommand, CreateBookCommand, DeleteBookCommand,
-            DeleteBooksCommand, GetBookCoverCommand, RenameBookCommand,
+            CreateBookCommand, CreateChapterCommand, DeleteBookCommand, DeleteBooksCommand,
+            DeleteChapterCommand, GetBookCoverCommand, PermanentlyDeleteBooksCommand,
+            RenameBookCommand, RestoreBookIdCommand,
         },
-        dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
+        dto::{ChapterOutput, CreateBookOutput, GetBookOutput, TrashedBookOutput},
         errors::BookApplicationError,
         file::{errors::BookFileApplicationError, service::BookFileService},
-        queries::GetBooksQuery,
+        queries::{GetBooksQuery, ListChaptersQuery},
     },
     errors::LibraryApplicationError,
     ports::{BookFileStore, BookRepository, BookTransaction, CoverByteStream},
@@ -66,12 +68,82 @@ where
             .bookfile
             .get_book_type(&hash)
             .ok_or(BookFileApplicationError::Unsupported)?;
-        let book = self
-            .repository
-            .create(Book::new(BookId::new(), title, hash)?)
-            .await?;
+        let book = Book::new(BookId::new(), title, hash)?;
+        let chapters = self
+            .bookfile
+            .get_chapters(book.hash())
+            .into_iter()
+            .map(|chapter| {
+                let title = ChapterTitle::parse(chapter.title)
+                    .map_err(BookApplicationError::from)?;
+                Ok(Chapter::new(
+                    ChapterId::new(),
+                    book.id().clone(),
+                    chapter.position,
+                    title,
+                    chapter.location,
+                ))
+            })
+            .collect::<Result<Vec<_>, BookApplicationError>>()?;
+
+        let mut tx = self.repository.begin_transaction().await?;
+        let book = tx.create_book(book).await?;
+        for chapter in chapters {
+            tx.create_chapter(chapter)
+                .await
+                .map_err(BookApplicationError::from)?;
+        }
+        tx.commit().await?;
 
         Ok((book, file_type).into())
+    }
+
+    pub async fn create_chapter(
+        &mut self,
+        command: CreateChapterCommand,
+    ) -> Result<ChapterOutput, LibraryApplicationError> {
+        let book_id = BookId::parse(command.book_id)?;
+        let title = ChapterTitle::parse(command.title).map_err(BookApplicationError::from)?;
+        let location = ChapterLocation::parse(command.location)?;
+        let chapter = Chapter::new(
+            ChapterId::new(),
+            book_id,
+            command.position,
+            title,
+            location,
+        );
+        Ok(self
+            .repository
+            .create_chapter(chapter)
+            .await?
+            .into())
+    }
+
+    pub async fn delete_chapter(
+        &mut self,
+        command: DeleteChapterCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let book_id = BookId::parse(command.book_id)?;
+        let chapter_id = ChapterId::parse(command.chapter_id)?;
+        self.repository
+            .delete_chapter(&book_id, &chapter_id)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_chapters(
+        &mut self,
+        query: ListChaptersQuery,
+    ) -> Result<Vec<ChapterOutput>, LibraryApplicationError> {
+        let book_id = BookId::parse(query.book_id)
+            .map_err(|_| BookApplicationError::InvalidId)?;
+        Ok(self
+            .repository
+            .list_chapters(&book_id)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub async fn delete_book(

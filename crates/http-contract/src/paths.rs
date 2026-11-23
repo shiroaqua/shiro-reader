@@ -23,6 +23,8 @@ pub const AUTH_ME_ROUTE: &str = "/me";
 pub const BOOKS_ROUTE: &str = "/bookshelf/books";
 pub const BOOK_ROUTE: &str = "/bookshelf/books/{book_id}";
 pub const BOOK_TAGS_ROUTE: &str = "/bookshelf/books/{book_id}/tags";
+pub const BOOK_CHAPTERS_ROUTE: &str = "/bookshelf/books/{book_id}/chapters";
+pub const BOOK_CHAPTER_ROUTE: &str = "/bookshelf/books/{book_id}/chapters/{chapter_id}";
 pub const BOOK_COVER_ROUTE: &str = "/bookshelf/books/{book_id}/cover";
 pub const TRASH_ROUTE: &str = "/bookshelf/trash";
 pub const TRASH_BOOK_ROUTE: &str = "/bookshelf/trash/{book_id}";
@@ -45,6 +47,14 @@ pub fn book_cover(book_id: &str) -> String {
 
 pub fn book_tags(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}/tags")
+}
+
+pub fn book_chapters(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/chapters")
+}
+
+pub fn book_chapter(book_id: &str, chapter_id: &str) -> String {
+    format!("{}/{}", book_chapters(book_id), chapter_id)
 }
 
 pub fn trash_restore(book_id: &str) -> String {

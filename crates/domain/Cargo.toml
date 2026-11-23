@@ -16,5 +16,7 @@ derive_more.workspace = true
 entity-derive.workspace = true
 jiff.workspace = true
 regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

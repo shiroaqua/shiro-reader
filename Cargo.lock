@@ -5239,6 +5239,8 @@ dependencies = [
  "entity-derive",
  "jiff 1.0.2",
  "regex",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "uuid",
 ]

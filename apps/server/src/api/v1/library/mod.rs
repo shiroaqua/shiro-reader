@@ -13,6 +13,7 @@ use tower_http::timeout::TimeoutLayer;
 use crate::state::AppState;
 
 pub mod book;
+pub mod chapter;
 pub mod tag;
 
 pub fn standard_router() -> Router<AppState> {
@@ -26,6 +27,14 @@ pub fn standard_router() -> Router<AppState> {
             get(tag::handlers::get_book_tags)
                 .post(tag::handlers::bind_tag)
                 .delete(tag::handlers::unbind_tag),
+        )
+        .route(
+            paths::BOOK_CHAPTERS_ROUTE,
+            get(chapter::handlers::list_chapters).post(chapter::handlers::add_chapter),
+        )
+        .route(
+            paths::BOOK_CHAPTER_ROUTE,
+            delete(chapter::handlers::delete_chapter),
         )
         .route(
             paths::BOOKS_ROUTE,

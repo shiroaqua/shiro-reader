@@ -1,10 +1,11 @@
 use derive_more::{AsRef, Display, From, Into};
 use jiff::Timestamp;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::library::book::errors::BookDomainError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Into)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Display, From, AsRef, Into, Serialize, Deserialize)]
 pub struct BookId(Uuid);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display, AsRef, Into)]

@@ -9,6 +9,9 @@ pub enum BookApplicationError {
     #[error("invalid book title format")]
     InvalidTitleFormat,
 
+    #[error("invalid chapter title")]
+    InvalidChapterTitle,
+
     #[error("book not found")]
     NotFound,
 
@@ -23,6 +26,12 @@ pub enum BookApplicationError {
 
     #[error("book is not deleted")]
     NotDeleted,
+
+    #[error("invalid location")]
+    InvalidChapterLocation,
+
+    #[error("a chapter already exists at this position")]
+    PositionConflict,
 
     #[error(transparent)]
     Storage(#[from] anyhow::Error),

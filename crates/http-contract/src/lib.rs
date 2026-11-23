@@ -7,7 +7,8 @@ pub mod paths;
 pub use auth::{LoginRequest, LogoutRequest, RefreshAccessTokenRequest};
 pub use error::{ErrorDetail, ErrorResponse};
 pub use library::{
-    BindBookTagRequest, BookFileQuery, BookIdsRequest, BooksQuery, ChangeTagColorRequest,
+    BindBookTagRequest, BookFileQuery, BookIdsRequest, BooksQuery,
+    ChangeTagColorRequest, CreateChapterRequest,
     CreateBookRequest, DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
     RenameBookRequest, RenameTagRequest, UnbindBookTagRequest,
 };

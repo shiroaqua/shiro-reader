@@ -1,11 +1,19 @@
 use std::io::ErrorKind;
 
-use shiro_domain::library::{book::errors::BookDomainError, tag::errors::TagDomainError};
+use shiro_domain::library::{
+    book::{chapter::ChapterDomainError, errors::BookDomainError},
+    tag::errors::TagDomainError,
+};
 use thiserror::Error;
 
 use crate::library::{
-    book::{errors::BookApplicationError, file::errors::BookFileApplicationError},
-    ports::{BookFileStorageError, BookRepositoryError, TagRepositoryError},
+    book::{
+        errors::BookApplicationError,
+        file::errors::BookFileApplicationError,
+    },
+    ports::{
+        BookChapterError, BookFileStorageError, BookRepositoryError, TagRepositoryError,
+    },
     tag::errors::TagApplicationError,
 };
 
@@ -19,6 +27,7 @@ pub enum LibraryApplicationError {
 
     #[error("Tag error: {0}")]
     Tag(#[from] TagApplicationError),
+
 }
 
 impl From<BookDomainError> for BookApplicationError {
@@ -50,6 +59,22 @@ impl From<BookDomainError> for LibraryApplicationError {
     }
 }
 
+impl From<ChapterDomainError> for LibraryApplicationError {
+    fn from(err: ChapterDomainError) -> Self {
+        Self::Book(err.into())
+    }
+}
+
+impl From<ChapterDomainError> for BookApplicationError {
+    fn from(value: ChapterDomainError) -> Self {
+        match value {
+            ChapterDomainError::InvalidId => Self::InvalidId,
+            ChapterDomainError::InvalidTitle => Self::InvalidChapterTitle,
+            ChapterDomainError::InvalidLocation => Self::InvalidChapterLocation,
+        }
+    }
+}
+
 impl From<BookRepositoryError> for BookApplicationError {
     fn from(value: BookRepositoryError) -> Self {
         match value {
@@ -59,6 +84,7 @@ impl From<BookRepositoryError> for BookApplicationError {
         }
     }
 }
+
 
 impl From<BookRepositoryError> for LibraryApplicationError {
     fn from(error: BookRepositoryError) -> Self {
@@ -86,5 +112,21 @@ impl From<TagRepositoryError> for TagApplicationError {
 impl From<TagRepositoryError> for LibraryApplicationError {
     fn from(error: TagRepositoryError) -> Self {
         Self::Tag(error.into())
+    }
+}
+
+impl From<BookChapterError> for BookApplicationError {
+    fn from(value: BookChapterError) -> Self {
+        match value {
+            BookChapterError::BookNotFound | BookChapterError::ChapterNotFound => Self::NotFound,
+            BookChapterError::PositionConflict => Self::PositionConflict,
+            BookChapterError::Storage(error) => Self::Storage(error),
+        }
+    }
+}
+
+impl From<BookChapterError> for LibraryApplicationError {
+    fn from(error: BookChapterError) -> Self {
+        Self::Book(error.into())
     }
 }

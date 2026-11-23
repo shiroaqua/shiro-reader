@@ -6,7 +6,7 @@ use crate::library::{
     tag::service::TagService,
 };
 
-/// Transport-neutral library facade combining book, tag, and book-file services.
+/// Transport-neutral library facade combining book, chapter, tag, and book-file services.
 ///
 /// Both the standalone local client runtime and the multi-user server runtime
 /// assemble a `LibraryContext` without depending on HTTP extractors or IPC details.
@@ -32,7 +32,11 @@ where
     T: TagRepository,
     F: BookFileStore,
 {
-    pub fn new(books: B, tags: T, book_files: Arc<BookFileService<F>>) -> Self {
+    pub fn new(
+        books: B,
+        tags: T,
+        book_files: Arc<BookFileService<F>>,
+    ) -> Self {
         Self {
             books,
             tags,

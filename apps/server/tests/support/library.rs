@@ -1,6 +1,54 @@
 use super::*;
 use jiff::Timestamp;
 
+impl TestApp {
+    pub async fn create_chapter(
+        &self,
+        session: &Session,
+        book_id: &str,
+        position: u32,
+        title: &str,
+        location: serde_json::Value,
+    ) -> HttpResponse {
+        self.send(
+            Method::POST,
+            &format!("{BOOKS}/{book_id}/chapters"),
+            Some(json!({
+                "position": position,
+                "title": title,
+                "location": location,
+            })),
+            Some(session),
+        )
+        .await
+    }
+
+    pub async fn chapters(&self, session: &Session, book_id: &str) -> HttpResponse {
+        self.send(
+            Method::GET,
+            &format!("{BOOKS}/{book_id}/chapters"),
+            None,
+            Some(session),
+        )
+        .await
+    }
+
+    pub async fn delete_chapter(
+        &self,
+        session: &Session,
+        book_id: &str,
+        chapter_id: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &format!("{BOOKS}/{book_id}/chapters/{chapter_id}"),
+            None,
+            Some(session),
+        )
+        .await
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum SampleFile {
     Pdf,

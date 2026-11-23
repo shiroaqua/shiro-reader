@@ -23,6 +23,9 @@ impl From<&BookApplicationError> for ErrorCode {
             BookApplicationError::InvalidId => Self::BookInvalidId,
             BookApplicationError::MissingTitle => Self::BookMissingTitle,
             BookApplicationError::InvalidTitleFormat => Self::BookInvalidTitleFormat,
+            BookApplicationError::InvalidChapterTitle => Self::BookInvalidChapterTitle,
+            BookApplicationError::InvalidChapterLocation => Self::BookInvalidChapterLocation,
+            BookApplicationError::PositionConflict => Self::BookPositionConflict,
             BookApplicationError::NotFound => Self::BookNotFound,
             BookApplicationError::TitleConflict => Self::BookTitleConflict,
             BookApplicationError::TitleUnchanged => Self::BookTitleUnchanged,
@@ -98,6 +101,10 @@ mod tests {
                 BookApplicationError::InvalidTitleFormat,
                 ErrorCode::BookInvalidTitleFormat,
             ),
+            (
+                BookApplicationError::InvalidChapterTitle,
+                ErrorCode::BookInvalidChapterTitle,
+            ),
             (BookApplicationError::NotFound, ErrorCode::BookNotFound),
             (
                 BookApplicationError::TitleConflict,
@@ -112,6 +119,14 @@ mod tests {
                 ErrorCode::BookAlreadyDeleted,
             ),
             (BookApplicationError::NotDeleted, ErrorCode::BookNotDeleted),
+            (
+                BookApplicationError::InvalidChapterLocation,
+                ErrorCode::BookInvalidChapterLocation,
+            ),
+            (
+                BookApplicationError::PositionConflict,
+                ErrorCode::BookPositionConflict,
+            ),
             (
                 BookApplicationError::Storage(storage_err()),
                 ErrorCode::CommonInternalServerError,
@@ -240,5 +255,6 @@ mod tests {
         for (err, expected) in tag_cases {
             assert_eq!(ErrorCode::from(&LibraryApplicationError::Tag(err)), expected);
         }
+
     }
 }

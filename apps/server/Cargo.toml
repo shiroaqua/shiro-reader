@@ -17,6 +17,7 @@ getrandom.workspace = true
 reqwest.workspace = true
 securepass.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 shiro-application = { path = "../../crates/application", features = ["identity"] }
 shiro-domain = { path = "../../crates/domain", features = ["identity"] }
 shiro-error-catalog = { path = "../../crates/error-catalog" }

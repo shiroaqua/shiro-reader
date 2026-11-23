@@ -5,7 +5,7 @@ use std::{
 };
 
 use blake3::Hash;
-use bytes::Bytes;
+use bytes::{Buf, BufMut, Bytes, TryGetError};
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
@@ -13,15 +13,17 @@ use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use rayon::prelude::*;
 use rbook::Epub;
 use shiro_application::library::ports::{BookFileStorageError, BookFileStore, CoverByteStream};
-use shiro_domain::library::book::file::entity::BookFileType;
+use shiro_domain::library::book::chapter::ChapterLocation;
+use shiro_domain::library::book::file::entity::{BookFileType, BookFileChapter};
 use tokio::{
     fs::File,
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, Take},
 };
 use tokio_util::io::ReaderStream;
 
 const BOOK_FILE_VERSION: u8 = 1;
 const BOOK_FILE_HEADER_SIZE: u64 = 1 + 1 + 32 + 8;
+
 
 pub type StorageResult<T> = Result<T, BookFileStorageError>;
 
@@ -135,7 +137,7 @@ impl BookFileStore for LocalBookFileStorage {
         })?
     }
 
-    async fn open(&self, hash: &Hash) -> Result<File, BookFileStorageError> {
+    async fn open(&self, hash: &Hash) -> Result<Take<File>, BookFileStorageError> {
         if self.files.contains_key(hash) {
             let mut file = File::open(
                 self.dir
@@ -143,11 +145,50 @@ impl BookFileStore for LocalBookFileStorage {
                     .with_extension(&self.ext),
             )
             .await?;
+            let mut version = [0u8; 1];
+            file.read_exact(&mut version).await?;
+            if version[0] != BOOK_FILE_VERSION {
+                return Err(io::ErrorKind::Unsupported.into());
+            }
+            file.seek(SeekFrom::Start(BOOK_FILE_HEADER_SIZE - 8))
+                .await?;
+            let mut size_bytes = [0u8; 8];
+            file.read_exact(&mut size_bytes).await?;
             file.seek(SeekFrom::Start(BOOK_FILE_HEADER_SIZE)).await?;
-            Ok(file)
+            Ok(file.take(u64::from_be_bytes(size_bytes)))
         } else {
             Err(io::ErrorKind::NotFound.into())
         }
+    }
+
+
+
+    fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter> {
+        (|| -> io::Result<Vec<BookFileChapter>> {
+            let file_type = self
+                .get_type(hash)
+                .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+            let mut file = std::fs::File::open(
+                self.dir
+                    .join(hash.to_hex().to_string())
+                    .with_extension(&self.ext),
+            )?;
+            file.seek(SeekFrom::Start(BOOK_FILE_HEADER_SIZE - 8))?;
+
+            let mut size_bytes = [0u8; 8];
+            file.read_exact(&mut size_bytes)?;
+            file.seek(SeekFrom::Start(
+                BOOK_FILE_HEADER_SIZE
+                    .checked_add(u64::from_be_bytes(size_bytes))
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?,
+            ))?;
+
+            let mut chapter_bytes = Vec::new();
+            file.read_to_end(&mut chapter_bytes)?;
+            read_book_chapters(file_type, &chapter_bytes)
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+        })()
+        .unwrap_or_default()
     }
 
     async fn open_cover(
@@ -256,13 +297,29 @@ fn scan_directory(
             }
             let file_size = u64::from_be_bytes(size_bytes);
 
-            let actual_size = match std::io::copy(&mut file, &mut hasher) {
+            let actual_size = match std::io::copy(
+                &mut Read::by_ref(&mut file).take(file_size),
+                &mut hasher,
+            ) {
                 Ok(size) => size,
                 Err(e) => {
                     tracing::warn!("Skipped: Invalid file {}: {}", file_name, e);
                     return;
                 }
             };
+
+            let mut chapter_bytes = Vec::new();
+            if let Err(e) = file.read_to_end(&mut chapter_bytes) {
+                tracing::warn!(
+                    "Skipped: Cannot read chapter data from {}: {}",
+                    file_name, e
+                );
+                return;
+            }
+            if let Err(e) = read_book_chapters(file_type, &chapter_bytes) {
+                tracing::warn!("Skipped: Invalid chapter data in {}: {}", file_name, e);
+                return;
+            }
 
             let calculated_hash = hasher.finalize();
             if file_size == actual_size
@@ -327,6 +384,19 @@ fn finalize_book_file(
     let file_size = temp_file.as_file().metadata()?.len();
 
     let file_type = detect_book_file_type(temp_file.as_file_mut())?;
+    let chapters =
+        match extract_book_chapters(temp_file.as_file_mut(), file_type, pdfium.as_deref()) {
+            Ok(chapters) => chapters,
+            Err(err) => {
+                tracing::warn!(
+                    hash = %file_hash.to_hex(),
+                    file_type = %file_type,
+                    error = %err,
+                    "failed to extract book chapters, storing an empty chapter outline"
+                );
+                Vec::new()
+            }
+        };
     let mut final_temp_file = tempfile::NamedTempFile::new_in(&temp_dir)?;
     final_temp_file.write_all(&[BOOK_FILE_VERSION])?;
     final_temp_file.write_all(&[match file_type {
@@ -360,6 +430,9 @@ fn finalize_book_file(
 
     temp_file.seek(SeekFrom::Start(0))?;
     std::io::copy(&mut temp_file, &mut final_temp_file)?;
+    let mut chapter_bytes = Vec::new();
+    write_book_chapters(chapters, &mut chapter_bytes)?;
+    final_temp_file.write_all(&chapter_bytes)?;
     final_temp_file.as_file_mut().flush()?;
     let _ = temp_file.close();
 
@@ -438,6 +511,174 @@ fn extract_epub_cover(file: &mut std::fs::File) -> anyhow::Result<Vec<u8>> {
         .cover_image()
         .ok_or_else(|| anyhow::anyhow!("epub does not declare a cover image"))?;
     Ok(cover.read_bytes()?)
+}
+
+fn write_book_chapters(chapters: Vec<BookFileChapter>, bytes: &mut Vec<u8>) -> io::Result<()> {
+    bytes.put_u32(chapters.len() as u32);
+    for chapter in chapters {
+        bytes.put_u32(chapter.position);
+        write_string(&chapter.title, bytes);
+        match chapter.location {
+            ChapterLocation::Pdf {
+                start_page,
+                end_page,
+            } => {
+                bytes.put_u32(start_page);
+                bytes.put_u32(end_page);
+            }
+            ChapterLocation::Epub { href, cfi } => {
+                write_string(&href, bytes);
+                match cfi {
+                    Some(cfi) => {
+                        bytes.put_u8(1);
+                        write_string(&cfi, bytes);
+                    }
+                    None => bytes.put_u8(0),
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+fn read_book_chapters(
+    file_type: BookFileType,
+    mut bytes: &[u8],
+) -> Result<Vec<BookFileChapter>, TryGetError> {
+    let count = bytes.try_get_u32()? as usize;
+    let mut chapters = Vec::with_capacity(count);
+
+    for _ in 0..count {
+        let position = bytes.try_get_u32()?;
+        let title = read_string(&mut bytes)?;
+
+        let location = match file_type {
+            BookFileType::PDF => {
+                let start_page = bytes.try_get_u32()?;
+                let end_page = bytes.try_get_u32()?;
+                ChapterLocation::Pdf {
+                    start_page,
+                    end_page,
+                }
+            }
+            BookFileType::EPUB => {
+                let href = read_string(&mut bytes)?;
+                let cfi = match bytes.try_get_u8()? {
+                    1 => Some(read_string(&mut bytes)?),
+                    0 => None,
+                    _ => return Err(TryGetError {requested: 0, available: 0})
+                };
+                ChapterLocation::Epub { href, cfi }
+            }
+        };
+
+        chapters.push(BookFileChapter {
+            position,
+            title,
+            location,
+        });
+    }
+
+    if !bytes.is_empty() {
+        return Err(TryGetError {requested: 0, available: 0});
+    }
+    Ok(chapters)
+}
+
+fn write_string(value: &str, bytes: &mut Vec<u8>) {
+    bytes.put_u16(value.len() as u16);
+    bytes.put_slice(value.as_bytes());
+}
+
+fn read_string(bytes: &mut &[u8]) -> Result<String, TryGetError> {
+    let len = bytes.try_get_u16()? as usize;
+    let (str, remaining) = bytes.split_at(len);
+    let str = std::str::from_utf8(str).map_err(|_| TryGetError {requested: 0, available: 0})?.to_owned();
+    *bytes = remaining;
+    Ok(str)
+}
+
+fn extract_book_chapters(
+    file: &mut std::fs::File,
+    file_type: BookFileType,
+    pdfium: Option<&Mutex<Pdfium>>,
+) -> anyhow::Result<Vec<BookFileChapter>> {
+    match file_type {
+        BookFileType::EPUB => extract_epub_chapters(file),
+        BookFileType::PDF => match pdfium {
+            Some(pdfium) => extract_pdf_chapters(file, pdfium),
+            None => Err(anyhow::anyhow!("Pdfium library is not loaded")),
+        },
+    }
+}
+
+fn extract_epub_chapters(file: &mut std::fs::File) -> anyhow::Result<Vec<BookFileChapter>> {
+    file.seek(SeekFrom::Start(0))?;
+    let epub = Epub::read(file.try_clone()?)?;
+    let Some(toc) = epub.toc().contents() else {
+        return Ok(Vec::new());
+    };
+
+    Ok(toc
+        .flatten()
+        .filter_map(|entry| {
+            let title = entry.label().trim();
+            let href = entry.href()?.as_str();
+            (!title.is_empty()).then(|| (title.to_owned(), href.to_owned()))
+        })
+        .enumerate()
+        .map(|(position, (title, href))| BookFileChapter {
+            position: position as u32,
+            title,
+            location: ChapterLocation::Epub { href, cfi: None },
+        })
+        .collect())
+}
+
+fn extract_pdf_chapters(
+    file: &mut std::fs::File,
+    pdfium: &Mutex<Pdfium>,
+) -> anyhow::Result<Vec<BookFileChapter>> {
+    file.seek(SeekFrom::Start(0))?;
+    let pdfium = pdfium
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Pdfium lock poisoned"))?;
+    let document = pdfium.load_pdf_from_reader(file, None)?;
+    let page_count = u32::try_from(document.pages().len())?;
+    let bookmarks = document
+        .bookmarks()
+        .iter()
+        .filter_map(|bookmark| {
+            let title = bookmark.title()?;
+            let title = title.trim();
+            let page_index = bookmark.destination()?.page_index().ok()?;
+            let start_page = u32::try_from(page_index).ok()?.checked_add(1)?;
+            (!title.is_empty() && start_page <= page_count).then(|| (title.to_owned(), start_page))
+        })
+        .collect::<Vec<_>>();
+
+    Ok(bookmarks
+        .iter()
+        .enumerate()
+        .map(|(position, (title, start_page))| {
+            let end_page = bookmarks
+                .iter()
+                .skip(position + 1)
+                .map(|(_, page)| *page)
+                .find(|page| page > start_page)
+                .map(|page| page - 1)
+                .unwrap_or(page_count)
+                .max(*start_page);
+            BookFileChapter {
+                position: position as u32,
+                title: title.clone(),
+                location: ChapterLocation::Pdf {
+                    start_page: *start_page,
+                    end_page,
+                },
+            }
+        })
+        .collect())
 }
 
 /// Attempts to extract an embedded document title from a staged book file (e.g. EPUB `<dc:title>`)

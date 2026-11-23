@@ -41,6 +41,19 @@ pub struct BookIdsRequest {
 }
 
 // -----------------------------------------------------------------------------
+// Chapters
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateChapterRequest {
+    /// Zero-based position in the book's chapter outline.
+    pub position: u32,
+    pub title: String,
+    pub location: String,
+}
+
+// -----------------------------------------------------------------------------
 // Tags & Book-Tag Bindings
 // -----------------------------------------------------------------------------
 

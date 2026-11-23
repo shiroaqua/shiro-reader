@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use shiro_domain::library::book::{entity::Book, file::entity::BookFileType};
+use shiro_domain::library::book::{
+    chapter::{Chapter, ChapterLocation},
+    entity::Book,
+    file::entity::BookFileType,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,6 +73,28 @@ impl From<(Book, BookFileType)> for GetBookOutput {
             file_type: file_type.to_string(),
             created_at: book.created_at.to_string(),
             updated_at: book.updated_at.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChapterOutput {
+    pub id: String,
+    pub book_id: String,
+    pub position: u32,
+    pub title: String,
+    pub location: ChapterLocation,
+}
+
+impl From<Chapter> for ChapterOutput {
+    fn from(chapter: Chapter) -> Self {
+        let chapter = chapter.into_inner();
+        Self {
+            id: chapter.id.to_string(),
+            book_id: chapter.book_id.to_string(),
+            position: chapter.position,
+            title: chapter.title.into(),
+            location: chapter.location,
         }
     }
 }

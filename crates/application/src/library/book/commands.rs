@@ -34,3 +34,17 @@ pub struct RenameBookCommand {
 pub struct GetBookCoverCommand {
     pub id: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct CreateChapterCommand {
+    pub book_id: String,
+    pub position: u32,
+    pub title: String,
+    pub location: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeleteChapterCommand {
+    pub book_id: String,
+    pub chapter_id: String,
+}
