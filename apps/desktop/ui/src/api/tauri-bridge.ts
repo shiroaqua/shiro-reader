@@ -255,6 +255,7 @@ export const tauriBridge = {
     invokeTauri<BootstrapState>("repair_local_library_root", { path }),
   retryStartup: () => invokeTauri<BootstrapState>("retry_startup"),
   exitApp: () => invokeTauri<void>("exit_app"),
+  triggerLongPressHaptic: () => invoke<void>("trigger_long_press_haptic"),
 
   // Cloud mode connection & authentication (tokens stay strictly in Rust)
   cloudCheckOrigin: (origin: string) =>

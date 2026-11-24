@@ -221,6 +221,7 @@ pub fn run() {
             commands::repair_local_library_root,
             commands::retry_startup,
             commands::exit_app,
+            commands::trigger_long_press_haptic,
             commands::cloud_check_origin,
             commands::cloud_probe,
             commands::cloud_update_origin,

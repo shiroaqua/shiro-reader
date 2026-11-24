@@ -2,6 +2,7 @@ import type { PointerEvent as ReactPointerEvent } from "react"
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useLongPress } from "@/hooks/use-long-press"
+import { tauriTestHost } from "../support/mock-tauri"
 
 function pointerEvent(
   x: number,
@@ -88,5 +89,52 @@ describe("useLongPress", () => {
     vi.advanceTimersByTime(500)
     expect(onLongPress).toHaveBeenCalledTimes(1)
     expect(result.current.consumeClick()).toBe(false)
+  })
+
+  it("triggers haptic feedback on mobile when firing and cancels if disabled mid-hold", () => {
+    vi.useFakeTimers()
+    tauriTestHost.setPlatform("android")
+    tauriTestHost.onInvoke("trigger_long_press_haptic", () => undefined)
+    const onLongPress = vi.fn()
+
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useLongPress(onLongPress, enabled),
+      { initialProps: { enabled: true } }
+    )
+
+    // Completing the hold fires haptic once
+    act(() => {
+      result.current.handlers.onPointerDown(pointerEvent(10, 10, "touch"))
+    })
+    vi.advanceTimersByTime(420)
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+    expect(tauriTestHost.invokeCalls("trigger_long_press_haptic")).toHaveLength(
+      1
+    )
+    result.current.consumeClick()
+
+    // Early release cancels without haptic
+    act(() => {
+      result.current.handlers.onPointerDown(pointerEvent(10, 10, "touch"))
+      vi.advanceTimersByTime(200)
+      result.current.handlers.onPointerUp()
+    })
+    vi.advanceTimersByTime(500)
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+    expect(tauriTestHost.invokeCalls("trigger_long_press_haptic")).toHaveLength(
+      1
+    )
+
+    // Disabling mid-hold cancels the pending timer without haptic
+    act(() => {
+      result.current.handlers.onPointerDown(pointerEvent(10, 10, "touch"))
+      vi.advanceTimersByTime(200)
+    })
+    rerender({ enabled: false })
+    vi.advanceTimersByTime(500)
+    expect(onLongPress).toHaveBeenCalledTimes(1)
+    expect(tauriTestHost.invokeCalls("trigger_long_press_haptic")).toHaveLength(
+      1
+    )
   })
 })

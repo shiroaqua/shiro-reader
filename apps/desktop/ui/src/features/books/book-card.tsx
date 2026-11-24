@@ -62,8 +62,8 @@ export function BookCard({
   const isRenaming = renaming && !isSelectionMode
   // Touch / mobile: long press opens the book action menu when not in selection mode.
   const longPress = useLongPress(() => {
-    if (!isSelectionMode && !isRenaming) setActionsOpen(true)
-  }, isTouchMenu)
+    setActionsOpen(true)
+  }, isTouchMenu && !isSelectionMode && !isRenaming)
   const willSelect = !selected && selectionPreview === "select"
   const willDeselect = selected && selectionPreview === "deselect"
 

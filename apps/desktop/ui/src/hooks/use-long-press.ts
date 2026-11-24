@@ -4,6 +4,7 @@ import {
   useRef,
   type PointerEvent as ReactPointerEvent,
 } from "react"
+import { triggerLongPressHaptic } from "@/lib/haptics"
 
 const LONG_PRESS_MS = 420
 const MOVE_TOLERANCE_PX = 10
@@ -33,6 +34,10 @@ export function useLongPress(onLongPress: () => void, enabled: boolean) {
 
   useEffect(() => cancel, [cancel])
 
+  useEffect(() => {
+    if (!enabled) cancel()
+  }, [enabled, cancel])
+
   const onPointerDown = (event: ReactPointerEvent) => {
     if (!enabled || event.pointerType !== "touch") return
     cancel()
@@ -41,6 +46,7 @@ export function useLongPress(onLongPress: () => void, enabled: boolean) {
     timer.current = window.setTimeout(() => {
       timer.current = null
       fired.current = true
+      triggerLongPressHaptic()
       latest.current()
     }, LONG_PRESS_MS)
   }

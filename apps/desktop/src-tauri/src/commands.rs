@@ -202,6 +202,69 @@ pub fn exit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+pub fn trigger_long_press_haptic(app: AppHandle) {
+    perform_android_long_press_haptic(&app);
+}
+
+#[cfg(target_os = "android")]
+fn perform_android_long_press_haptic(app: &AppHandle) {
+    use jni::objects::JValue;
+
+    // android.view.HapticFeedbackConstants.LONG_PRESS = 0
+    // android.view.HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING = 1
+    const HAPTIC_FEEDBACK_LONG_PRESS: jni::sys::jint = 0;
+    const HAPTIC_FEEDBACK_FLAG_IGNORE_VIEW_SETTING: jni::sys::jint = 1;
+
+    let Some(webview) = app.get_webview_window("main") else {
+        return;
+    };
+
+    if let Err(error) = webview.with_webview(move |webview| {
+        webview.jni_handle().exec(move |env, activity, _| {
+            let result = (|| {
+                let window = env
+                    .call_method(activity, "getWindow", "()Landroid/view/Window;", &[])?
+                    .l()?;
+                if window.is_null() {
+                    return Ok::<(), jni::errors::Error>(());
+                }
+                let decor_view = env
+                    .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
+                    .l()?;
+                if decor_view.is_null() {
+                    return Ok::<(), jni::errors::Error>(());
+                }
+                let _ = env
+                    .call_method(
+                        &decor_view,
+                        "performHapticFeedback",
+                        "(II)Z",
+                        &[
+                            JValue::Int(HAPTIC_FEEDBACK_LONG_PRESS),
+                            JValue::Int(HAPTIC_FEEDBACK_FLAG_IGNORE_VIEW_SETTING),
+                        ],
+                    )?
+                    .z()?;
+                Ok::<(), jni::errors::Error>(())
+            })();
+
+            if let Err(error) = result {
+                tracing::warn!(?error, "failed to trigger Android long-press haptic feedback");
+                let _ = env.exception_clear();
+            }
+        });
+    }) {
+        tracing::warn!(
+            ?error,
+            "failed to access Android WebView for long-press haptic feedback"
+        );
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn perform_android_long_press_haptic(_app: &AppHandle) {}
+
 // -----------------------------------------------------------------------------
 // Cloud Mode Commands (Probe, Origin Recovery, Auth)
 // -----------------------------------------------------------------------------

@@ -152,6 +152,75 @@ describe("Bookshelf, Trash, and Upload integration", () => {
       })
       expect(library.getTrash()).toHaveLength(3)
     })
+
+    it("triggers haptic feedback on mobile long press and suppresses it during selection mode", async () => {
+      tauriTestHost.setPlatform("android")
+      tauriTestHost.onInvoke("trigger_long_press_haptic", () => undefined)
+      const b1 = makeBook({ id: "b1", title: "Mobile Book" })
+      const library = new FakeLibrary().seedBooks([b1])
+      tauriTestHost.attachLibrary(library)
+
+      const { user } = renderWithProviders(<BookshelfHarness />)
+      const heading = await screen.findByRole("heading", {
+        name: "Mobile Book",
+      })
+      const card = heading.closest("li")!
+
+      vi.useFakeTimers()
+      act(() => {
+        fireEvent.pointerDown(card, {
+          pointerType: "touch",
+          clientX: 50,
+          clientY: 50,
+        })
+        vi.advanceTimersByTime(420)
+        fireEvent.pointerUp(card, {
+          pointerType: "touch",
+          clientX: 50,
+          clientY: 50,
+        })
+        fireEvent.click(card)
+      })
+      vi.useRealTimers()
+
+      expect(
+        tauriTestHost.invokeCalls("trigger_long_press_haptic")
+      ).toHaveLength(1)
+      expect(
+        await screen.findByRole("button", { name: "Rename" })
+      ).toBeInTheDocument()
+
+      await user.keyboard("{Escape}")
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: "Rename" })
+        ).not.toBeInTheDocument()
+      })
+
+      await user.click(
+        screen.getByRole("button", { name: 'Select "Mobile Book"' })
+      )
+      expect(screen.getByText("1 selected")).toBeInTheDocument()
+      tauriTestHost.clearInvokeCalls()
+
+      vi.useFakeTimers()
+      act(() => {
+        fireEvent.pointerDown(card, {
+          pointerType: "touch",
+          clientX: 50,
+          clientY: 50,
+        })
+        vi.advanceTimersByTime(420)
+      })
+      vi.useRealTimers()
+
+      expect(
+        tauriTestHost.invokeCalls("trigger_long_press_haptic")
+      ).toHaveLength(0)
+      expect(
+        screen.queryByRole("button", { name: "Rename" })
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe("TrashList", () => {
