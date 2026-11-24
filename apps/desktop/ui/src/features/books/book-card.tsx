@@ -21,7 +21,6 @@ import { useLongPress } from "@/hooks/use-long-press"
 import { isMobilePlatform } from "@/hooks/use-mobile"
 import { useIsTouch } from "@/hooks/use-touch"
 import { BookTagDialog } from "@/features/tags/book-tag-dialog"
-import { formatBookDate } from "@/lib/format"
 import { useTranslation } from "@/lib/i18n"
 import { booksQueryKey, trashQueryKey } from "@/lib/query-keys"
 import type { Book } from "@/lib/types"
@@ -253,17 +252,11 @@ export function BookCard({
         ) : (
           <h2
             title={book.title}
-            className="mt-1.5 line-clamp-2 text-center text-sm leading-snug font-medium wrap-break-word"
+            className="mt-1.5 line-clamp-3 text-center text-sm leading-snug font-medium wrap-break-word"
           >
             {book.title}
           </h2>
         )}
-        <time
-          dateTime={book.updated_at}
-          className="text-center text-xs text-muted-foreground tabular-nums"
-        >
-          {formatBookDate(book.updated_at)}
-        </time>
       </ContextMenuTrigger>
       <ContextMenuContent finalFocus={false}>
         <ContextMenuItem onClick={() => setRenaming(true)}>

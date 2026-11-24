@@ -80,6 +80,12 @@ describe("Bookshelf, Trash, and Upload integration", () => {
       expect(await screen.findByText("Dune")).toBeInTheDocument()
       expect(screen.getByText("The Book of Tea")).toBeInTheDocument()
 
+      const bookList = screen.getByRole("list", { name: "Books" })
+      expect(bookList.querySelector("time")).toBeNull()
+      expect(screen.getByRole("heading", { name: "Dune" })).toHaveClass(
+        "line-clamp-3"
+      )
+
       const searchInput = screen.getByRole("combobox", { name: "Search books" })
       await user.type(searchInput, "#SciFi")
 

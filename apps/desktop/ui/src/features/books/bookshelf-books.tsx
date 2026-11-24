@@ -361,7 +361,6 @@ export function BookshelfBooks({
             <div key={index} className="flex flex-col items-center gap-2">
               <Skeleton className="aspect-[5/7] w-full rounded-xl" />
               <Skeleton className="mt-1 h-4 w-3/4" />
-              <Skeleton className="h-3 w-1/2" />
             </div>
           ))}
         </div>
