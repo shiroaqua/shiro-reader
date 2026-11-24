@@ -136,12 +136,6 @@ impl BookFileStore for MockBookFileStore {
     ) -> Result<(CoverByteStream, String), BookFileStorageError> {
         Err(ErrorKind::NotFound.into())
     }
-
-    async fn remove(&self, hash: &Hash) -> Result<(), BookFileStorageError> {
-        self.existing.lock().unwrap().remove(hash);
-        self.types.lock().unwrap().remove(hash);
-        Ok(())
-    }
 }
 
 #[derive(Clone, Default)]
@@ -429,7 +423,7 @@ impl TagTransaction for MockTagTransaction {
 }
 
 #[tokio::test]
-async fn book_file_service_upload_guard_blocks_concurrent_upload_and_delete_until_release() {
+async fn book_file_service_upload_guard_blocks_concurrent_upload_until_release() {
     let (entered_tx, entered_rx) = oneshot::channel();
     let (release_tx, release_rx) = oneshot::channel();
     let gate = Arc::new(SaveGate {
@@ -455,7 +449,7 @@ async fn book_file_service_upload_guard_blocks_concurrent_upload_and_delete_unti
     entered_rx.await.unwrap();
 
     let dup = service
-        .upload_book_file(hash.clone(), Cursor::new(payload))
+        .upload_book_file(hash.clone(), Cursor::new(payload.clone()))
         .await;
     assert!(matches!(
         dup,
@@ -464,22 +458,19 @@ async fn book_file_service_upload_guard_blocks_concurrent_upload_and_delete_unti
         ))
     ));
 
-    let del = service.delete_book_file(&hash).await;
-    assert!(matches!(
-        del,
-        Err(LibraryApplicationError::BookFile(
-            BookFileApplicationError::UploadConflict
-        ))
-    ));
-
     release_tx.send(()).unwrap();
     task.await.unwrap().expect("first upload completes");
 
-    // Once UploadGuard drops, subsequent operations are no longer blocked by UploadConflict.
-    service
-        .delete_book_file(&hash)
-        .await
-        .expect("delete succeeds after upload completes");
+    // Once UploadGuard drops, subsequent uploads see AlreadyExists rather than UploadConflict.
+    let after = service
+        .upload_book_file(hash, Cursor::new(payload))
+        .await;
+    assert!(matches!(
+        after,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::AlreadyExists
+        ))
+    ));
 }
 
 #[tokio::test]

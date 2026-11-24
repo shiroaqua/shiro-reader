@@ -256,6 +256,9 @@ impl From<io::ErrorKind> for BookFileStorageError {
     }
 }
 
+/// Append-only content-addressed book file storage.
+///
+/// Validated and persisted book files are never deleted.
 pub trait BookFileStore: Send + Sync + 'static {
     fn contains(&self, hash: &Hash) -> bool;
 
@@ -280,6 +283,4 @@ pub trait BookFileStore: Send + Sync + 'static {
         &self,
         hash: Hash,
     ) -> impl Future<Output = Result<(CoverByteStream, String), BookFileStorageError>> + Send;
-
-    fn remove(&self, hash: &Hash) -> impl Future<Output = Result<(), BookFileStorageError>> + Send;
 }

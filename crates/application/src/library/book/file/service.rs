@@ -99,15 +99,6 @@ impl<S: BookFileStore> BookFileService<S> {
         self.storage.get_chapters(hash)
     }
 
-    pub async fn delete_book_file(&self, hash: &str) -> Result<(), LibraryApplicationError> {
-        let hash = Self::to_hex(hash)?;
-        let _guard = UploadGuard::try_new(hash, Arc::clone(&self.uploading))?;
-        self.storage
-            .remove(&hash)
-            .await
-            .map_err(LibraryApplicationError::from)
-    }
-
     #[inline]
     fn to_hex(hash: &str) -> Result<Hash, BookFileApplicationError> {
         Hash::from_hex(hash).map_err(|_| BookFileApplicationError::InvalidHashFormat)

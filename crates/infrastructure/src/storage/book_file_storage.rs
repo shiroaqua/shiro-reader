@@ -89,6 +89,7 @@ impl BookFileStore for LocalBookFileStorage {
     }
 
     fn get_type(&self, key: &Hash) -> Option<BookFileType> {
+        // 书籍永不删除，因此这边的线程安全问题无需在意。
         self.files.get(key).map(|entry| *entry.value())
     }
 
@@ -212,31 +213,6 @@ impl BookFileStore for LocalBookFileStorage {
         let data = blank_cover();
         let stream = stream::once(async move { Ok(Bytes::from(data)) });
         Ok((stream.boxed(), ImageFormat::Png.to_mime_type().to_owned()))
-    }
-
-    async fn remove(&self, hash: &Hash) -> Result<(), BookFileStorageError> {
-        self.files.remove(hash);
-        let removed_cover = self.covers.remove(hash).map(|(_, (path, _))| path);
-
-        let book_path = self
-            .dir
-            .join(hash.to_hex().to_string())
-            .with_extension(&self.ext);
-        match tokio::fs::remove_file(&book_path).await {
-            Ok(()) => {}
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        }
-
-        if let Some(cover_path) = removed_cover {
-            match tokio::fs::remove_file(&cover_path).await {
-                Ok(()) => {}
-                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                Err(err) => return Err(err.into()),
-            }
-        }
-
-        Ok(())
     }
 }
 

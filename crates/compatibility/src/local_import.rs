@@ -205,7 +205,6 @@ where
     if cancel.is_cancelled() {
         return Err(ErrorCode::ImportCancelled);
     }
-    let mut uploaded_new_file = false;
     if library
         .book_file_service()
         .parse_existing_hash(&hash)
@@ -216,49 +215,24 @@ where
             .upload_book_file(hash.clone(), file)
             .await
         {
-            Ok(()) => {
-                uploaded_new_file = true;
-            }
+            Ok(())
             // Expected dedup race: another concurrent upload already stored the exact hash.
-            Err(LibraryApplicationError::BookFile(BookFileApplicationError::AlreadyExists)) => {}
+            | Err(LibraryApplicationError::BookFile(BookFileApplicationError::AlreadyExists)) => {}
             Err(err) => return Err(ErrorCode::from(&err)),
         }
     }
 
     if cancel.is_cancelled() {
-        cleanup_uploaded_book_file(library, &hash, uploaded_new_file).await;
         return Err(ErrorCode::ImportCancelled);
     }
 
-    let created = match library
+    let created = library
         .book_service()
-        .create_book(CreateBookCommand {
-            title,
-            hash: hash.clone(),
-        })
+        .create_book(CreateBookCommand { title, hash })
         .await
-    {
-        Ok(created) => created,
-        Err(err) => {
-            cleanup_uploaded_book_file(library, &hash, uploaded_new_file).await;
-            return Err(ErrorCode::from(&err));
-        }
-    };
+        .map_err(|err| ErrorCode::from(&err))?;
 
     Ok(created.into())
-}
-
-async fn cleanup_uploaded_book_file(library: &LocalLibrary, hash: &str, uploaded_new_file: bool) {
-    if !uploaded_new_file {
-        return;
-    }
-    if let Err(err) = library.book_file_service().delete_book_file(hash).await {
-        tracing::warn!(
-            hash = %hash,
-            error = %err,
-            "failed to roll back newly uploaded local book file after import failure"
-        );
-    }
 }
 
 #[cfg(test)]
@@ -375,7 +349,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_import_cleans_up_newly_uploaded_orphan_files_without_removing_existing_ones() {
+    async fn local_import_preserves_stored_book_files_when_create_book_fails() {
         let dir = tempfile::tempdir().unwrap();
         let library = LocalLibrary::open(dir.path(), None).await.unwrap();
 
@@ -416,7 +390,7 @@ mod tests {
         };
         assert_eq!(cover_files_with_hash(&epub_hash), 1);
 
-        // Importing a new file with a conflicting title must roll back its newly uploaded file & cover.
+        // Once validated and persisted, the stored PDF file and cover are preserved even if create_book fails.
         let conflict_new = import_reader_into_local(
             &library,
             "SharedTitle.pdf",
@@ -427,11 +401,11 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(conflict_new, ErrorCode::BookTitleConflict);
-        assert!(library.book_file_service().parse_existing_hash(&pdf_hash).is_err());
-        assert!(!books_dir.join(format!("{pdf_hash}.book")).exists());
-        assert_eq!(cover_files_with_hash(&pdf_hash), 0);
+        assert!(library.book_file_service().parse_existing_hash(&pdf_hash).is_ok());
+        assert!(books_dir.join(format!("{pdf_hash}.book")).exists());
+        assert_eq!(cover_files_with_hash(&pdf_hash), 1);
 
-        // Importing an already-stored file with a conflicting title must NOT delete the existing file.
+        // Importing an already-stored file with a conflicting title also preserves the existing file.
         let conflict_existing = import_reader_into_local(
             &library,
             "SharedTitle.epub",
