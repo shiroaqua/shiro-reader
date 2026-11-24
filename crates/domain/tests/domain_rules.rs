@@ -79,7 +79,7 @@ fn book_lifecycle_tracks_dirty_fields_and_enforces_state_invariants() {
 
 #[test]
 fn tag_value_objects_validate_names_colors_and_regex_rules() {
-    assert!(TagName::parse("tag.author").is_ok());
+    assert!(TagName::parse("tag.custom").is_ok());
     assert!(TagName::parse("文学2026").is_ok());
     assert_eq!(TagName::parse("").unwrap_err(), TagDomainError::MissingName);
     assert_eq!(

@@ -821,59 +821,12 @@ async fn delete_tag_rejects_missing_or_invalid_strategy_query() {
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
 }
 
-// 验证新用户预置的默认标签包含语言和 ISBN 正则规则，并通过 HTTP 绑定接口生效。
+// 验证新注册用户的标签树初始为空，不预置默认标签。
 #[tokio::test]
-async fn default_tags_enforce_language_and_isbn_rules() {
+async fn new_user_starts_with_empty_tag_tree() {
     let app = TestApp::new().await;
-    app.register("DefaultsUser").await.assert_ok();
-    let reader = app.login("DefaultsUser", PASSWORD).await;
-    app.upload(&reader, Epub).await;
-    let book = app.add_book(&reader, "TaggedDefaults", Epub).await;
+    app.register("FreshUser").await.assert_ok();
+    let reader = app.login("FreshUser", PASSWORD).await;
 
-    let tree = app.tag_tree(&reader).await;
-    let mut names: Vec<&str> = tree.iter().map(|node| node.name.as_str()).collect();
-    names.sort();
-    assert_eq!(
-        names,
-        [
-            "tag.author",
-            "tag.edition",
-            "tag.issnIsbn",
-            "tag.language",
-            "tag.publisher",
-        ]
-    );
-
-    let language_id = tree
-        .iter()
-        .find(|node| node.name == "tag.language")
-        .unwrap()
-        .id
-        .clone();
-    let isbn_id = tree
-        .iter()
-        .find(|node| node.name == "tag.issnIsbn")
-        .unwrap()
-        .id
-        .clone();
-
-    app.bind_tag(&reader, &book.data.id, &language_id, Some("zh-Hans"))
-        .await
-        .assert_empty(204);
-    app.bind_tag(&reader, &book.data.id, &language_id, Some("en"))
-        .await
-        .assert_empty(204);
-    app.bind_tag(&reader, &book.data.id, &language_id, Some("invalid-lang"))
-        .await
-        .assert_tag_error(RegexMismatch);
-
-    app.bind_tag(&reader, &book.data.id, &isbn_id, Some("978-0-306-40615-7"))
-        .await
-        .assert_empty(204);
-    app.bind_tag(&reader, &book.data.id, &isbn_id, Some("1234-567X"))
-        .await
-        .assert_empty(204);
-    app.bind_tag(&reader, &book.data.id, &isbn_id, Some("not-isbn"))
-        .await
-        .assert_tag_error(RegexMismatch);
+    assert!(app.tag_tree(&reader).await.is_empty());
 }

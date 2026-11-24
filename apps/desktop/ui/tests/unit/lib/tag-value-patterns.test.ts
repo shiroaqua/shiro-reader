@@ -29,7 +29,7 @@ describe("tag-value-patterns", () => {
   describe("isValidTagName", () => {
     it.each<[string, boolean]>([
       ["Author", true],
-      ["tag.author", true],
+      ["tag.custom", true],
       ["科幻2026", true],
       ["with space", false],
       ["with-dash", false],

@@ -8,6 +8,7 @@ mod tag;
 
 pub use identity::*;
 pub use library::*;
+#[allow(unused_imports)]
 pub use tag::*;
 
 use axum::{

@@ -66,20 +66,9 @@ async fn local_library_operates_without_identity_or_axum_and_persists_across_res
     assert!(!dir.path().join("user.db").exists());
     assert!(!dir.path().join("users").exists());
 
-    // Default tags are seeded on first initialization.
+    // New local libraries start with an empty tag tree.
     let initial_tags = library.tag_service().get_tree().await.expect("get tree");
-    let mut default_names: Vec<&str> = initial_tags.iter().map(|n| n.tag.name.as_str()).collect();
-    default_names.sort();
-    assert_eq!(
-        default_names,
-        [
-            "tag.author",
-            "tag.edition",
-            "tag.issnIsbn",
-            "tag.language",
-            "tag.publisher",
-        ]
-    );
+    assert!(initial_tags.is_empty());
 
     // Upload PDF and EPUB directly via LocalLibrary context.
     let pdf_hash = upload_bytes(&library, &pdf_bytes).await;
@@ -121,18 +110,6 @@ async fn local_library_operates_without_identity_or_axum_and_persists_across_res
         .to_rgba8();
     assert_eq!(pdf_img.dimensions(), (1000, 1600));
     assert!(pdf_img.pixels().all(|px| px.0 == [255, 255, 255, 255]));
-
-    // Delete all default tags so we can verify restart does NOT re-seed them.
-    for node in initial_tags {
-        library
-            .tag_service()
-            .undefine_tag(UndefineTagCommand {
-                id: node.tag.id,
-                strategy: TagDeleteStrategy::Cascade,
-            })
-            .await
-            .expect("delete default tag");
-    }
 
     // Create custom tag and bind it to the PDF book.
     let custom_tag = library

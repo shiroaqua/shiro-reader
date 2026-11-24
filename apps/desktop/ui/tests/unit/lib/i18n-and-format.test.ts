@@ -47,14 +47,22 @@ describe("i18n and format", () => {
   })
 
   describe("translation helpers", () => {
-    it("translates local keys, dotted built-in tags, Rust errors, and count messages", () => {
+    it("translates local keys, dotted tag keys, Rust errors, and count messages", () => {
       expect(translateLocal("local.dashboard.bookshelf", "en")).toBe("Bookshelf")
       expect(translateLocal("local.dashboard.bookshelf", "zh")).toBe("书架")
 
-      expect(translateTagName("tag.author", "en")).toBe("Author")
-      expect(translateTagName("tag.author", "zh")).toBe("作者")
       expect(translateTagName("CustomTag", "zh")).toBe("CustomTag")
       expect(translateTagName("tag.unknown", "en")).toBe("tag.unknown")
+
+      enTagNames["tag.sample"] = "Sample"
+      zhTagNames["tag.sample"] = "示例"
+      try {
+        expect(translateTagName("tag.sample", "en")).toBe("Sample")
+        expect(translateTagName("tag.sample", "zh")).toBe("示例")
+      } finally {
+        delete enTagNames["tag.sample"]
+        delete zhTagNames["tag.sample"]
+      }
 
       expect(
         translateMessage(
@@ -83,6 +91,8 @@ describe("i18n and format", () => {
         )
       }
 
+      expect(enTagNames).toEqual({})
+      expect(zhTagNames).toEqual({})
       expect(Object.keys(enTagNames).sort()).toEqual(
         Object.keys(zhTagNames).sort()
       )

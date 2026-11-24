@@ -13,12 +13,13 @@ import {
   removeTagSegments,
   tokenizeBookSearch,
 } from "@/lib/book-search"
+import { enTagNames } from "@/lib/locales/en/tags"
 import { makeBook, makeBookTag, makeTagNode } from "../../support/builders"
 
 function createSampleLibrary() {
   const authorTag = makeTagNode({
     id: "tag-author",
-    name: "tag.author",
+    name: "Author",
     color: "#75a9cc",
     allows_value: true,
   })
@@ -34,7 +35,7 @@ function createSampleLibrary() {
   })
   const isbnTag = makeTagNode({
     id: "tag-isbn",
-    name: "tag.issnIsbn",
+    name: "ISBN",
     allows_value: true,
   })
   sciFiTag.children.push(spaceOperaTag)
@@ -119,15 +120,24 @@ describe("book-search", () => {
 
   describe("buildBookTagIndex and matchesBookSearch", () => {
     it("builds localized display names and falls back to raw tokenName when display name has spaces", () => {
-      const { index } = createSampleLibrary()
+      enTagNames["tag.series"] = "Series"
+      enTagNames["tag.code"] = "Code / Ref"
+      try {
+        const seriesTag = makeTagNode({ id: "tag-series", name: "tag.series" })
+        const codeTag = makeTagNode({ id: "tag-code", name: "tag.code" })
+        const localizedIndex = buildBookTagIndex([seriesTag, codeTag], new Map(), "en")
 
-      const author = index.tags.find((entry) => entry.tag.id === "tag-author")
-      const isbn = index.tags.find((entry) => entry.tag.id === "tag-isbn")
+        const series = localizedIndex.tags.find((entry) => entry.tag.id === "tag-series")
+        const code = localizedIndex.tags.find((entry) => entry.tag.id === "tag-code")
 
-      expect(author?.displayName).toBe("Author")
-      expect(author?.tokenName).toBe("Author")
-      expect(isbn?.displayName).toBe("ISSN / ISBN")
-      expect(isbn?.tokenName).toBe("tag.issnIsbn")
+        expect(series?.displayName).toBe("Series")
+        expect(series?.tokenName).toBe("Series")
+        expect(code?.displayName).toBe("Code / Ref")
+        expect(code?.tokenName).toBe("tag.code")
+      } finally {
+        delete enTagNames["tag.series"]
+        delete enTagNames["tag.code"]
+      }
     })
 
     it("matches case-insensitive title words and exact tag/value filters with AND semantics", () => {
@@ -141,7 +151,7 @@ describe("book-search", () => {
         matchesBookSearch(dune, parseBookSearch("dune foundation"), index)
       ).toBe(false)
 
-      // Localized built-in tag name & case-sensitive value
+      // Tag name & case-sensitive value
       expect(
         matchesBookSearch(
           dune,

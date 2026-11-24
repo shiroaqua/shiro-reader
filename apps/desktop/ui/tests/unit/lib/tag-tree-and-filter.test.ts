@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest"
+import { enTagNames } from "@/lib/locales/en/tags"
+import { zhTagNames } from "@/lib/locales/zh/tags"
 import { filterTagTree } from "@/lib/tag-filter"
 import { collectBranchIds, collectSubtreeIds, findTag } from "@/lib/tag-tree"
 import { makeTagNode } from "../../support/builders"
@@ -11,7 +13,7 @@ function createSampleTree() {
     name: "Fiction",
     children: [leafFantasy, leafCyberpunk],
   })
-  const author = makeTagNode({ id: "author", name: "tag.author" })
+  const author = makeTagNode({ id: "author", name: "Author" })
   const standalone = makeTagNode({ id: "standalone", name: "Standalone" })
 
   return {
@@ -73,15 +75,23 @@ describe("tag-tree and tag-filter", () => {
       ])
     })
 
-    it("matches built-in dotted tag keys by their localized display name", () => {
-      const { tree } = createSampleTree()
+    it("matches dotted tag keys by their localized display name", () => {
+      enTagNames["tag.sample"] = "Author"
+      zhTagNames["tag.sample"] = "作者"
+      try {
+        const sample = makeTagNode({ id: "sample", name: "tag.sample" })
+        const localizedTree = [sample]
 
-      expect(filterTagTree(tree, "作者", "zh").map((node) => node.id)).toEqual([
-        "author",
-      ])
-      expect(filterTagTree(tree, "auth", "en").map((node) => node.id)).toEqual([
-        "author",
-      ])
+        expect(
+          filterTagTree(localizedTree, "作者", "zh").map((node) => node.id)
+        ).toEqual(["sample"])
+        expect(
+          filterTagTree(localizedTree, "auth", "en").map((node) => node.id)
+        ).toEqual(["sample"])
+      } finally {
+        delete enTagNames["tag.sample"]
+        delete zhTagNames["tag.sample"]
+      }
     })
   })
 })

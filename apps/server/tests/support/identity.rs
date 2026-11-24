@@ -46,13 +46,7 @@ impl TestApp {
     }
     pub async fn session(&self, name: &str) -> Session {
         self.register(name).await.assert_ok();
-        let session = self.login(name, PASSWORD).await;
-        for tag in self.tag_tree(&session).await {
-            self.delete_tag(&session, &tag.id, DeleteStrategy::Cascade)
-                .await
-                .assert_empty(204);
-        }
-        session
+        self.login(name, PASSWORD).await
     }
     pub async fn attempt_login(&self, name: &str, password: &str) -> HttpResponse {
         self.send(
