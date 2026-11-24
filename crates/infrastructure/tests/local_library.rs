@@ -28,7 +28,7 @@ async fn upload_bytes(library: &LocalLibrary, bytes: &[u8]) -> String {
     let hash = blake3::hash(bytes).to_hex().to_string();
     library
         .book_file_service()
-        .upload_book_file(hash.clone(), Cursor::new(bytes.to_vec()))
+        .upload_book_file(hash.clone(), bytes.len() as u64, Cursor::new(bytes.to_vec()))
         .await
         .expect("upload valid book file");
     hash

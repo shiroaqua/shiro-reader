@@ -7,6 +7,16 @@ use tempfile::NamedTempFile;
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 pub const SETTINGS_FILE_NAME: &str = "settings.json";
+pub const DEFAULT_UPLOAD_CONCURRENCY: usize = 4;
+pub const MAX_UPLOAD_CONCURRENCY: usize = 16;
+
+pub const fn default_upload_concurrency() -> usize {
+    DEFAULT_UPLOAD_CONCURRENCY
+}
+
+pub fn clamp_upload_concurrency(value: usize) -> usize {
+    value.clamp(1, MAX_UPLOAD_CONCURRENCY)
+}
 
 /// Startup mode persisted in client settings and fixed for the lifetime of one app process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -66,6 +76,8 @@ impl ClientLogLevel {
 pub struct PlatformCapabilities {
     pub can_pick_library_dir: bool,
     pub can_configure_log_level: bool,
+    pub can_import_books: bool,
+    pub retain_completed_uploads: bool,
     pub default_library_root: PathBuf,
     pub cover_url_base: String,
 }
@@ -73,20 +85,64 @@ pub struct PlatformCapabilities {
 impl PlatformCapabilities {
     pub fn current_host(default_library_root: PathBuf) -> Self {
         #[cfg(target_os = "android")]
-        let (can_pick_library_dir, can_configure_log_level, cover_url_base) =
-            (false, false, "http://shiro-cover.localhost/book/".to_owned());
+        let (
+            can_pick_library_dir,
+            can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
+            cover_url_base,
+        ) = (
+            false,
+            false,
+            true,
+            true,
+            "http://shiro-cover.localhost/book/".to_owned(),
+        );
 
         #[cfg(target_os = "ios")]
-        let (can_pick_library_dir, can_configure_log_level, cover_url_base) =
-            (false, false, "shiro-cover://localhost/book/".to_owned());
+        let (
+            can_pick_library_dir,
+            can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
+            cover_url_base,
+        ) = (
+            false,
+            false,
+            false,
+            false,
+            "shiro-cover://localhost/book/".to_owned(),
+        );
 
         #[cfg(target_os = "windows")]
-        let (can_pick_library_dir, can_configure_log_level, cover_url_base) =
-            (true, true, "http://shiro-cover.localhost/book/".to_owned());
+        let (
+            can_pick_library_dir,
+            can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
+            cover_url_base,
+        ) = (
+            true,
+            true,
+            true,
+            false,
+            "http://shiro-cover.localhost/book/".to_owned(),
+        );
 
         #[cfg(target_os = "macos")]
-        let (can_pick_library_dir, can_configure_log_level, cover_url_base) =
-            (true, true, "shiro-cover://localhost/book/".to_owned());
+        let (
+            can_pick_library_dir,
+            can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
+            cover_url_base,
+        ) = (
+            true,
+            true,
+            true,
+            false,
+            "shiro-cover://localhost/book/".to_owned(),
+        );
 
         #[cfg(not(any(
             target_os = "android",
@@ -94,12 +150,25 @@ impl PlatformCapabilities {
             target_os = "windows",
             target_os = "macos"
         )))]
-        let (can_pick_library_dir, can_configure_log_level, cover_url_base) =
-            (true, true, "shiro-cover://localhost/book/".to_owned());
+        let (
+            can_pick_library_dir,
+            can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
+            cover_url_base,
+        ) = (
+            true,
+            true,
+            true,
+            false,
+            "shiro-cover://localhost/book/".to_owned(),
+        );
 
         Self {
             can_pick_library_dir,
             can_configure_log_level,
+            can_import_books,
+            retain_completed_uploads,
             default_library_root,
             cover_url_base,
         }
@@ -122,6 +191,8 @@ pub struct ClientConfig {
     pub cloud_origin: Option<String>,
     #[serde(default)]
     pub log_level: Option<ClientLogLevel>,
+    #[serde(default = "default_upload_concurrency")]
+    pub upload_concurrency: usize,
 }
 
 impl ClientConfig {
@@ -134,6 +205,7 @@ impl ClientConfig {
             local_library_root: None,
             cloud_origin: None,
             log_level: None,
+            upload_concurrency: DEFAULT_UPLOAD_CONCURRENCY,
         }
     }
 
@@ -212,7 +284,7 @@ impl ConfigStore {
             path: self.settings_path.clone(),
             reason: err.to_string(),
         })?;
-        let config: ClientConfig = serde_json::from_str(&raw).map_err(|err| ConfigLoadError {
+        let mut config: ClientConfig = serde_json::from_str(&raw).map_err(|err| ConfigLoadError {
             path: self.settings_path.clone(),
             reason: err.to_string(),
         })?;
@@ -222,6 +294,7 @@ impl ConfigStore {
                 reason: format!("unsupported schema version {}", config.schema_version),
             });
         }
+        config.upload_concurrency = clamp_upload_concurrency(config.upload_concurrency);
         Ok(Some(config))
     }
 
@@ -234,7 +307,9 @@ impl ConfigStore {
             )
         })?;
 
-        let serialized = serde_json::to_vec_pretty(config)
+        let mut normalized = config.clone();
+        normalized.upload_concurrency = clamp_upload_concurrency(normalized.upload_concurrency);
+        let serialized = serde_json::to_vec_pretty(&normalized)
             .context("failed to serialize client configuration")?;
 
         let mut temp = NamedTempFile::new_in(&self.config_dir).with_context(|| {
@@ -313,6 +388,8 @@ mod tests {
         let desktop = PlatformCapabilities {
             can_pick_library_dir: true,
             can_configure_log_level: true,
+            can_import_books: true,
+            retain_completed_uploads: false,
             default_library_root: default_root.clone(),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
         };
@@ -322,6 +399,7 @@ mod tests {
             cfg.effective_log_level(&desktop),
             ClientLogLevel::compile_default()
         );
+        assert_eq!(cfg.upload_concurrency, DEFAULT_UPLOAD_CONCURRENCY);
 
         cfg.local_library_root = Some(PathBuf::new());
         assert_eq!(cfg.effective_local_root(&desktop), default_root);
@@ -335,6 +413,8 @@ mod tests {
         let android = PlatformCapabilities {
             can_pick_library_dir: false,
             can_configure_log_level: false,
+            can_import_books: true,
+            retain_completed_uploads: true,
             default_library_root: default_root.clone(),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
         };
@@ -364,6 +444,7 @@ mod tests {
         let loaded = store.load().unwrap().expect("loaded config");
         assert_eq!(loaded.log_level, None);
         assert_eq!(loaded.theme, AppTheme::Default);
+        assert_eq!(loaded.upload_concurrency, DEFAULT_UPLOAD_CONCURRENCY);
         assert_eq!(
             serde_json::from_str::<AppTheme>("\"lavender\"").unwrap(),
             AppTheme::Default
@@ -372,9 +453,27 @@ mod tests {
         let desktop = PlatformCapabilities {
             can_pick_library_dir: true,
             can_configure_log_level: true,
+            can_import_books: true,
+            retain_completed_uploads: false,
             default_library_root: PathBuf::from("/default/library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
         };
         assert_eq!(loaded.effective_log_level(&desktop), expected_default);
+
+        // Out-of-range upload_concurrency values are clamped on both load and save.
+        fs::write(
+            dir.path().join(SETTINGS_FILE_NAME),
+            r#"{"schemaVersion":1,"mode":"local","locale":"en","localLibraryRoot":null,"cloudOrigin":null,"uploadConcurrency":0}"#,
+        )
+        .unwrap();
+        assert_eq!(store.load().unwrap().unwrap().upload_concurrency, 1);
+
+        let mut oversized = loaded;
+        oversized.upload_concurrency = 99;
+        store.save_atomic(&oversized).unwrap();
+        assert_eq!(
+            store.load().unwrap().unwrap().upload_concurrency,
+            MAX_UPLOAD_CONCURRENCY
+        );
     }
 }

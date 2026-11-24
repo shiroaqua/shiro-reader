@@ -6,6 +6,15 @@ pub enum BookFileAPIError {
     #[error("missing hash field")]
     MissingHashField,
 
+    #[error("duplicate size field")]
+    DuplicateSizeField,
+
+    #[error("missing size field")]
+    MissingSizeField,
+
+    #[error("invalid size field")]
+    InvalidSizeField,
+
     #[error("missing file field")]
     MissingFileField,
 }

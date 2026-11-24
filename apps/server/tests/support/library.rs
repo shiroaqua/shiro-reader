@@ -16,7 +16,7 @@ impl TestApp {
             Some(json!({
                 "position": position,
                 "title": title,
-                "location": location,
+                "location": location.to_string(),
             })),
             Some(session),
         )
@@ -355,6 +355,10 @@ impl TestApp {
             .iter()
             .map(|hash| ("hash", None, hash.as_bytes()))
             .collect();
+        let size_str = file.map(|bytes| bytes.len().to_string());
+        if let Some(ref size) = size_str {
+            parts.push(("size", None, size.as_bytes()));
+        }
         if let Some(file) = file {
             parts.push(("file", Some("book.book"), file));
         }

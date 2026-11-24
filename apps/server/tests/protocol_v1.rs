@@ -112,6 +112,13 @@ async fn streaming_upload_is_exempt_from_standard_request_timeout_and_allows_mul
     );
     full_body.extend_from_slice(
         format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n",
+            sample_bytes.len()
+        )
+        .as_bytes(),
+    );
+    full_body.extend_from_slice(
+        format!(
             "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"book.epub\"\r\nContent-Type: application/epub+zip\r\n\r\n"
         )
         .as_bytes(),
@@ -160,6 +167,13 @@ async fn streaming_upload_is_exempt_from_standard_request_timeout_and_allows_mul
     oversized_body.extend_from_slice(
         format!(
             "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n{oversized_hash}\r\n"
+        )
+        .as_bytes(),
+    );
+    oversized_body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n",
+            oversized.len()
         )
         .as_bytes(),
     );

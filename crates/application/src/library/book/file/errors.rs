@@ -15,6 +15,12 @@ pub enum BookFileApplicationError {
     #[error("bookfile upload conflict")]
     UploadConflict,
 
+    #[error("bookfile upload timed out")]
+    UploadTimeout,
+
+    #[error("bookfile size mismatch")]
+    SizeMismatch,
+
     #[error("bookfile type unsupported")]
     Unsupported,
 

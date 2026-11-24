@@ -107,16 +107,21 @@ define_error_catalog! {
     BookNotDeleted => (2010, "library.book.not_deleted", "书籍不在回收站中，无法恢复。", "The book is not in the recycle bin and cannot be restored."),
     BookInvalidChapterTitle => (2011, "library.book.invalid_chapter_title", "章节标题格式无效。", "Invalid chapter title format."),
 
-    // Library book file (2101..2106, 2110..2112)
+    // Library book file (2101..2108, 2110..2115)
     BookFileUploadConflict => (2101, "library.book.file.upload.conflict", "文件上传冲突，请重试。", "File upload conflict. Please try again."),
     BookFileAlreadyExists => (2102, "library.book.file.already_exists", "书籍文件已存在。", "The book file already exists."),
     BookFileInvalidHashFormat => (2103, "library.book.file.invalid_hash_format", "文件哈希格式无效。", "Invalid file hash format."),
     BookFileHashMismatch => (2104, "library.book.file.hash_mismatch", "文件哈希与提供的哈希不一致。", "The file hash does not match the supplied hash."),
     BookFileNotFound => (2105, "library.book.file.not_found", "书籍文件不存在。", "Book file not found."),
     BookFileUnsupported => (2106, "library.book.file.unsupported", "不支持此书籍文件格式。", "This book file format is not supported."),
+    BookFileUploadTimeout => (2107, "library.book.file.upload.timeout", "文件上传超时，请检查网络或重试。", "File upload timed out. Check your connection and try again."),
+    BookFileSizeMismatch => (2108, "library.book.file.size_mismatch", "上传文件实际大小与声明大小不一致。", "The uploaded file size does not match the declared size."),
     BookFileUploadDuplicateHash => (2110, "library.book.file.upload.duplicate_hash", "上传请求包含重复的哈希字段。", "The upload contains duplicate hash fields."),
     BookFileUploadMissingHash => (2111, "library.book.file.upload.missing_hash", "上传请求缺少文件哈希。", "The upload is missing the file hash."),
     BookFileUploadMissingFile => (2112, "library.book.file.upload.missing_file", "请选择要上传的文件。", "Please select a file to upload."),
+    BookFileUploadDuplicateSize => (2113, "library.book.file.upload.duplicate_size", "上传请求包含重复的文件大小字段。", "The upload contains duplicate file size fields."),
+    BookFileUploadMissingSize => (2114, "library.book.file.upload.missing_size", "上传请求缺少文件大小字段。", "The upload is missing the file size field."),
+    BookFileUploadInvalidSize => (2115, "library.book.file.upload.invalid_size", "上传请求的文件大小格式无效。", "Invalid file size in the upload request."),
 
     // Library tag (2201..2218)
     TagInvalidId => (2201, "library.tag.invalid_id", "标签 ID 无效。", "Invalid tag ID."),
@@ -161,7 +166,9 @@ define_error_catalog! {
     CloudCrossOriginRedirect => (3024, "client.cloud.cross_origin_redirect", "服务端返回了跨源或不安全重定向，已出于安全原因拦截请求。", "The server attempted an unsafe or cross-origin redirect, which was blocked for security."),
     CloudNotAuthenticated => (3025, "client.cloud.not_authenticated", "当前尚未登录云端账号，请先登录。", "You are not signed in to the cloud server. Please sign in first."),
     CloudInvalidResponse => (3026, "client.cloud.invalid_response", "服务端返回了无法解析的响应格式。", "The server returned an unexpected response format."),
-    ImportAlreadyRunning => (3029, "client.import.already_running", "已有文件导入正在进行。", "A book import is already running."),
+    ImportNotSupportedOnPlatform => (3030, "client.platform.import_not_supported", "当前平台暂不支持上传书籍。", "Book upload is not currently supported on this platform."),
+    ImportNoSupportedBooksFound => (3031, "client.import.no_supported_books_found", "所选文件夹中未找到受支持的电子书文件（PDF / EPUB）。", "No supported e-book files (PDF / EPUB) were found in the selected folder."),
+    ImportNotificationPermissionRequired => (3032, "client.import.notification_permission_required", "需要授予通知权限才能在移动端上传书籍，请在系统设置中开启通知后重试。", "Notification permission is required to upload books on mobile. Please enable notifications and try again."),
 
     // Common (9001, 9002, 9999)
     CommonPayloadTooLarge => (9001, "common.payload_too_large", "上传内容过大。", "The upload is too large."),

@@ -1,5 +1,4 @@
 import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react"
-import { createPortal } from "react-dom"
 import { AlertCircle, X } from "lucide-react"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -12,7 +11,10 @@ import {
 import { translateMessage, useTranslation } from "@/lib/i18n"
 
 export function ApiErrorAlerts() {
-  const notifications = useSyncExternalStore(subscribeToErrors, getErrorNotifications)
+  const notifications = useSyncExternalStore(
+    subscribeToErrors,
+    getErrorNotifications
+  )
   const { locale, t } = useTranslation()
   const timeFormatter = useMemo(
     () =>
@@ -35,7 +37,7 @@ export function ApiErrorAlerts() {
       const gap = parseFloat(getComputedStyle(container).rowGap) || 0
       const overflowIds: number[] = []
 
-      // Measure actual alert heights so wrapped translations also fit the viewport.
+      // Measure actual alert heights so wrapped translations also fit the remaining dock space.
       for (let index = 0; index < notifications.length && overflow > 1; index++) {
         const alert = container.children[notifications.length - 1 - index]
         if (!alert) break
@@ -56,13 +58,13 @@ export function ApiErrorAlerts() {
 
   if (notifications.length === 0) return null
 
-  return createPortal(
+  return (
     <div
       ref={containerRef}
       data-error-alerts=""
       aria-live="assertive"
       aria-relevant="additions"
-      className="pointer-events-auto fixed right-4 bottom-4 z-[100] flex max-h-[calc(100dvh-2rem)] w-max max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-hidden"
+      className="pointer-events-auto flex min-h-0 w-max max-w-full flex-1 flex-col gap-3 overflow-hidden"
     >
       {notifications.toReversed().map((notification) => (
         <Alert
@@ -98,7 +100,6 @@ export function ApiErrorAlerts() {
           </time>
         </Alert>
       ))}
-    </div>,
-    document.body
+    </div>
   )
 }

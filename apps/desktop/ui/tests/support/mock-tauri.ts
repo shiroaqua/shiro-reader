@@ -1,10 +1,21 @@
 import type { Platform } from "@tauri-apps/plugin-os"
-import type { BootstrapState } from "@/api/tauri-bridge"
+import type {
+  BootstrapState,
+  UploadPanelSnapshot,
+} from "@/api/tauri-bridge"
 import type { RustErrorEvent } from "@/lib/error-notifications"
 import type { FakeLibrary } from "./fake-library"
 
 const RUST_ERROR_EVENT = "shiro://error"
 const RUST_RUNTIME_STATE_EVENT = "shiro://runtime-state"
+const RUST_UPLOAD_STATE_EVENT = "shiro://upload-state"
+const RUST_UPLOAD_OPEN_UI_EVENT = "shiro://upload-open-ui"
+
+export type DragDropPayload =
+  | { type: "enter"; paths: string[]; position: { x: number; y: number } }
+  | { type: "over"; position: { x: number; y: number } }
+  | { type: "drop"; paths: string[]; position: { x: number; y: number } }
+  | { type: "leave" }
 
 export class FakeChannel<T = unknown> {
   id = 1
@@ -34,6 +45,9 @@ class TauriTestHost {
   private deferBackRegistration = false
   private pendingBackRegistrations: (() => void)[] = []
   private unregisteredBackListeners = 0
+  private dragDropListeners = new Set<EventListener>()
+  private deferDragDropRegistration = false
+  private pendingDragDropRegistrations: (() => void)[] = []
   exitCalls: number[] = []
 
   setTauriRuntime(enabled: boolean) {
@@ -108,6 +122,14 @@ class TauriTestHost {
     this.emitEvent(RUST_RUNTIME_STATE_EVENT, state)
   }
 
+  emitUploadState(snapshot: UploadPanelSnapshot) {
+    this.emitEvent(RUST_UPLOAD_STATE_EVENT, snapshot)
+  }
+
+  emitUploadOpenUi() {
+    this.emitEvent(RUST_UPLOAD_OPEN_UI_EVENT, undefined)
+  }
+
   setDeferBackRegistration(deferred: boolean) {
     this.deferBackRegistration = deferred
   }
@@ -149,6 +171,40 @@ class TauriTestHost {
     return this.unregisteredBackListeners
   }
 
+  setDeferDragDropRegistration(deferred: boolean) {
+    this.deferDragDropRegistration = deferred
+  }
+
+  flushDragDropRegistrations() {
+    const pending = [...this.pendingDragDropRegistrations]
+    this.pendingDragDropRegistrations = []
+    for (const resolve of pending) {
+      resolve()
+    }
+  }
+
+  async registerDragDrop(listener: EventListener): Promise<() => void> {
+    if (this.deferDragDropRegistration) {
+      await new Promise<void>((resolve) => {
+        this.pendingDragDropRegistrations.push(resolve)
+      })
+    }
+    this.dragDropListeners.add(listener)
+    return () => {
+      this.dragDropListeners.delete(listener)
+    }
+  }
+
+  emitDragDrop(payload: DragDropPayload) {
+    for (const listener of [...this.dragDropListeners]) {
+      listener({ payload })
+    }
+  }
+
+  dragDropListenerCount(): number {
+    return this.dragDropListeners.size
+  }
+
   async exit(code = 0) {
     this.exitCalls.push(code)
   }
@@ -163,6 +219,9 @@ class TauriTestHost {
     this.deferBackRegistration = false
     this.pendingBackRegistrations = []
     this.unregisteredBackListeners = 0
+    this.dragDropListeners.clear()
+    this.deferDragDropRegistration = false
+    this.pendingDragDropRegistrations = []
     this.exitCalls = []
   }
 }

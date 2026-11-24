@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 // Book Files
 // -----------------------------------------------------------------------------
 
+pub const BOOK_FILE_FIELD_HASH: &str = "hash";
+pub const BOOK_FILE_FIELD_SIZE: &str = "size";
+pub const BOOK_FILE_FIELD_FILE: &str = "file";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BookFileQuery {

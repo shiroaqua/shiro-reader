@@ -14,6 +14,8 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 80;
 const DEFAULT_ROOT_DIRECTORY: &str = ".";
 const DEFAULT_MAX_UPLOAD_SIZE: usize = shiro_http_contract::DEFAULT_MAX_UPLOAD_BYTES as usize;
+const DEFAULT_UPLOAD_BASE_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_UPLOAD_MIN_BYTES_PER_SEC: u64 = 64 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -28,6 +30,8 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub max_upload_size: usize,
+    pub upload_base_timeout_secs: u64,
+    pub upload_min_bytes_per_sec: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +86,8 @@ struct FileServerConfig {
     host: Option<String>,
     port: Option<u16>,
     max_upload_size: Option<usize>,
+    upload_base_timeout_secs: Option<u64>,
+    upload_min_bytes_per_sec: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -116,6 +122,8 @@ struct GeneratedConfig {
 struct GeneratedServerConfig {
     host: &'static str,
     port: u16,
+    upload_base_timeout_secs: u64,
+    upload_min_bytes_per_sec: u64,
 }
 
 #[derive(Serialize)]
@@ -159,6 +167,23 @@ impl Config {
             .context("config file did not initialize the JWT secret")?;
         let jwt_secret = env_value("JWT_SECRET").unwrap_or(jwt_secret);
 
+        let upload_base_timeout_secs = setting(
+            &env_value,
+            "UPLOAD_BASE_TIMEOUT_SECS",
+            file.server.upload_base_timeout_secs,
+            DEFAULT_UPLOAD_BASE_TIMEOUT_SECS,
+        )?;
+        let upload_min_bytes_per_sec = setting(
+            &env_value,
+            "UPLOAD_MIN_BYTES_PER_SEC",
+            file.server.upload_min_bytes_per_sec,
+            DEFAULT_UPLOAD_MIN_BYTES_PER_SEC,
+        )?;
+        anyhow::ensure!(
+            upload_min_bytes_per_sec > 0,
+            "UPLOAD_MIN_BYTES_PER_SEC / upload_min_bytes_per_sec must be greater than 0"
+        );
+
         let server = ServerConfig {
             host: string_setting(&env_value, "HOST", file.server.host, DEFAULT_HOST),
             port: setting(&env_value, "PORT", file.server.port, DEFAULT_PORT)?,
@@ -168,6 +193,8 @@ impl Config {
                 file.server.max_upload_size,
                 DEFAULT_MAX_UPLOAD_SIZE,
             )?,
+            upload_base_timeout_secs,
+            upload_min_bytes_per_sec,
         };
 
         let log_format = string_setting(
@@ -278,6 +305,8 @@ fn create_default_file(path: &Path) -> anyhow::Result<FileConfig> {
         server: GeneratedServerConfig {
             host: DEFAULT_HOST,
             port: DEFAULT_PORT,
+            upload_base_timeout_secs: DEFAULT_UPLOAD_BASE_TIMEOUT_SECS,
+            upload_min_bytes_per_sec: DEFAULT_UPLOAD_MIN_BYTES_PER_SEC,
         },
         crypto: GeneratedCryptoConfig {
             jwt_secret: generate_jwt_secret()?,
@@ -540,6 +569,8 @@ mod tests {
             host: "127.0.0.1".to_owned(),
             port: 8080,
             max_upload_size: 1024,
+            upload_base_timeout_secs: 30,
+            upload_min_bytes_per_sec: 65_536,
         };
         assert_eq!(ipv4.socket_addr(), "127.0.0.1:8080".parse().unwrap());
 
@@ -547,7 +578,33 @@ mod tests {
             host: "[::1]".to_owned(),
             port: 8443,
             max_upload_size: 1024,
+            upload_base_timeout_secs: 30,
+            upload_min_bytes_per_sec: 65_536,
         };
         assert_eq!(ipv6.socket_addr(), "[::1]:8443".parse().unwrap());
+    }
+
+    #[test]
+    fn upload_timeout_settings_use_defaults_respect_env_and_reject_zero_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let default_cfg =
+            Config::load_from_root_directory(dir.path().to_path_buf(), |_| None).unwrap();
+        assert_eq!(default_cfg.server.upload_base_timeout_secs, 30);
+        assert_eq!(default_cfg.server.upload_min_bytes_per_sec, 65_536);
+
+        let custom_cfg =
+            Config::load_from_root_directory(dir.path().to_path_buf(), |key| match key {
+                "UPLOAD_BASE_TIMEOUT_SECS" => Some("45".to_owned()),
+                "UPLOAD_MIN_BYTES_PER_SEC" => Some("131072".to_owned()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(custom_cfg.server.upload_base_timeout_secs, 45);
+        assert_eq!(custom_cfg.server.upload_min_bytes_per_sec, 131_072);
+
+        let invalid_rate = Config::load_from_root_directory(dir.path().to_path_buf(), |key| {
+            (key == "UPLOAD_MIN_BYTES_PER_SEC").then(|| "0".to_owned())
+        });
+        assert!(invalid_rate.is_err());
     }
 }

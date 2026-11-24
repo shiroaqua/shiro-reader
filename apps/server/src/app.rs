@@ -16,7 +16,8 @@ pub fn build_router(state: AppState) -> Router {
     build_router_with_timeout(state, DEFAULT_STANDARD_REQUEST_TIMEOUT)
 }
 
-pub fn build_router_with_timeout(state: AppState, standard_timeout: Duration) -> Router {
+pub fn build_router_with_timeout(mut state: AppState, standard_timeout: Duration) -> Router {
+    state.standard_request_timeout = standard_timeout;
     let standard = api::standard_router().layer(TimeoutLayer::with_status_code(
         StatusCode::REQUEST_TIMEOUT,
         standard_timeout,

@@ -5,14 +5,16 @@ pub mod dto;
 pub mod error_sink;
 pub mod local_import;
 pub mod runtime;
+pub mod upload_manager;
 
 pub use cloud_client::{
     CloudClient, CloudProbeOutcome, DEFAULT_CLOUD_MAX_UPLOAD_BYTES, SessionVerifyOutcome,
-    is_cloud_abort_import_code, is_session_invalid_code,
+    is_session_invalid_code,
 };
 pub use config::{
-    AppTheme, ClientConfig, ClientLogLevel, ConfigLoadError, ConfigStore, LaunchMode,
-    PlatformCapabilities, normalize_cloud_origin,
+    AppTheme, ClientConfig, ClientLogLevel, ConfigLoadError, ConfigStore,
+    DEFAULT_UPLOAD_CONCURRENCY, LaunchMode, MAX_UPLOAD_CONCURRENCY, PlatformCapabilities,
+    clamp_upload_concurrency, normalize_cloud_origin,
 };
 pub use credentials::{
     CloudCredentials, CloudUserInfo, CredentialStore, CredentialStoreError,
@@ -20,9 +22,9 @@ pub use credentials::{
 };
 pub use dto::{
     BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
-    ImportBookItemFailure, ImportBooksResult, ImportProgressEvent, InitialSetupRequest,
-    RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic, StartupPhase,
-    UpdateSettingsRequest,
+    InitialSetupRequest, RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic,
+    StartupPhase, UpdateSettingsRequest, UploadActiveStage, UploadPanelSnapshotDto,
+    UploadSessionStatsDto, UploadTaskDto, UploadTaskStatusDto,
 };
 pub use error_sink::{ErrorDispatcher, ErrorSink, NoopErrorSink};
 pub use local_import::{
@@ -32,4 +34,9 @@ pub use runtime::ClientRuntime;
 pub use shiro_application::library::{
     book::dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
     tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
+};
+pub use upload_manager::{
+    BoxedUploadReader, EnqueueUploadItem, ExpandedUploadPaths, OpenUploadSourceFuture,
+    StdFsSourceOpener, UploadManager, UploadSourceLocator, UploadSourceOpener,
+    expand_upload_paths,
 };

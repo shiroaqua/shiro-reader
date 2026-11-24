@@ -19,13 +19,6 @@ pub enum AppLocale {
 }
 
 impl AppLocale {
-    pub fn import_summary(self, imported: usize, failed: usize, skipped: usize) -> String {
-        match self {
-            Self::Zh => format!("导入成功 {imported} · 失败 {failed} · 未执行 {skipped}"),
-            Self::En => format!("{imported} imported · {failed} failed · {skipped} skipped"),
-        }
-    }
-
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Zh => "zh",

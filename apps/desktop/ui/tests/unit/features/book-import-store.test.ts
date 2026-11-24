@@ -2,207 +2,406 @@ import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { setPreviewLibrary } from "@/api/library"
 import {
-  cancelActiveBookImport,
+  applyUploadSnapshot,
+  cancelAllUploads,
+  cancelUploadTask,
+  closeMobileUploadPanel,
+  dismissUploadErrors,
+  dismissUploadTask,
+  openMobileUploadPanel,
+  pickAndEnqueueBooks,
   resetBookImportState,
-  startBookImport,
+  retryUploadTask,
+  setUploadConcurrency,
+  setUploadPanelExpanded,
+  toggleUploadOptions,
   useBookImportState,
+  useUploadQueueSync,
 } from "@/features/books/book-import-store"
 import { booksQueryKey } from "@/lib/query-keys"
 import {
-  makeBook,
-  makeCommandErrorPayload,
-  makeImportResult,
+  makeRustErrorEvent,
+  makeUploadSnapshot,
+  makeUploadTask,
 } from "../../support/builders"
 import { FakeLibrary } from "../../support/fake-library"
 import { createTestQueryClient } from "../../support/render"
 
 describe("book-import-store", () => {
-  it("tracks streaming progress, invalidates books on item success, and clears summary on clean finish", async () => {
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
-    const importedBook = makeBook({ id: "b1", title: "Tea" })
-
-    let emitEvent!: Parameters<FakeLibrary["pickAndImportBooks"]>[0]
-    let resolveImport!: (result: ReturnType<typeof makeImportResult>) => void
-    const fakeLibrary = new FakeLibrary().setImportHandler(
-      (emit) =>
-        new Promise((resolve) => {
-          emitEvent = emit
-          resolveImport = resolve
-        })
-    )
-    setPreviewLibrary(fakeLibrary)
-
+  it("filters out stale revisions and preserves monotonic snapshots", () => {
     const { result } = renderHook(() => useBookImportState())
-    expect(result.current.pending).toBe(false)
-
-    let runPromise!: Promise<void>
-    act(() => {
-      runPromise = startBookImport(queryClient)
-    })
-    expect(result.current.pending).toBe(true)
-    expect(result.current.canCancel).toBe(false)
+    expect(result.current.upload.revision).toBe(0)
 
     act(() => {
-      emitEvent({ stage: "started", operationId: "op-1", total: 1 })
-      emitEvent({
-        stage: "itemProgress",
-        operationId: "op-1",
-        index: 0,
-        total: 1,
-        fileName: "tea.epub",
-        bytesRead: 50,
-        totalBytes: 100,
-      })
-    })
-    expect(result.current.canCancel).toBe(true)
-    expect(result.current.progress?.fileName).toBe("tea.epub")
-
-    act(() => {
-      emitEvent({
-        stage: "itemSucceeded",
-        operationId: "op-1",
-        index: 0,
-        total: 1,
-        book: importedBook,
-      })
-      emitEvent({
-        stage: "finished",
-        operationId: "op-1",
-        cancelled: false,
-        importedCount: 1,
-        failedCount: 0,
-        skippedCount: 0,
-      })
-    })
-    expect(result.current.canCancel).toBe(false)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: booksQueryKey })
-
-    await act(async () => {
-      resolveImport(
-        makeImportResult({ operationId: "op-1", imported: [importedBook] })
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 5,
+          concurrency: 6,
+          tasks: [makeUploadTask({ id: 1, fileName: "a.epub" })],
+        })
       )
-      await runPromise
     })
+    expect(result.current.upload.revision).toBe(5)
+    expect(result.current.upload.concurrency).toBe(6)
 
-    expect(result.current).toEqual({
-      pending: false,
-      progress: null,
-      summary: null,
-      canCancel: false,
-      cancelling: false,
+    // Out-of-order older revision must be ignored.
+    act(() => {
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 3,
+          concurrency: 2,
+          tasks: [],
+        })
+      )
     })
+    expect(result.current.upload.revision).toBe(5)
+    expect(result.current.upload.concurrency).toBe(6)
+
+    // Newer revision applies cleanly.
+    act(() => {
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 6,
+          concurrency: 8,
+          tasks: [],
+          visible: false,
+        })
+      )
+    })
+    expect(result.current.upload.revision).toBe(6)
+    expect(result.current.upload.concurrency).toBe(8)
+    expect(result.current.upload.visible).toBe(false)
   })
 
-  it("ignores concurrent starts, handles cancel recovery, and retains failure summary", async () => {
+  it("throttles bookshelf invalidation across bursts and refreshes reliably across batches via completedCounter", async () => {
+    vi.useFakeTimers()
     const queryClient = createTestQueryClient()
-    let emitEvent!: Parameters<FakeLibrary["pickAndImportBooks"]>[0]
-    let resolveImport!: (result: ReturnType<typeof makeImportResult>) => void
-
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
     const fakeLibrary = new FakeLibrary()
-      .setCancelResult(false)
-      .setImportHandler(
-        (emit) =>
-          new Promise((resolve) => {
-            emitEvent = emit
-            resolveImport = resolve
-          })
-      )
-    const importSpy = vi.spyOn(fakeLibrary, "pickAndImportBooks")
     setPreviewLibrary(fakeLibrary)
 
-    const { result } = renderHook(() => useBookImportState())
+    renderHook(() => useUploadQueueSync(queryClient, true))
+    await act(async () => {
+      await Promise.resolve()
+    })
 
-    let runPromise!: Promise<void>
+    // Batch 1: 2 books finish while 1 remains -> throttled to 1 invalidation after 150ms.
     act(() => {
-      runPromise = startBookImport(queryClient)
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 1,
+          visible: true,
+          completedCounter: 1,
+          stats: { total: 3, remaining: 2, active: 1, succeeded: 1, failed: 0 },
+          tasks: [makeUploadTask({ id: 1 })],
+        })
+      )
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 2,
+          visible: true,
+          completedCounter: 2,
+          stats: { total: 3, remaining: 1, active: 1, succeeded: 2, failed: 0 },
+          tasks: [makeUploadTask({ id: 2 })],
+        })
+      )
     })
-    await act(async () => {
-      await startBookImport(queryClient)
-    })
-    expect(importSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenCalledTimes(0)
 
     act(() => {
-      emitEvent({ stage: "started", operationId: "op-2", total: 1 })
+      vi.advanceTimersByTime(150)
     })
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenLastCalledWith({ queryKey: booksQueryKey })
 
-    // Backend returns false -> cancelling reverts to false so user can retry
-    await act(async () => {
-      await cancelActiveBookImport()
+    // Last item of Batch 1 completes (remaining === 0) -> flushes IMMEDIATELY without waiting 150ms.
+    act(() => {
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 3,
+          visible: true,
+          completedCounter: 3,
+          stats: { total: 3, remaining: 0, active: 0, succeeded: 3, failed: 0 },
+          tasks: [],
+        })
+      )
     })
-    expect(result.current.cancelling).toBe(false)
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
 
-    fakeLibrary.setCancelResult(true)
-    await act(async () => {
-      await cancelActiveBookImport()
+    // Panel hides & resets batch stats (succeeded returns to 0), keeping completedCounter = 3.
+    act(() => {
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 4,
+          visible: false,
+          completedCounter: 3,
+          stats: { total: 0, remaining: 0, active: 0, succeeded: 0, failed: 0 },
+          tasks: [],
+        })
+      )
     })
-    expect(result.current.cancelling).toBe(true)
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
 
-    const failureResult = makeImportResult({
-      operationId: "op-2",
-      failed: [
-        {
-          fileName: "broken.pdf",
-          error: makeCommandErrorPayload({ key: "library.book.invalid_file" }),
-        },
-      ],
-      summaryMessage: "1 failed",
+    // Batch 2: single book completes -> completedCounter advances 3 -> 4 and immediately refreshes!
+    act(() => {
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 5,
+          visible: true,
+          completedCounter: 4,
+          stats: { total: 1, remaining: 0, active: 0, succeeded: 1, failed: 0 },
+          tasks: [],
+        })
+      )
     })
-    await act(async () => {
-      resolveImport(failureResult)
-      await runPromise
-    })
-
-    expect(result.current.summary).toEqual(failureResult)
-    expect(result.current.cancelling).toBe(false)
+    expect(invalidateSpy).toHaveBeenCalledTimes(3)
   })
 
-  it("discards stale events from an older import after resetBookImportState", async () => {
-    const queryClient = createTestQueryClient()
-    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
-    let emitEvent!: Parameters<FakeLibrary["pickAndImportBooks"]>[0]
-    let resolveImport!: (result: ReturnType<typeof makeImportResult>) => void
-
-    const fakeLibrary = new FakeLibrary().setImportHandler(
-      (emit) =>
+  it("guards picker re-entrancy only while dialog is open and forwards task/queue actions", async () => {
+    let resolvePick!: (snap: ReturnType<typeof makeUploadSnapshot>) => void
+    const fakeLibrary = new FakeLibrary().setPickHandler(
+      () =>
         new Promise((resolve) => {
-          emitEvent = emit
-          resolveImport = resolve
+          resolvePick = resolve
         })
     )
+    const pickSpy = vi.spyOn(fakeLibrary, "uploadPickAndEnqueue")
     setPreviewLibrary(fakeLibrary)
 
     const { result } = renderHook(() => useBookImportState())
 
-    let runPromise!: Promise<void>
+    let p1!: Promise<void>
     act(() => {
-      runPromise = startBookImport(queryClient)
+      p1 = pickAndEnqueueBooks()
     })
+    expect(result.current.pickerOpening).toBe(true)
+
+    // Second click while native picker is still open is ignored.
+    await act(async () => {
+      await pickAndEnqueueBooks()
+    })
+    expect(pickSpy).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolvePick(
+        makeUploadSnapshot({
+          revision: 1,
+          tasks: [
+            makeUploadTask({
+              id: 1,
+              fileName: "a.epub",
+              status: {
+                state: "failed",
+                error: makeRustErrorEvent({ message: "Bad file" }),
+              },
+            }),
+            makeUploadTask({ id: 2, fileName: "b.epub" }),
+          ],
+        })
+      )
+      await p1
+    })
+    expect(result.current.pickerOpening).toBe(false)
+    expect(result.current.upload.tasks).toHaveLength(2)
+
+    // View toggles and queue commands work cleanly.
+    act(() => {
+      toggleUploadOptions()
+    })
+    expect(result.current.optionsOpen).toBe(true)
+
+    act(() => {
+      setUploadPanelExpanded(false)
+    })
+    expect(result.current.expanded).toBe(false)
+    expect(result.current.optionsOpen).toBe(false)
+
+    await act(async () => {
+      await setUploadConcurrency(12)
+      await retryUploadTask(1)
+      await cancelUploadTask(2)
+      await cancelAllUploads()
+      await dismissUploadTask(1)
+      await dismissUploadErrors()
+    })
+    expect(result.current.upload.concurrency).toBe(12)
 
     act(() => {
       resetBookImportState()
     })
-    expect(result.current.pending).toBe(false)
+    expect(result.current.upload.revision).toBe(0)
+    expect(result.current.upload.visible).toBe(false)
+  })
 
+  it("resets upload state when useUploadQueueSync transitions from enabled to disabled", async () => {
+    const queryClient = createTestQueryClient()
+    const fakeLibrary = new FakeLibrary()
+    setPreviewLibrary(fakeLibrary)
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => {
+        useUploadQueueSync(queryClient, enabled)
+        return useBookImportState()
+      },
+      { initialProps: { enabled: true } }
+    )
     await act(async () => {
-      emitEvent({
-        stage: "itemSucceeded",
-        operationId: "stale-op",
-        index: 0,
-        total: 1,
-        book: makeBook(),
-      })
-      resolveImport(
-        makeImportResult({
-          operationId: "stale-op",
-          skipped: ["dup.epub"],
-          summaryMessage: "1 skipped",
-        })
-      )
-      await runPromise
+      await Promise.resolve()
     })
 
-    expect(result.current.summary).toBeNull()
-    expect(invalidateSpy).not.toHaveBeenCalled()
+    act(() => {
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 3,
+          visible: true,
+          tasks: [makeUploadTask({ id: 7, fileName: "stale.epub" })],
+        })
+      )
+    })
+    expect(result.current.upload.visible).toBe(true)
+    expect(result.current.upload.tasks).toHaveLength(1)
+
+    rerender({ enabled: false })
+    expect(result.current.upload.visible).toBe(false)
+    expect(result.current.upload.tasks).toHaveLength(0)
+    expect(result.current.upload.revision).toBe(0)
+  })
+
+  it("invalidates bookshelf when initial hydration already reflects a newly completed upload", async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
+    const fakeLibrary = new FakeLibrary().setUploadSnapshot(
+      makeUploadSnapshot({
+        revision: 1,
+        visible: false,
+        completedCounter: 1,
+        stats: { total: 0, remaining: 0, active: 0, succeeded: 0, failed: 0 },
+        tasks: [],
+      })
+    )
+    setPreviewLibrary(fakeLibrary)
+
+    renderHook(() => useUploadQueueSync(queryClient, true))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenLastCalledWith({ queryKey: booksQueryKey })
+  })
+
+  it("flushes pending throttled bookshelf invalidation on unmount", async () => {
+    vi.useFakeTimers()
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
+    const fakeLibrary = new FakeLibrary()
+    setPreviewLibrary(fakeLibrary)
+
+    const { unmount } = renderHook(() => useUploadQueueSync(queryClient, true))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      fakeLibrary.emitUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 1,
+          visible: true,
+          completedCounter: 1,
+          stats: { total: 2, remaining: 1, active: 1, succeeded: 1, failed: 0 },
+          tasks: [makeUploadTask({ id: 2 })],
+        })
+      )
+    })
+    expect(invalidateSpy).toHaveBeenCalledTimes(0)
+
+    unmount()
+    expect(invalidateSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenLastCalledWith({ queryKey: booksQueryKey })
+  })
+
+  it("keeps mobileOpen closed on snapshot updates and auto-closes when snapshot hides", async () => {
+    const fakeLibrary = new FakeLibrary()
+    setPreviewLibrary(fakeLibrary)
+
+    const { result } = renderHook(() => useBookImportState())
+    expect(result.current.mobileOpen).toBe(false)
+
+    // Receiving visible upload snapshots never opens the mobile full-screen UI automatically.
+    act(() => {
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 1,
+          visible: true,
+          tasks: [makeUploadTask({ id: 1, fileName: "mobile.epub" })],
+        })
+      )
+    })
+    expect(result.current.mobileOpen).toBe(false)
+
+    // Opening via notification tap sets mobileOpen and notifies backend.
+    act(() => {
+      openMobileUploadPanel()
+    })
+    expect(result.current.mobileOpen).toBe(true)
+    expect(fakeLibrary.mobileUiOpenHistory).toEqual([true])
+
+    // Explicit close resets mobileOpen + optionsOpen and notifies backend.
+    act(() => {
+      toggleUploadOptions()
+      closeMobileUploadPanel()
+    })
+    expect(result.current.mobileOpen).toBe(false)
+    expect(result.current.optionsOpen).toBe(false)
+    expect(fakeLibrary.mobileUiOpenHistory).toEqual([true, false])
+
+    // If opened again and backend clears/hides the queue, mobileOpen closes automatically.
+    act(() => {
+      openMobileUploadPanel()
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 2,
+          visible: false,
+          tasks: [],
+        })
+      )
+    })
+    expect(result.current.mobileOpen).toBe(false)
+    expect(fakeLibrary.mobileUiOpenHistory).toEqual([true, false, true, false])
+  })
+
+  it("notifies backend mobile UI closed when useUploadQueueSync disables while mobileOpen is true", async () => {
+    const queryClient = createTestQueryClient()
+    const fakeLibrary = new FakeLibrary()
+    setPreviewLibrary(fakeLibrary)
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => {
+        useUploadQueueSync(queryClient, enabled)
+        return useBookImportState()
+      },
+      { initialProps: { enabled: true } }
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      applyUploadSnapshot(
+        makeUploadSnapshot({
+          revision: 1,
+          visible: true,
+          tasks: [makeUploadTask({ id: 1, fileName: "active.epub" })],
+        })
+      )
+      openMobileUploadPanel()
+    })
+    expect(result.current.mobileOpen).toBe(true)
+    expect(fakeLibrary.mobileUiOpenHistory).toEqual([true])
+
+    rerender({ enabled: false })
+    expect(result.current.mobileOpen).toBe(false)
+    expect(fakeLibrary.mobileUiOpenHistory).toEqual([true, false])
   })
 })

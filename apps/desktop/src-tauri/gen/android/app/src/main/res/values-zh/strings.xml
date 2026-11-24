@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">"白读"</string>
     <string name="main_activity_title">"白读"</string>
+    <string name="upload_channel_progress_name">上传进度</string>
+    <string name="upload_channel_progress_desc">显示电子书上传进度</string>
+    <string name="upload_channel_complete_name">上传完成</string>
+    <string name="upload_channel_complete_desc">显示电子书上传结果</string>
+    <string name="upload_notification_default_title">正在上传书籍</string>
 </resources>

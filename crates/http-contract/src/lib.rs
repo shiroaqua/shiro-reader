@@ -7,9 +7,9 @@ pub mod paths;
 pub use auth::{LoginRequest, LogoutRequest, RefreshAccessTokenRequest};
 pub use error::{ErrorDetail, ErrorResponse};
 pub use library::{
-    BindBookTagRequest, BookFileQuery, BookIdsRequest, BooksQuery,
-    ChangeTagColorRequest, CreateChapterRequest,
-    CreateBookRequest, DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
+    BOOK_FILE_FIELD_FILE, BOOK_FILE_FIELD_HASH, BOOK_FILE_FIELD_SIZE, BindBookTagRequest,
+    BookFileQuery, BookIdsRequest, BooksQuery, ChangeTagColorRequest, CreateBookRequest,
+    CreateChapterRequest, DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
     RenameBookRequest, RenameTagRequest, UnbindBookTagRequest,
 };
 pub use meta::ServerMetaResponse;

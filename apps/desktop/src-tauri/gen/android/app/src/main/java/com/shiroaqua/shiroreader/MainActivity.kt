@@ -1,6 +1,9 @@
 package com.shiroaqua.shiroreader
 
+import android.Manifest
+import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.WebView
@@ -18,6 +21,9 @@ class MainActivity : TauriActivity() {
       navigationBarStyle = SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT),
     )
     super.onCreate(savedInstanceState)
+    UploadNotificationBridge.registerContext(applicationContext)
+    UploadNotificationCoordinator.ensureChannels(this)
+    handleUploadNotificationIntent(intent)
 
     // Keep the web content clear of the status bar, cutout, gesture/navigation
     // bar and the on-screen keyboard instead of relying on WebView safe-area
@@ -33,10 +39,41 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleUploadNotificationIntent(intent)
+  }
+
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
     webView.settings.setSupportZoom(false)
     webView.settings.builtInZoomControls = false
     webView.settings.displayZoomControls = false
+  }
+
+  private fun handleUploadNotificationIntent(intent: Intent?) {
+    if (intent?.action != UploadNotificationCoordinator.ACTION_OPEN_UPLOAD_UI) {
+      return
+    }
+    val isCompleted = intent.getBooleanExtra(UploadNotificationCoordinator.EXTRA_IS_COMPLETED, false)
+    intent.action = null
+    UploadNotificationCoordinator.onNotificationTapped(isCompleted)
+    UploadNotificationBridge.notifyTapped(isCompleted)
+  }
+
+  fun requestUploadNotificationPermission(requestId: Long) {
+    if (UploadNotificationCoordinator.hasNotificationPermission(this)) {
+      UploadNotificationBridge.notifyPermissionResult(requestId, true)
+      return
+    }
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      UploadNotificationBridge.notifyPermissionResult(requestId, false)
+      return
+    }
+    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) { granted ->
+      val allowed = granted == true && UploadNotificationCoordinator.hasNotificationPermission(this)
+      UploadNotificationBridge.notifyPermissionResult(requestId, allowed)
+    }
   }
 }

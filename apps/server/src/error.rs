@@ -33,6 +33,7 @@ pub enum AppError {
     BadRequest { message: &'static str },
     Unauthorized { message: &'static str },
     NotFound { message: &'static str },
+    RequestTimeout { message: &'static str },
     Conflict { message: &'static str },
     PayloadTooLarge,
     Internal(anyhow::Error),
@@ -44,6 +45,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest { message } => (StatusCode::BAD_REQUEST, message),
             AppError::Unauthorized { message } => (StatusCode::UNAUTHORIZED, message),
             AppError::NotFound { message } => (StatusCode::NOT_FOUND, message),
+            AppError::RequestTimeout { message } => (StatusCode::REQUEST_TIMEOUT, message),
             AppError::Conflict { message } => (StatusCode::CONFLICT, message),
             AppError::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -196,6 +198,12 @@ impl From<LibraryApplicationError> for AppError {
                 BookFileApplicationError::UploadConflict => AppError::Conflict {
                     message: "library.book.file.upload.conflict",
                 },
+                BookFileApplicationError::UploadTimeout => AppError::RequestTimeout {
+                    message: "library.book.file.upload.timeout",
+                },
+                BookFileApplicationError::SizeMismatch => AppError::BadRequest {
+                    message: "library.book.file.size_mismatch",
+                },
                 BookFileApplicationError::AlreadyExists => AppError::Conflict {
                     message: "library.book.file.already_exists",
                 },
@@ -290,6 +298,15 @@ impl From<BookFileAPIError> for AppError {
             },
             BookFileAPIError::MissingHashField => AppError::BadRequest {
                 message: "library.book.file.upload.missing_hash",
+            },
+            BookFileAPIError::DuplicateSizeField => AppError::BadRequest {
+                message: "library.book.file.upload.duplicate_size",
+            },
+            BookFileAPIError::MissingSizeField => AppError::BadRequest {
+                message: "library.book.file.upload.missing_size",
+            },
+            BookFileAPIError::InvalidSizeField => AppError::BadRequest {
+                message: "library.book.file.upload.invalid_size",
             },
             BookFileAPIError::MissingFileField => AppError::BadRequest {
                 message: "library.book.file.upload.missing_file",
@@ -518,6 +535,16 @@ mod tests {
                 ErrorCode::BookFileUploadConflict,
             ),
             (
+                BookFileApplicationError::UploadTimeout,
+                StatusCode::REQUEST_TIMEOUT,
+                ErrorCode::BookFileUploadTimeout,
+            ),
+            (
+                BookFileApplicationError::SizeMismatch,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookFileSizeMismatch,
+            ),
+            (
                 BookFileApplicationError::AlreadyExists,
                 StatusCode::CONFLICT,
                 ErrorCode::BookFileAlreadyExists,
@@ -668,6 +695,21 @@ mod tests {
                 ErrorCode::BookFileUploadMissingHash,
             ),
             (
+                BookFileAPIError::DuplicateSizeField,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookFileUploadDuplicateSize,
+            ),
+            (
+                BookFileAPIError::MissingSizeField,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookFileUploadMissingSize,
+            ),
+            (
+                BookFileAPIError::InvalidSizeField,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookFileUploadInvalidSize,
+            ),
+            (
                 BookFileAPIError::MissingFileField,
                 StatusCode::BAD_REQUEST,
                 ErrorCode::BookFileUploadMissingFile,
@@ -675,6 +717,15 @@ mod tests {
         ] {
             assert_app_error(err, status, code).await;
         }
+
+        assert_app_error(
+            AppError::RequestTimeout {
+                message: ErrorCode::BookFileUploadTimeout.key(),
+            },
+            StatusCode::REQUEST_TIMEOUT,
+            ErrorCode::BookFileUploadTimeout,
+        )
+        .await;
 
         assert_app_error(
             AppError::PayloadTooLarge,

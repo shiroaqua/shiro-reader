@@ -2,7 +2,8 @@ mod support;
 
 use SampleFile::{Epub, Pdf};
 use HttpError::*;
-use shiro_http_contract::{ChapterLocation, ChapterOutput};
+use shiro_application::library::book::dto::ChapterOutput;
+use shiro_domain::library::book::chapter::ChapterLocation;
 use support::*;
 
 #[tokio::test]

@@ -167,6 +167,8 @@ async fn build_real_v1_server_state(root: &Path) -> AppState {
             host: "127.0.0.1".into(),
             port: 0,
             max_upload_size: 16 * 1024 * 1024,
+            upload_base_timeout_secs: 30,
+            upload_min_bytes_per_sec: 64 * 1024,
         },
         telemetry: TelemetryConfig {
             log_format: LogFormat::Pretty,

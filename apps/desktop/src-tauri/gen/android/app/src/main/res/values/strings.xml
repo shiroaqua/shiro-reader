@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">"ShiroReader"</string>
     <string name="main_activity_title">"ShiroReader"</string>
+    <string name="upload_channel_progress_name">Upload progress</string>
+    <string name="upload_channel_progress_desc">Shows progress while uploading e-books</string>
+    <string name="upload_channel_complete_name">Upload completed</string>
+    <string name="upload_channel_complete_desc">Shows e-book upload results</string>
+    <string name="upload_notification_default_title">Uploading books</string>
 </resources>

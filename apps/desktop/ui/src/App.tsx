@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { BottomRightOverlayDock } from "./components/bottom-right-overlay-dock"
 import { CloudGateScreen } from "./screens/CloudGate"
 import { DashboardScreen } from "./screens/Dashboard"
 import { SetupScreen } from "./screens/Setup"
@@ -66,6 +67,7 @@ export function App({ preview = false }: { preview?: boolean }) {
   return (
     <AppRuntimeProvider>
       <AppContent preview={preview} />
+      <BottomRightOverlayDock />
     </AppRuntimeProvider>
   )
 }

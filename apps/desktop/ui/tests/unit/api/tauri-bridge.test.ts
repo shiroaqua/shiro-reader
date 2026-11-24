@@ -5,18 +5,19 @@ import {
   isCommandErrorPayload,
   listenRuntimeState,
   listenRustErrors,
+  listenUploadState,
   setCoverUrlBase,
   tauriBridge,
-  type ImportProgressEvent,
 } from "@/api/tauri-bridge"
 import { getErrorNotifications } from "@/lib/error-notifications"
 import {
   makeCommandErrorPayload,
-  makeImportResult,
   makeRustErrorEvent,
+  makeUploadSnapshot,
+  makeUploadTask,
   readyLocalState,
 } from "../../support/builders"
-import { FakeChannel, tauriTestHost } from "../../support/mock-tauri"
+import { tauriTestHost } from "../../support/mock-tauri"
 
 describe("tauri-bridge", () => {
   describe("cover URL helpers", () => {
@@ -112,38 +113,49 @@ describe("tauri-bridge", () => {
       })
     })
 
-    it("streams import progress events over a Channel in pickAndImportBooks", async () => {
-      const expectedResult = makeImportResult()
-      tauriTestHost.onInvoke("pick_and_import_books", (args) => {
-        const channel = args?.onEvent as FakeChannel<ImportProgressEvent>
-        channel.onmessage({
-          stage: "started",
-          operationId: expectedResult.operationId,
-          total: 1,
-        })
-        channel.onmessage({
-          stage: "finished",
-          operationId: expectedResult.operationId,
-          cancelled: false,
-          importedCount: 1,
-          failedCount: 0,
-          skippedCount: 0,
-        })
-        return expectedResult
+    it("invokes concurrent upload queue IPC commands with exact argument payloads", async () => {
+      const snap = makeUploadSnapshot({
+        revision: 2,
+        concurrency: 6,
+        tasks: [makeUploadTask({ id: 9, fileName: "novel.epub" })],
       })
+      tauriTestHost.onInvoke("upload_get_state", () => snap)
+      tauriTestHost.onInvoke("upload_pick_and_enqueue", () => snap)
+      tauriTestHost.onInvoke("upload_enqueue_paths", () => snap)
+      tauriTestHost.onInvoke("upload_retry_task", () => snap)
+      tauriTestHost.onInvoke("upload_cancel_task", () => snap)
+      tauriTestHost.onInvoke("upload_cancel_all", () => snap)
+      tauriTestHost.onInvoke("upload_dismiss_task", () => snap)
+      tauriTestHost.onInvoke("upload_dismiss_errors", () => snap)
+      tauriTestHost.onInvoke("upload_set_concurrency", () => snap)
 
-      const stages: string[] = []
-      const result = await tauriBridge.pickAndImportBooks((event) => {
-        stages.push(event.stage)
+      expect(await tauriBridge.uploadGetState()).toEqual(snap)
+      expect(await tauriBridge.uploadPickAndEnqueue()).toEqual(snap)
+      expect(await tauriBridge.uploadEnqueuePaths(["/books/a.epub"])).toEqual(
+        snap
+      )
+      expect(await tauriBridge.uploadRetryTask(9)).toEqual(snap)
+      expect(await tauriBridge.uploadCancelTask(9)).toEqual(snap)
+      expect(await tauriBridge.uploadCancelAll()).toEqual(snap)
+      expect(await tauriBridge.uploadDismissTask(9)).toEqual(snap)
+      expect(await tauriBridge.uploadDismissErrors()).toEqual(snap)
+      expect(await tauriBridge.uploadSetConcurrency(6)).toEqual(snap)
+
+      expect(tauriTestHost.invokeCalls("upload_enqueue_paths")[0]!.args).toEqual(
+        { paths: ["/books/a.epub"] }
+      )
+      expect(tauriTestHost.invokeCalls("upload_retry_task")[0]!.args).toEqual({
+        taskId: 9,
       })
-
-      expect(result).toEqual(expectedResult)
-      expect(stages).toEqual(["started", "finished"])
+      expect(
+        tauriTestHost.invokeCalls("upload_set_concurrency")[0]!.args
+      ).toEqual({ concurrency: 6 })
     })
 
-    it("forwards Rust error and runtime state events and honors unlisten", async () => {
+    it("forwards Rust error, runtime state, and upload state events and honors unlisten", async () => {
       const receivedErrors: string[] = []
       const receivedPhases: string[] = []
+      const receivedRevisions: number[] = []
 
       const unlistenErrors = await listenRustErrors((event) => {
         receivedErrors.push(event.errorId)
@@ -151,20 +163,27 @@ describe("tauri-bridge", () => {
       const unlistenState = await listenRuntimeState((state) => {
         receivedPhases.push(state.phase)
       })
+      const unlistenUploads = await listenUploadState((snapshot) => {
+        receivedRevisions.push(snapshot.revision)
+      })
 
       tauriTestHost.emitRustError(makeRustErrorEvent({ errorId: "e-1" }))
       tauriTestHost.emitRuntimeState(readyLocalState({ phase: "ready" }))
+      tauriTestHost.emitUploadState(makeUploadSnapshot({ revision: 5 }))
 
       unlistenErrors()
       unlistenState()
+      unlistenUploads()
 
       tauriTestHost.emitRustError(makeRustErrorEvent({ errorId: "e-2" }))
       tauriTestHost.emitRuntimeState(
         readyLocalState({ phase: "startup_failed" })
       )
+      tauriTestHost.emitUploadState(makeUploadSnapshot({ revision: 6 }))
 
       expect(receivedErrors).toEqual(["e-1"])
       expect(receivedPhases).toEqual(["ready"])
+      expect(receivedRevisions).toEqual([5])
     })
   })
 })

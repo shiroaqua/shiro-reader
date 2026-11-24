@@ -271,3 +271,7 @@ export function useAppRuntime() {
   }
   return context
 }
+
+export function useOptionalAppRuntime() {
+  return useContext(AppRuntimeContext) ?? null
+}

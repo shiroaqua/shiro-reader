@@ -34,16 +34,19 @@ use crate::{
     cloud_client::{CloudClient, CloudProbeOutcome, SessionVerifyOutcome, is_session_invalid_code},
     config::{
         AppTheme, ClientConfig, ConfigStore, LaunchMode, PlatformCapabilities,
-        normalize_cloud_origin,
+        clamp_upload_concurrency, normalize_cloud_origin,
     },
     credentials::{CredentialStore, EncryptedFileCredentialStore},
     dto::{
         BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
         InitialSetupRequest, RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic,
-        StartupPhase, UpdateSettingsRequest,
+        StartupPhase, UpdateSettingsRequest, UploadPanelSnapshotDto,
     },
     error_sink::{ErrorDispatcher, ErrorSink},
-    local_import::{ImportProgressCallback, import_reader_into_local},
+    local_import::{ImportProgressCallback, ImportTarget, import_reader_into_local},
+    upload_manager::{
+        EnqueueUploadItem, StdFsSourceOpener, UploadManager, UploadSourceOpener,
+    },
 };
 
 struct CloudRuntimeContext {
@@ -86,6 +89,7 @@ pub struct ClientRuntime {
     lifecycle_lock: AsyncMutex<()>,
     inner: RwLock<RuntimeInner>,
     self_weak: OnceLock<Weak<Self>>,
+    upload_manager: OnceLock<UploadManager>,
 }
 
 impl ClientRuntime {
@@ -96,6 +100,27 @@ impl ClientRuntime {
         detected_locale: AppLocale,
         pdfium: Option<Arc<Mutex<Pdfium>>>,
         error_sink: Arc<dyn ErrorSink>,
+    ) -> Arc<Self> {
+        Self::initialize_with_source_opener(
+            config_dir,
+            capabilities,
+            detected_locale,
+            pdfium,
+            error_sink,
+            Arc::new(StdFsSourceOpener),
+        )
+        .await
+    }
+
+    /// Initializes the client runtime with a host-provided [`UploadSourceOpener`] (e.g. Tauri
+    /// file/URI opener on desktop and mobile).
+    pub async fn initialize_with_source_opener(
+        config_dir: impl Into<PathBuf>,
+        capabilities: PlatformCapabilities,
+        detected_locale: AppLocale,
+        pdfium: Option<Arc<Mutex<Pdfium>>>,
+        error_sink: Arc<dyn ErrorSink>,
+        source_opener: Arc<dyn UploadSourceOpener>,
     ) -> Arc<Self> {
         let config_dir = config_dir.into();
         let config_store = ConfigStore::new(&config_dir);
@@ -227,6 +252,11 @@ impl ClientRuntime {
             }
         };
 
+        let initial_concurrency = inner.config.upload_concurrency;
+        let initial_locale = error_dispatcher.locale();
+        let can_import_books = capabilities.can_import_books;
+        let retain_completed_uploads = capabilities.retain_completed_uploads;
+
         let runtime = Arc::new(Self {
             config_store,
             credential_store,
@@ -237,14 +267,38 @@ impl ClientRuntime {
             lifecycle_lock: AsyncMutex::new(()),
             inner: RwLock::new(inner),
             self_weak: OnceLock::new(),
+            upload_manager: OnceLock::new(),
         });
         let _ = runtime.self_weak.set(Arc::downgrade(&runtime));
+
+        let weak_for_uploads = Arc::downgrade(&runtime);
+        let upload_manager = UploadManager::new(
+            initial_concurrency,
+            initial_locale,
+            can_import_books,
+            retain_completed_uploads,
+            Arc::clone(&runtime.error_dispatcher),
+            source_opener,
+            Arc::new(move || {
+                weak_for_uploads
+                    .upgrade()
+                    .ok_or(ErrorCode::RuntimeNotReady)
+                    .and_then(|rt| rt.ready_import_target())
+            }),
+        );
+        let _ = runtime.upload_manager.set(upload_manager);
 
         if let Some(origin) = startup_cloud_origin {
             runtime.activate_cloud_origin(origin, true).await;
         }
 
         runtime
+    }
+
+    pub fn upload_manager(&self) -> &UploadManager {
+        self.upload_manager
+            .get()
+            .expect("upload_manager initialized during ClientRuntime::initialize")
     }
 
     pub fn capabilities(&self) -> &PlatformCapabilities {
@@ -313,6 +367,7 @@ impl ClientRuntime {
             default_library_root: self.capabilities.default_library_root.display().to_string(),
             cloud_origin: guard.config.cloud_origin.clone(),
             can_pick_library_dir: self.capabilities.can_pick_library_dir,
+            can_import_books: self.capabilities.can_import_books,
             cover_url_base: self.capabilities.cover_url_base.clone(),
             startup_error,
             cloud,
@@ -414,6 +469,7 @@ impl ClientRuntime {
                     guard.state = ActiveRuntimeState::LocalReady(library);
                 }
                 self.error_dispatcher.set_locale(applied_locale);
+                self.upload_manager().relocalize_errors(applied_locale);
                 self.error_dispatcher.clear_buffer();
                 Ok(self.bootstrap_state())
             }
@@ -441,6 +497,7 @@ impl ClientRuntime {
                     guard.active_mode = Some(LaunchMode::Cloud);
                 }
                 self.error_dispatcher.set_locale(applied_locale);
+                self.upload_manager().relocalize_errors(applied_locale);
                 self.error_dispatcher.clear_buffer();
                 self.activate_cloud_origin(origin, false).await;
                 Ok(self.bootstrap_state())
@@ -451,6 +508,7 @@ impl ClientRuntime {
     /// Immediately updates the active UI & Rust error locale and persists it if configured.
     pub fn set_locale(&self, locale: AppLocale) -> Result<BootstrapStateDto, CommandErrorPayload> {
         self.error_dispatcher.set_locale(locale);
+        self.upload_manager().relocalize_errors(locale);
 
         let config_to_save = {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
@@ -629,6 +687,7 @@ impl ClientRuntime {
         }
         if let Some(locale) = applied_locale {
             self.error_dispatcher.set_locale(locale);
+            self.upload_manager().relocalize_errors(locale);
         }
 
         Ok(self.bootstrap_state())
@@ -721,6 +780,7 @@ impl ClientRuntime {
             match self.config_store.load() {
                 Ok(Some(cfg)) => {
                     self.error_dispatcher.set_locale(cfg.locale);
+                    self.upload_manager().relocalize_errors(cfg.locale);
                     let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
                     guard.config = cfg;
                 }
@@ -978,6 +1038,7 @@ impl ClientRuntime {
     }
 
     fn handle_cloud_session_invalidated(&self) {
+        self.upload_manager().abort_all();
         let updated = {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             if let ActiveRuntimeState::Cloud(ctx) = &mut guard.state {
@@ -1070,6 +1131,7 @@ impl ClientRuntime {
         new_origin: String,
     ) -> Result<BootstrapStateDto, CommandErrorPayload> {
         let _lifecycle = self.lifecycle_lock.lock().await;
+        self.upload_manager().abort_all_and_drain().await;
         let normalized = normalize_cloud_origin(&new_origin).map_err(|_| {
             self.error_dispatcher
                 .dispatch_operation(ErrorCode::CloudInvalidOrigin)
@@ -1187,6 +1249,7 @@ impl ClientRuntime {
     /// Signs out of the active cloud server and wipes local encrypted credentials.
     pub async fn cloud_logout(&self) -> Result<BootstrapStateDto, CommandErrorPayload> {
         let _lifecycle = self.lifecycle_lock.lock().await;
+        self.upload_manager().abort_all_and_drain().await;
         let client = self.require_cloud_client()?;
         client
             .logout()
@@ -1208,6 +1271,7 @@ impl ClientRuntime {
     /// Releases the active local SQLite pool and then flushes/truncates the WAL before shutdown.
     pub async fn shutdown(&self) {
         let _lifecycle = self.lifecycle_lock.lock().await;
+        self.upload_manager().abort_all_and_drain().await;
         let db_path = {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             let prev = std::mem::replace(&mut guard.state, ActiveRuntimeState::SetupRequired);
@@ -1452,6 +1516,94 @@ impl ClientRuntime {
                 .await
                 .map_err(|err| ErrorCode::from(&err)),
             LibraryBackend::Cloud(cloud) => cloud.get_cover_stream(&book_id).await,
+        }
+    }
+
+    /// Updates upload concurrency (`1..=16`), persists it in `settings.json`, and dynamically
+    /// resizes the active upload worker pool.
+    pub async fn set_upload_concurrency(
+        &self,
+        concurrency: usize,
+    ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+        let clamped = clamp_upload_concurrency(concurrency);
+        let config_to_save = {
+            let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
+            guard.config.upload_concurrency = clamped;
+            let config_corrupted = matches!(
+                guard.state,
+                ActiveRuntimeState::StartupFailed {
+                    config_corrupted: true,
+                    ..
+                }
+            );
+            (!config_corrupted && (self.config_store.exists() || guard.config.mode.is_some()))
+                .then(|| guard.config.clone())
+        };
+
+        if let Some(config) = config_to_save
+            && let Err(err) = self.config_store.save_atomic(&config)
+        {
+            error!(error = %err, "failed to persist upload concurrency change");
+            return Err(self
+                .error_dispatcher
+                .dispatch_operation(ErrorCode::ConfigSaveFailed));
+        }
+
+        Ok(self.upload_manager().set_concurrency(clamped).await)
+    }
+
+    pub fn upload_snapshot(&self) -> UploadPanelSnapshotDto {
+        self.upload_manager().snapshot()
+    }
+
+    pub async fn upload_enqueue(
+        &self,
+        items: Vec<EnqueueUploadItem>,
+    ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+        self.upload_manager().enqueue(items).await
+    }
+
+    pub async fn upload_enqueue_paths(
+        &self,
+        paths: Vec<PathBuf>,
+    ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+        self.upload_manager().enqueue_paths(paths).await
+    }
+
+    pub async fn upload_retry_task(
+        &self,
+        task_id: u64,
+    ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+        self.upload_manager().retry_task(task_id).await
+    }
+
+    pub async fn upload_cancel_task(&self, task_id: u64) -> UploadPanelSnapshotDto {
+        self.upload_manager().cancel_task(task_id).await
+    }
+
+    pub async fn upload_cancel_all(&self) -> UploadPanelSnapshotDto {
+        self.upload_manager().cancel_all_remaining().await
+    }
+
+    pub async fn upload_dismiss_task(&self, task_id: u64) -> UploadPanelSnapshotDto {
+        self.upload_manager().dismiss_task(task_id).await
+    }
+
+    pub async fn upload_dismiss_failed(&self) -> UploadPanelSnapshotDto {
+        self.upload_manager().dismiss_failed().await
+    }
+
+    pub async fn upload_clear_completed(&self) -> UploadPanelSnapshotDto {
+        self.upload_manager().clear_completed().await
+    }
+
+    fn ready_import_target(&self) -> Result<ImportTarget, ErrorCode> {
+        match self.ready_backend()? {
+            LibraryBackend::Local(lib) => Ok(ImportTarget::Local(lib)),
+            LibraryBackend::Cloud(client) => Ok(ImportTarget::Cloud {
+                client,
+                temp_dir: self.cloud_temp_dir.clone(),
+            }),
         }
     }
 

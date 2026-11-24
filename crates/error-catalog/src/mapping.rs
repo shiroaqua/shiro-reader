@@ -44,6 +44,8 @@ impl From<&BookFileApplicationError> for ErrorCode {
             BookFileApplicationError::NotFound => Self::BookFileNotFound,
             BookFileApplicationError::AlreadyExists => Self::BookFileAlreadyExists,
             BookFileApplicationError::UploadConflict => Self::BookFileUploadConflict,
+            BookFileApplicationError::UploadTimeout => Self::BookFileUploadTimeout,
+            BookFileApplicationError::SizeMismatch => Self::BookFileSizeMismatch,
             BookFileApplicationError::Unsupported => Self::BookFileUnsupported,
             BookFileApplicationError::Storage(_) => Self::CommonInternalServerError,
         }
@@ -153,6 +155,14 @@ mod tests {
             (
                 BookFileApplicationError::UploadConflict,
                 ErrorCode::BookFileUploadConflict,
+            ),
+            (
+                BookFileApplicationError::UploadTimeout,
+                ErrorCode::BookFileUploadTimeout,
+            ),
+            (
+                BookFileApplicationError::SizeMismatch,
+                ErrorCode::BookFileSizeMismatch,
             ),
             (
                 BookFileApplicationError::Unsupported,

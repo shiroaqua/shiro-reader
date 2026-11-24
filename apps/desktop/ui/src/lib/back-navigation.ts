@@ -7,6 +7,7 @@ export const BACK_PRIORITY = {
   navigation: 10,
   selection: 30,
   search: 40,
+  uploadOverlay: 50,
 } as const
 
 type BackHandler = { priority: number; handle: () => boolean }
@@ -28,6 +29,13 @@ export function registerBackHandler(
 
 /** Returns true when the back press was consumed by the UI. */
 export function dispatchBack(): boolean {
+  const ordered = [...handlers].sort((a, b) => b.priority - a.priority)
+  const topPriority = ordered.filter(
+    (entry) => entry.priority >= BACK_PRIORITY.uploadOverlay
+  )
+  if (topPriority.some((entry) => entry.handle())) {
+    return true
+  }
   if (document.querySelector(OVERLAY_SELECTOR) !== null) {
     const target = document.activeElement ?? document.body
     target.dispatchEvent(
@@ -40,6 +48,7 @@ export function dispatchBack(): boolean {
     )
     return true
   }
-  const ordered = [...handlers].sort((a, b) => b.priority - a.priority)
-  return ordered.some((entry) => entry.handle())
+  return ordered
+    .filter((entry) => entry.priority < BACK_PRIORITY.uploadOverlay)
+    .some((entry) => entry.handle())
 }

@@ -2,8 +2,9 @@ import type {
   BootstrapState,
   CloudStatus,
   CommandErrorPayload,
-  ImportBooksResult,
   StartupDiagnostic,
+  UploadPanelSnapshot,
+  UploadTask,
 } from "@/api/tauri-bridge"
 import type { RustErrorEvent } from "@/lib/error-notifications"
 import type { Book, BookTag, Tag, TagTreeNode, TrashedBook } from "@/lib/types"
@@ -121,17 +122,41 @@ export function makeStartupDiagnostic(
   }
 }
 
-export function makeImportResult(
-  overrides: Partial<ImportBooksResult> = {}
-): ImportBooksResult {
+export function makeUploadTask(
+  overrides: Partial<UploadTask> = {}
+): UploadTask {
   return {
-    operationId: nextId("import"),
-    cancelled: false,
-    imported: [],
-    failed: [],
-    skipped: [],
-    abortedReason: null,
-    summaryMessage: null,
+    id: 1,
+    fileName: "book.epub",
+    status: { state: "queued" },
+    ...overrides,
+  }
+}
+
+export function makeUploadSnapshot(
+  overrides: Partial<UploadPanelSnapshot> = {}
+): UploadPanelSnapshot {
+  const tasks = overrides.tasks ?? []
+  const active = tasks.filter((task) => task.status.state === "active").length
+  const queued = tasks.filter((task) => task.status.state === "queued").length
+  const succeeded = tasks.filter(
+    (task) => task.status.state === "succeeded"
+  ).length
+  const failed = tasks.filter((task) => task.status.state === "failed").length
+  return {
+    revision: 1,
+    visible: tasks.length > 0,
+    concurrency: 4,
+    completedCounter: succeeded,
+    stats: {
+      total: active + queued + succeeded + failed,
+      remaining: active + queued,
+      active,
+      succeeded,
+      failed,
+    },
+    hasDismissibleErrors: failed > 0,
+    tasks,
     ...overrides,
   }
 }
@@ -163,6 +188,7 @@ export function makeBootstrapState(
     defaultLibraryRoot: "/tmp/shiro-library",
     cloudOrigin: null,
     canPickLibraryDir: true,
+    canImportBooks: true,
     coverUrlBase: "shiro-cover://localhost/book/",
     startupError: null,
     cloud: null,

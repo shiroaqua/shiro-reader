@@ -1,10 +1,21 @@
 use std::{
-    io::{Cursor, SeekFrom},
-    path::Path,
+    future::Future,
+    io::{self, Cursor, ErrorKind, SeekFrom},
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    task::{Context, Poll},
 };
 
 use shiro_application::library::{
-    book::{commands::CreateBookCommand, file::errors::BookFileApplicationError},
+    book::{
+        commands::CreateBookCommand,
+        dto::GetBookOutput,
+        file::errors::BookFileApplicationError,
+    },
     errors::LibraryApplicationError,
 };
 use shiro_error_catalog::ErrorCode;
@@ -14,13 +25,199 @@ use shiro_infrastructure::{
 };
 use tokio::{
     fs::File,
-    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf},
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
+
+use crate::cloud_client::{CloudClient, staging_limit_error};
 
 pub(crate) const STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
 pub type ImportProgressCallback<'a> = &'a mut (dyn FnMut(u64) + Send);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileProbeStatus {
+    Exists,
+    Missing,
+}
+
+#[derive(Clone)]
+pub(crate) enum ImportTarget {
+    Local(Arc<LocalLibrary>),
+    Cloud {
+        client: Arc<CloudClient>,
+        temp_dir: PathBuf,
+    },
+}
+
+impl ImportTarget {
+    pub(crate) fn is_cloud(&self) -> bool {
+        matches!(self, Self::Cloud { .. })
+    }
+
+    pub(crate) fn size_limit(&self) -> Option<(u64, ErrorCode)> {
+        match self {
+            Self::Local(_) => None,
+            Self::Cloud { client, .. } => {
+                let max_bytes = client.max_upload_bytes();
+                Some((max_bytes, staging_limit_error(max_bytes)))
+            }
+        }
+    }
+
+    pub(crate) fn staging_temp_dir(&self) -> PathBuf {
+        match self {
+            Self::Local(library) => library.root_dir().join("books").join(".temp"),
+            Self::Cloud { temp_dir, .. } => temp_dir.clone(),
+        }
+    }
+
+    pub(crate) async fn probe_file(&self, hash: &str) -> Result<FileProbeStatus, ErrorCode> {
+        match self {
+            Self::Local(library) => match library.book_file_service().probe_book_file(hash) {
+                Ok(_) => Ok(FileProbeStatus::Exists),
+                Err(LibraryApplicationError::BookFile(BookFileApplicationError::NotFound)) => {
+                    Ok(FileProbeStatus::Missing)
+                }
+                Err(err) => Err(ErrorCode::from(&err)),
+            },
+            Self::Cloud { client, .. } => match client.file_exists(hash).await? {
+                true => Ok(FileProbeStatus::Exists),
+                false => Ok(FileProbeStatus::Missing),
+            },
+        }
+    }
+
+    pub(crate) async fn store_staged_file(
+        &self,
+        hash: &str,
+        size: u64,
+        file_name: &str,
+        file: File,
+        cancel: &CancellationToken,
+        on_progress: Option<ImportProgressCallback<'_>>,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Local(library) => {
+                if cancel.is_cancelled() {
+                    return Err(ErrorCode::ImportCancelled);
+                }
+                let cancelled_flag = Arc::new(AtomicBool::new(false));
+                let reader = CancellableProgressReader::new(
+                    file,
+                    cancel.clone(),
+                    Arc::clone(&cancelled_flag),
+                    on_progress,
+                );
+                match library
+                    .book_file_service()
+                    .upload_book_file(hash.to_owned(), size, reader)
+                    .await
+                {
+                    Ok(())
+                    | Err(LibraryApplicationError::BookFile(
+                        BookFileApplicationError::AlreadyExists,
+                    )) => Ok(()),
+                    Err(_) if cancelled_flag.load(Ordering::Relaxed) || cancel.is_cancelled() => {
+                        Err(ErrorCode::ImportCancelled)
+                    }
+                    Err(err) => Err(ErrorCode::from(&err)),
+                }
+            }
+            Self::Cloud { client, .. } => {
+                client
+                    .upload_staged_book_file(hash, file_name, file, size, cancel, on_progress)
+                    .await
+            }
+        }
+    }
+
+    pub(crate) async fn create_book(
+        &self,
+        title: String,
+        hash: String,
+    ) -> Result<GetBookOutput, ErrorCode> {
+        match self {
+            Self::Local(library) => library
+                .book_service()
+                .create_book(CreateBookCommand { title, hash })
+                .await
+                .map(Into::into)
+                .map_err(|err| ErrorCode::from(&err)),
+            Self::Cloud { client, .. } => client.create_book(title, hash).await.map(Into::into),
+        }
+    }
+}
+
+struct CancellableProgressReader<'a, R> {
+    inner: R,
+    cancel: CancellationToken,
+    cancelled_fut: Pin<Box<WaitForCancellationFutureOwned>>,
+    cancelled_flag: Arc<AtomicBool>,
+    bytes_read: u64,
+    on_progress: Option<ImportProgressCallback<'a>>,
+}
+
+impl<'a, R> CancellableProgressReader<'a, R> {
+    fn new(
+        inner: R,
+        cancel: CancellationToken,
+        cancelled_flag: Arc<AtomicBool>,
+        on_progress: Option<ImportProgressCallback<'a>>,
+    ) -> Self {
+        let cancelled_fut = Box::pin(cancel.clone().cancelled_owned());
+        Self {
+            inner,
+            cancel,
+            cancelled_fut,
+            cancelled_flag,
+            bytes_read: 0,
+            on_progress,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for CancellableProgressReader<'_, R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if this.cancel.is_cancelled() {
+            this.cancelled_flag.store(true, Ordering::Relaxed);
+            return Poll::Ready(Err(io::Error::new(
+                ErrorKind::Interrupted,
+                "import cancelled",
+            )));
+        }
+
+        let before = buf.filled().len();
+        match Pin::new(&mut this.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                let delta = buf.filled().len() - before;
+                if delta > 0 {
+                    this.bytes_read = this.bytes_read.saturating_add(delta as u64);
+                    if let Some(cb) = this.on_progress.as_deref_mut() {
+                        cb(this.bytes_read);
+                    }
+                }
+                Poll::Ready(Ok(()))
+            }
+            Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+            Poll::Pending => {
+                if this.cancelled_fut.as_mut().poll(cx).is_ready() {
+                    this.cancelled_flag.store(true, Ordering::Relaxed);
+                    return Poll::Ready(Err(io::Error::new(
+                        ErrorKind::Interrupted,
+                        "import cancelled",
+                    )));
+                }
+                Poll::Pending
+            }
+        }
+    }
+}
 
 /// Derives a clean book title from a file name (or display name), stripping `.pdf`/`.epub`.
 pub fn derive_book_title(file_name: &str) -> Result<String, ErrorCode> {
@@ -201,7 +398,7 @@ where
     let temp_dir = library.root_dir().join("books").join(".temp");
     let mut staged = stage_book(&temp_dir, reader, None, cancel, on_progress).await?;
     let title = resolve_staged_book_title(file_name, &mut staged).await?;
-    let StagedBook { file, hash, .. } = staged;
+    let StagedBook { file, hash, size } = staged;
     if cancel.is_cancelled() {
         return Err(ErrorCode::ImportCancelled);
     }
@@ -212,7 +409,7 @@ where
     {
         match library
             .book_file_service()
-            .upload_book_file(hash.clone(), file)
+            .upload_book_file(hash.clone(), size, file)
             .await
         {
             Ok(())

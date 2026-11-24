@@ -46,6 +46,8 @@ fn desktop_caps(default_root: PathBuf) -> PlatformCapabilities {
     PlatformCapabilities {
         can_pick_library_dir: true,
         can_configure_log_level: true,
+        can_import_books: true,
+        retain_completed_uploads: false,
         default_library_root: default_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
     }
@@ -55,6 +57,8 @@ fn android_caps(private_root: PathBuf) -> PlatformCapabilities {
     PlatformCapabilities {
         can_pick_library_dir: false,
         can_configure_log_level: false,
+        can_import_books: true,
+        retain_completed_uploads: true,
         default_library_root: private_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
     }

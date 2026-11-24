@@ -1,16 +1,44 @@
+import { useState } from "react"
 import { act, fireEvent, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ApiErrorAlerts } from "@/components/api-error-alerts"
+import { BottomRightOverlayDock } from "@/components/bottom-right-overlay-dock"
 import { ErrorBoundary } from "@/components/error-boundary"
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { applyUploadSnapshot } from "@/features/books/book-import-store"
 import { notifyRustError } from "@/lib/error-notifications"
-import { makeRustErrorEvent } from "../support/builders"
+import {
+  makeRustErrorEvent,
+  makeUploadSnapshot,
+  makeUploadTask,
+} from "../support/builders"
+import { tauriTestHost } from "../support/mock-tauri"
 import { renderWithProviders } from "../support/render"
 
 function BrokenWidget(): never {
   throw new Error("Render crash")
 }
 
-describe("ApiErrorAlerts and ErrorBoundary", () => {
+function DialogWithDockHarness() {
+  const [open, setOpen] = useState(true)
+  return (
+    <>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogTitle>Active Edit Modal</DialogTitle>
+          <p>Draft content</p>
+        </DialogContent>
+      </Dialog>
+      <BottomRightOverlayDock />
+    </>
+  )
+}
+
+describe("ApiErrorAlerts, BottomRightOverlayDock, and ErrorBoundary", () => {
   describe("ApiErrorAlerts", () => {
     it("renders newest alert first, closes manually, and auto-dismisses after 3000ms", () => {
       vi.useFakeTimers()
@@ -43,6 +71,69 @@ describe("ApiErrorAlerts and ErrorBoundary", () => {
         vi.advanceTimersByTime(2500)
       })
       expect(screen.queryByText("First failure")).not.toBeInTheDocument()
+    })
+  })
+
+  describe("BottomRightOverlayDock and Dialog exemption", () => {
+    it("stacks ApiErrorAlerts strictly above UploadPanel inside the unified dock and prevents outside-press closing Dialog", async () => {
+      tauriTestHost.setTauriRuntime(false)
+
+      const { user } = renderWithProviders(<DialogWithDockHarness />)
+
+      act(() => {
+        notifyRustError(
+          makeRustErrorEvent({ errorId: "dock-err", message: "Queue warning" })
+        )
+        applyUploadSnapshot(
+          makeUploadSnapshot({
+            revision: 1,
+            visible: true,
+            tasks: [
+              makeUploadTask({
+                id: 1,
+                fileName: "dock-book.epub",
+                status: {
+                  state: "active",
+                  stage: "uploading",
+                  progressPercent: 55,
+                  bytesProcessed: 550,
+                  totalBytes: 1000,
+                  speedBytesPerSec: 100,
+                  etaSeconds: 5,
+                },
+              }),
+            ],
+          })
+        )
+      })
+
+      const dock = document.querySelector("[data-floating-dock]")
+      expect(dock).not.toBeNull()
+      const alertsEl = dock!.querySelector("[data-error-alerts]")
+      const panelEl = dock!.querySelector("[data-upload-panel]")
+      expect(alertsEl).not.toBeNull()
+      expect(panelEl).not.toBeNull()
+      // ApiErrorAlerts precedes UploadPanel inside the flex-col dock -> strictly above it.
+      expect(
+        alertsEl!.compareDocumentPosition(panelEl!) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).not.toBe(0)
+
+      // Clicking inside UploadPanel (e.g. Minimize button) must NOT dismiss the open Dialog!
+      expect(screen.getByText("Active Edit Modal")).toBeInTheDocument()
+      await user.click(
+        screen.getByRole("button", {
+          name: "Minimize upload panel",
+          hidden: true,
+        })
+      )
+      expect(screen.getByText("Active Edit Modal")).toBeInTheDocument()
+      expect(
+        screen.getByRole("button", {
+          name: "Expand upload panel",
+          hidden: true,
+        })
+      ).toBeInTheDocument()
     })
   })
 

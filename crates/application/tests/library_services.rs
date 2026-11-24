@@ -1,7 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
-    io::{Cursor, ErrorKind},
+    io::{self, Cursor, ErrorKind},
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Context, Poll},
+    time::Duration,
 };
 
 use blake3::Hash;
@@ -9,7 +12,10 @@ use shiro_application::library::{
     book::{
         commands::{CreateBookCommand, RestoreBookIdCommand},
         errors::BookApplicationError,
-        file::{errors::BookFileApplicationError, service::BookFileService},
+        file::{
+            errors::BookFileApplicationError,
+            service::{BookFileService, UploadTimeoutPolicy},
+        },
         queries::GetBooksQuery,
         service::BookService,
     },
@@ -36,7 +42,7 @@ use shiro_domain::library::{
 };
 use tokio::{
     fs::File,
-    io::{AsyncRead, AsyncReadExt, Take},
+    io::{AsyncRead, AsyncReadExt, ReadBuf, Take},
     sync::oneshot,
 };
 
@@ -53,6 +59,8 @@ struct MockBookFileStore {
     save_error: Mutex<Option<ErrorKind>>,
     open_error: Mutex<Option<ErrorKind>>,
     gate: Mutex<Option<Arc<SaveGate>>>,
+    after_first_read_gate: Mutex<Option<Arc<SaveGate>>>,
+    post_read_gate: Mutex<Option<Arc<SaveGate>>>,
 }
 
 impl MockBookFileStore {
@@ -77,6 +85,14 @@ impl MockBookFileStore {
 
     fn set_gate(&self, gate: Arc<SaveGate>) {
         *self.gate.lock().unwrap() = Some(gate);
+    }
+
+    fn set_after_first_read_gate(&self, gate: Arc<SaveGate>) {
+        *self.after_first_read_gate.lock().unwrap() = Some(gate);
+    }
+
+    fn set_post_read_gate(&self, gate: Arc<SaveGate>) {
+        *self.post_read_gate.lock().unwrap() = Some(gate);
     }
 }
 
@@ -117,7 +133,34 @@ impl BookFileStore for MockBookFileStore {
         }
 
         let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
+        let mut chunk = [0u8; 64 * 1024];
+        loop {
+            let n = reader.read(&mut chunk).await?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            let after_first = self.after_first_read_gate.lock().unwrap().take();
+            if let Some(gate) = after_first {
+                if let Some(tx) = gate.entered.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                if let Some(rx) = gate.release.lock().await.take() {
+                    let _ = rx.await;
+                }
+            }
+        }
+
+        let post_gate = self.post_read_gate.lock().unwrap().take();
+        if let Some(gate) = post_gate {
+            if let Some(tx) = gate.entered.lock().unwrap().take() {
+                let _ = tx.send(());
+            }
+            if let Some(rx) = gate.release.lock().await.take() {
+                let _ = rx.await;
+            }
+        }
+
         self.existing.lock().unwrap().insert(*hash);
         self.types.lock().unwrap().insert(*hash, BookFileType::EPUB);
         Ok(())
@@ -442,14 +485,23 @@ async fn book_file_service_upload_guard_blocks_concurrent_upload_until_release()
     let upload_hash = hash.clone();
     let upload_data = payload.clone();
     let task = tokio::spawn(async move {
-        svc.upload_book_file(upload_hash, Cursor::new(upload_data))
+        let len = upload_data.len() as u64;
+        svc.upload_book_file(upload_hash, len, Cursor::new(upload_data))
             .await
     });
 
     entered_rx.await.unwrap();
 
+    // Probe also returns UploadConflict while an upload is in progress.
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadConflict
+        ))
+    ));
+
     let dup = service
-        .upload_book_file(hash.clone(), Cursor::new(payload.clone()))
+        .upload_book_file(hash.clone(), payload.len() as u64, Cursor::new(payload.clone()))
         .await;
     assert!(matches!(
         dup,
@@ -461,9 +513,10 @@ async fn book_file_service_upload_guard_blocks_concurrent_upload_until_release()
     release_tx.send(()).unwrap();
     task.await.unwrap().expect("first upload completes");
 
-    // Once UploadGuard drops, subsequent uploads see AlreadyExists rather than UploadConflict.
+    // Once stored, probe returns Ok and subsequent uploads see AlreadyExists.
+    assert!(service.probe_book_file(&hash).is_ok());
     let after = service
-        .upload_book_file(hash, Cursor::new(payload))
+        .upload_book_file(hash, payload.len() as u64, Cursor::new(payload))
         .await;
     assert!(matches!(
         after,
@@ -484,7 +537,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     empty.set_save_error(ErrorKind::AlreadyExists);
     assert!(matches!(
         BookFileService::new(empty)
-            .upload_book_file(hash.clone(), Cursor::new(b"x"))
+            .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
             .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::AlreadyExists
@@ -495,7 +548,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     mismatch.set_save_error(ErrorKind::InvalidData);
     assert!(matches!(
         BookFileService::new(mismatch)
-            .upload_book_file(hash.clone(), Cursor::new(b"x"))
+            .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
             .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::HashMismatch
@@ -506,7 +559,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     unsupported.set_save_error(ErrorKind::Unsupported);
     assert!(matches!(
         BookFileService::new(unsupported)
-            .upload_book_file(hash.clone(), Cursor::new(b"x"))
+            .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
             .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::Unsupported
@@ -517,7 +570,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     io_err.set_save_error(ErrorKind::Other);
     assert!(matches!(
         BookFileService::new(io_err)
-            .upload_book_file(hash.clone(), Cursor::new(b"x"))
+            .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
             .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::Storage(_)
@@ -682,6 +735,347 @@ async fn tag_service_reflects_corrupted_tag_tree_from_repository_as_application_
         err,
         LibraryApplicationError::Tag(shiro_application::library::tag::errors::TagApplicationError::Domain(
             TagDomainError::InvalidTree
+        ))
+    ));
+}
+
+struct PendingReader;
+
+impl AsyncRead for PendingReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        _buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Poll::Pending
+    }
+}
+
+#[test]
+fn upload_timeout_policy_scales_safely_without_overflow() {
+    let policy = UploadTimeoutPolicy::default();
+    assert_eq!(policy.timeout_for_size(0), Duration::from_secs(30));
+    assert_eq!(
+        policy.timeout_for_size(1024 * 1024),
+        Duration::from_secs(46)
+    );
+    assert_eq!(
+        policy.timeout_for_size(64 * 1024 * 1024),
+        Duration::from_secs(30 + 1024)
+    );
+    assert_eq!(
+        policy.timeout_for_size(512 * 1024 * 1024),
+        Duration::from_secs(30 + 8192)
+    );
+    assert_eq!(
+        policy.timeout_for_size(u64::MAX),
+        Duration::from_secs(86_400)
+    );
+
+    let zero_rate = UploadTimeoutPolicy {
+        min_bytes_per_sec: 0,
+        ..UploadTimeoutPolicy::default()
+    };
+    assert_eq!(
+        zero_rate.timeout_for_size(u64::MAX),
+        Duration::from_secs(86_400)
+    );
+}
+
+#[tokio::test]
+async fn book_file_service_stalled_stream_times_out_and_releases_lease() {
+    let policy = UploadTimeoutPolicy {
+        base_timeout: Duration::from_millis(60),
+        min_bytes_per_sec: 1_000_000,
+        min_timeout: Duration::from_millis(60),
+        max_timeout: Duration::from_secs(5),
+    };
+    let service = BookFileService::with_timeout_policy(MockBookFileStore::default(), policy);
+    let payload = b"retry-after-timeout".to_vec();
+    let hash = blake3::hash(&payload).to_hex().to_string();
+
+    let err = service
+        .upload_book_file(hash.clone(), payload.len() as u64, PendingReader)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        LibraryApplicationError::BookFile(BookFileApplicationError::UploadTimeout)
+    ));
+
+    // Lease has been released, so probe sees NotFound and a retry succeeds.
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::NotFound
+        ))
+    ));
+    service
+        .upload_book_file(hash.clone(), payload.len() as u64, Cursor::new(payload))
+        .await
+        .expect("retry upload after timeout succeeds");
+    assert!(service.probe_book_file(&hash).is_ok());
+}
+
+#[tokio::test]
+async fn book_file_service_finalizing_phase_is_not_preempted_by_stream_timeout() {
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    let post_gate = Arc::new(SaveGate {
+        entered: Mutex::new(Some(entered_tx)),
+        release: tokio::sync::Mutex::new(Some(release_rx)),
+    });
+
+    let store = MockBookFileStore::default();
+    store.set_post_read_gate(post_gate);
+
+    let policy = UploadTimeoutPolicy {
+        base_timeout: Duration::from_millis(40),
+        min_bytes_per_sec: 1_000_000,
+        min_timeout: Duration::from_millis(40),
+        max_timeout: Duration::from_secs(5),
+    };
+    let service = Arc::new(BookFileService::with_timeout_policy(store, policy));
+
+    let payload = b"finalize-protected".to_vec();
+    let hash = blake3::hash(&payload).to_hex().to_string();
+
+    let svc = Arc::clone(&service);
+    let h = hash.clone();
+    let data = payload.clone();
+    let task = tokio::spawn(async move {
+        let len = data.len() as u64;
+        svc.upload_book_file(h, len, Cursor::new(data)).await
+    });
+
+    // Wait until stream EOF has transitioned the lease to Finalizing.
+    entered_rx.await.unwrap();
+    // Sleep well beyond the 40ms streaming deadline.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+
+    // Probe and concurrent upload must still get UploadConflict (not preempted).
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadConflict
+        ))
+    ));
+    assert!(matches!(
+        service
+            .upload_book_file(hash.clone(), payload.len() as u64, Cursor::new(payload))
+            .await,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadConflict
+        ))
+    ));
+
+    release_tx.send(()).unwrap();
+    task.await
+        .unwrap()
+        .expect("finalizing upload finishes cleanly");
+    assert!(service.probe_book_file(&hash).is_ok());
+}
+
+#[tokio::test]
+async fn book_file_service_rejects_shorter_and_longer_streams_as_size_mismatch() {
+    let service = BookFileService::new(MockBookFileStore::default());
+    let payload = b"exact-size-payload".to_vec();
+    let hash = blake3::hash(&payload).to_hex().to_string();
+
+    // Actual shorter than declared.
+    let shorter = service
+        .upload_book_file(
+            hash.clone(),
+            payload.len() as u64 + 5,
+            Cursor::new(payload.clone()),
+        )
+        .await;
+    assert!(matches!(
+        shorter,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::SizeMismatch
+        ))
+    ));
+
+    // Actual longer than declared.
+    let longer = service
+        .upload_book_file(
+            hash.clone(),
+            payload.len() as u64 - 1,
+            Cursor::new(payload.clone()),
+        )
+        .await;
+    assert!(matches!(
+        longer,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::SizeMismatch
+        ))
+    ));
+
+    // Invalid hash rejected by probe.
+    assert!(matches!(
+        service.probe_book_file("not-a-valid-hash"),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::InvalidHashFormat
+        ))
+    ));
+
+    // Exact match still succeeds cleanly afterwards.
+    service
+        .upload_book_file(hash, payload.len() as u64, Cursor::new(payload))
+        .await
+        .expect("exact size upload succeeds");
+}
+
+#[tokio::test]
+async fn book_file_service_expired_streaming_lease_takeover_does_not_suffer_aba_removal() {
+    // Simulate a stuck save gate that holds an expired streaming lease until after another upload takes over.
+    let (entered_1_tx, entered_1_rx) = oneshot::channel();
+    let (release_1_tx, release_1_rx) = oneshot::channel();
+    let gate1 = Arc::new(SaveGate {
+        entered: Mutex::new(Some(entered_1_tx)),
+        release: tokio::sync::Mutex::new(Some(release_1_rx)),
+    });
+
+    let store = MockBookFileStore::default();
+    store.set_gate(gate1);
+
+    let policy = UploadTimeoutPolicy {
+        base_timeout: Duration::from_millis(50),
+        min_bytes_per_sec: 1_000_000,
+        min_timeout: Duration::from_millis(50),
+        max_timeout: Duration::from_secs(5),
+    };
+    let service = Arc::new(BookFileService::with_timeout_policy(store, policy));
+
+    let payload = b"aba-test-payload".to_vec();
+    let hash = blake3::hash(&payload).to_hex().to_string();
+
+    // Task 1 enters save() and blocks before reading.
+    let svc1 = Arc::clone(&service);
+    let h1 = hash.clone();
+    let d1 = payload.clone();
+    let task1 = tokio::spawn(async move {
+        let len = d1.len() as u64;
+        svc1.upload_book_file(h1, len, Cursor::new(d1)).await
+    });
+    entered_1_rx.await.unwrap();
+
+    // Wait for Task 1's streaming lease deadline to expire.
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    // Install gate2 isn't accessible directly once moved into service, so instead use a
+    // second upload with PendingReader? No, we need Task 2 to stay in flight while Task 1 drops!
+    // PendingReader stays in flight for 50ms — let's release Task 1 right after Task 2 starts.
+    let svc2 = Arc::clone(&service);
+    let h2 = hash.clone();
+    let len = payload.len() as u64;
+    let task2 = tokio::spawn(async move {
+        svc2.upload_book_file(h2, len, PendingReader).await
+    });
+
+    // Give Task 2 a moment to take over the lease.
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Release Task 1: its ExactSizeReader sees Instant::now() >= deadline and returns UploadTimeout,
+    // dropping Task 1's UploadGuard. Because lease_id differs, Task 2's lease MUST remain intact!
+    release_1_tx.send(()).unwrap();
+    let res1 = task1.await.unwrap();
+    assert!(matches!(
+        res1,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadTimeout
+        ))
+    ));
+
+    // Task 2's lease must STILL be active (not removed by Task 1's Drop)!
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadConflict
+        ))
+    ));
+
+    // Cleanly wait for Task 2 to time out.
+    let res2 = task2.await.unwrap();
+    assert!(matches!(
+        res2,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadTimeout
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn book_file_service_eof_after_deadline_expiration_cannot_enter_finalizing() {
+    let (bytes_read_tx, bytes_read_rx) = oneshot::channel();
+    let (eof_release_tx, eof_release_rx) = oneshot::channel();
+    let after_read_gate = Arc::new(SaveGate {
+        entered: Mutex::new(Some(bytes_read_tx)),
+        release: tokio::sync::Mutex::new(Some(eof_release_rx)),
+    });
+
+    let store = MockBookFileStore::default();
+    store.set_after_first_read_gate(after_read_gate);
+
+    let policy = UploadTimeoutPolicy {
+        base_timeout: Duration::from_millis(50),
+        min_bytes_per_sec: 1_000_000,
+        min_timeout: Duration::from_millis(50),
+        max_timeout: Duration::from_secs(5),
+    };
+    let service = Arc::new(BookFileService::with_timeout_policy(store, policy));
+
+    let payload = b"eof-after-deadline-payload".to_vec();
+    let hash = blake3::hash(&payload).to_hex().to_string();
+
+    // Task 1 reads all payload bytes before deadline, then pauses before reading EOF (simulating async disk flush).
+    let svc1 = Arc::clone(&service);
+    let h1 = hash.clone();
+    let d1 = payload.clone();
+    let task1 = tokio::spawn(async move {
+        let len = d1.len() as u64;
+        svc1.upload_book_file(h1, len, Cursor::new(d1)).await
+    });
+    bytes_read_rx.await.unwrap();
+
+    // Expire Task 1's streaming deadline, then start Task 2 which steals the expired lease.
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let svc2 = Arc::clone(&service);
+    let h2 = hash.clone();
+    let len = payload.len() as u64;
+    let task2 = tokio::spawn(async move {
+        svc2.upload_book_file(h2, len, PendingReader).await
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Release Task 1 to poll EOF: it must fail with UploadTimeout and NEVER persist or touch Task 2's lease.
+    eof_release_tx.send(()).unwrap();
+    let res1 = task1.await.unwrap();
+    assert!(matches!(
+        res1,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadTimeout
+        ))
+    ));
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadConflict
+        ))
+    ));
+
+    let res2 = task2.await.unwrap();
+    assert!(matches!(
+        res2,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::UploadTimeout
+        ))
+    ));
+    assert!(matches!(
+        service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::NotFound
         ))
     ));
 }

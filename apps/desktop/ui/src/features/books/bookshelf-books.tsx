@@ -50,7 +50,6 @@ import {
 import { formatCountMessage, useTranslation } from "@/lib/i18n"
 import { BACK_PRIORITY } from "@/lib/back-navigation"
 import { useBackHandler } from "@/hooks/use-back-handler"
-import { useBottomNavigation } from "@/hooks/use-mobile"
 import type { Book } from "@/lib/types"
 
 type SelectionAnchor = {
@@ -68,7 +67,6 @@ export function BookshelfBooks({
   onSearchChange?: (search: string) => void
 }) {
   const { t, locale } = useTranslation()
-  const useBottomNav = useBottomNavigation()
   const queryClient = useQueryClient()
   const {
     data: books,
@@ -281,10 +279,7 @@ export function BookshelfBooks({
   }
 
   return (
-    <PageSection
-      aria-label={t("local.dashboard.bookshelf")}
-      className={useBottomNav ? "pb-28" : undefined}
-    >
+    <PageSection aria-label={t("local.dashboard.bookshelf")}>
       {isSelectionMode &&
         headerOverlay &&
         createPortal(
@@ -352,7 +347,7 @@ export function BookshelfBooks({
               sort={sort}
               onChange={changeSort}
             />
-            <UploadBookButton floating={useBottomNav} />
+            <UploadBookButton />
           </>
         }
       />
@@ -393,6 +388,7 @@ export function BookshelfBooks({
           icon={<LibraryBig aria-hidden="true" />}
           title={t("local.book.empty")}
           description={t("local.book.empty_hint")}
+          action={<UploadBookButton />}
         />
       ) : visibleBooks.length === 0 ? (
         <EmptyState

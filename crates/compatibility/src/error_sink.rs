@@ -6,7 +6,7 @@ use shiro_error_catalog::{
 };
 use uuid::Uuid;
 
-use crate::dto::BootstrapStateDto;
+use crate::dto::{BootstrapStateDto, UploadPanelSnapshotDto};
 
 const DEFAULT_ERROR_BUFFER_CAPACITY: usize = 64;
 
@@ -18,6 +18,9 @@ pub trait ErrorSink: Send + Sync {
     /// Called when the host runtime state transitions asynchronously (for example when a cloud
     /// session is confirmed invalidated during a background or library request).
     fn emit_runtime_state(&self, _state: &BootstrapStateDto) {}
+
+    /// Called whenever the concurrent upload queue snapshot updates.
+    fn emit_upload_state(&self, _snapshot: &UploadPanelSnapshotDto) {}
 }
 
 /// No-op sink useful in tests and headless callers.
@@ -91,6 +94,10 @@ impl ErrorDispatcher {
 
     pub fn emit_runtime_state(&self, state: &BootstrapStateDto) {
         self.sink.emit_runtime_state(state);
+    }
+
+    pub fn emit_upload_state(&self, snapshot: &UploadPanelSnapshotDto) {
+        self.sink.emit_upload_state(snapshot);
     }
 
     fn record_and_emit(&self, event: &ErrorEventPayload) {

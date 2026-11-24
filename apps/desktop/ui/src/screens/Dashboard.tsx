@@ -41,11 +41,12 @@ import { Separator } from "@/components/ui/separator"
 import { BrandMark } from "@/components/brand-mark"
 import { BookshelfBooks } from "@/features/books/bookshelf-books"
 import { BookSearch } from "@/features/books/book-search"
+import { DesktopDropUploadOverlay } from "@/features/books/desktop-drop-upload-overlay"
 import { TrashList } from "@/features/books/trash-list"
 import { SettingsDialog } from "@/features/settings/settings-dialog"
 import { useAppRuntime } from "@/context/app-runtime-context"
 import { useBackHandler } from "@/hooks/use-back-handler"
-import { useBottomNavigation } from "@/hooks/use-mobile"
+import { isMobilePlatform, useBottomNavigation } from "@/hooks/use-mobile"
 import { BACK_PRIORITY } from "@/lib/back-navigation"
 import { useTranslation } from "@/lib/i18n"
 import { cn } from "cn"
@@ -270,6 +271,14 @@ export function DashboardScreen() {
       {isTauri && (
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       )}
+      <DesktopDropUploadOverlay
+        enabled={
+          !isMobilePlatform() &&
+          isTauri &&
+          bootstrap?.canImportBooks === true &&
+          activeMenu === "bookshelf"
+        }
+      />
     </SidebarProvider>
   )
 }

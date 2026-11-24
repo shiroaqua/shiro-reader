@@ -1,37 +1,72 @@
-import { useSyncExternalStore } from "react"
+import { useEffect, useRef, useSyncExternalStore } from "react"
 import type { QueryClient } from "@tanstack/react-query"
 import { libraryBridge } from "@/api/library"
-import type { ImportBooksResult, ImportProgressEvent } from "@/api/tauri-bridge"
+import type { UploadPanelSnapshot } from "@/api/tauri-bridge"
+import { isMobilePlatform } from "@/hooks/use-mobile"
 import { booksQueryKey } from "@/lib/query-keys"
 
-export type ImportItemProgress = Extract<
-  ImportProgressEvent,
-  { stage: "itemProgress" }
->
+const INVALIDATE_THROTTLE_MS = 150
 
-export interface BookImportSnapshot {
-  pending: boolean
-  progress: ImportItemProgress | null
-  summary: ImportBooksResult | null
-  canCancel: boolean
-  cancelling: boolean
+export const INITIAL_UPLOAD_SNAPSHOT: UploadPanelSnapshot = {
+  revision: 0,
+  visible: false,
+  concurrency: 4,
+  completedCounter: 0,
+  stats: {
+    total: 0,
+    remaining: 0,
+    active: 0,
+    succeeded: 0,
+    failed: 0,
+  },
+  hasDismissibleErrors: false,
+  tasks: [],
 }
 
-const INITIAL_SNAPSHOT: BookImportSnapshot = {
-  pending: false,
-  progress: null,
-  summary: null,
-  canCancel: false,
-  cancelling: false,
+export interface BookImportViewState {
+  upload: UploadPanelSnapshot
+  expanded: boolean
+  mobileOpen: boolean
+  optionsOpen: boolean
+  pickerOpening: boolean
 }
 
-let snapshot: BookImportSnapshot = INITIAL_SNAPSHOT
-let generation = 0
+const INITIAL_VIEW_STATE: BookImportViewState = {
+  upload: INITIAL_UPLOAD_SNAPSHOT,
+  expanded: true,
+  mobileOpen: false,
+  optionsOpen: false,
+  pickerOpening: false,
+}
+
+let state: BookImportViewState = INITIAL_VIEW_STATE
+let hydrated = false
 const listeners = new Set<() => void>()
 
-function updateSnapshot(patch: Partial<BookImportSnapshot>) {
-  snapshot = { ...snapshot, ...patch }
+function emitChange() {
   listeners.forEach((listener) => listener())
+}
+
+function updateView(patch: Partial<BookImportViewState>) {
+  state = { ...state, ...patch }
+  emitChange()
+}
+
+export function applyUploadSnapshot(next: UploadPanelSnapshot) {
+  if (next.revision < state.upload.revision) return
+  if (next.revision === state.upload.revision && hydrated) return
+  hydrated = true
+  const wasVisible = state.upload.visible
+  const shouldCloseMobile = !next.visible && state.mobileOpen
+  updateView({
+    upload: next,
+    expanded: !wasVisible && next.visible ? true : state.expanded,
+    mobileOpen: next.visible ? state.mobileOpen : false,
+    optionsOpen: next.visible ? state.optionsOpen : false,
+  })
+  if (shouldCloseMobile) {
+    void libraryBridge.uploadSetMobileUiOpen(false).catch(() => {})
+  }
 }
 
 function subscribe(listener: () => void) {
@@ -41,83 +76,233 @@ function subscribe(listener: () => void) {
   }
 }
 
-function getSnapshot(): BookImportSnapshot {
-  return snapshot
+function getSnapshot(): BookImportViewState {
+  return state
 }
 
-export function useBookImportState(): BookImportSnapshot {
+export function useBookImportState(): BookImportViewState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 export function resetBookImportState() {
-  generation += 1
-  if (snapshot === INITIAL_SNAPSHOT) return
-  snapshot = INITIAL_SNAPSHOT
-  listeners.forEach((listener) => listener())
+  hydrated = false
+  if (state === INITIAL_VIEW_STATE) return
+  state = INITIAL_VIEW_STATE
+  emitChange()
 }
 
-export async function startBookImport(queryClient: QueryClient): Promise<void> {
-  if (snapshot.pending) return
-
-  const runGeneration = generation
-  let importedAny = false
-  updateSnapshot({
-    pending: true,
-    progress: null,
-    summary: null,
-    canCancel: false,
-    cancelling: false,
+export function setUploadPanelExpanded(expanded: boolean) {
+  if (state.expanded === expanded) return
+  updateView({
+    expanded,
+    optionsOpen: expanded ? state.optionsOpen : false,
   })
+}
 
+export function openMobileUploadPanel() {
+  if (!state.mobileOpen) {
+    updateView({ mobileOpen: true })
+  }
+  void libraryBridge.uploadSetMobileUiOpen(true).catch(() => {})
+}
+
+export function closeMobileUploadPanel() {
+  if (!state.mobileOpen && !state.optionsOpen) {
+    void libraryBridge.uploadSetMobileUiOpen(false).catch(() => {})
+    return
+  }
+  updateView({
+    mobileOpen: false,
+    optionsOpen: false,
+  })
+  void libraryBridge.uploadSetMobileUiOpen(false).catch(() => {})
+}
+
+export function toggleUploadOptions() {
+  updateView({ optionsOpen: !state.optionsOpen })
+}
+
+export async function pickAndEnqueueBooks(): Promise<void> {
+  if (state.pickerOpening) return
+  updateView({ pickerOpening: true })
   try {
-    const result = await libraryBridge.pickAndImportBooks((event) => {
-      if (generation !== runGeneration) return
-      switch (event.stage) {
-        case "started":
-          updateSnapshot({ canCancel: true })
-          break
-        case "itemProgress":
-          updateSnapshot({ progress: event })
-          break
-        case "itemSucceeded":
-          importedAny = true
-          void queryClient.invalidateQueries({ queryKey: booksQueryKey })
-          break
-        case "finished":
-          updateSnapshot({ canCancel: false })
-          break
-      }
-    })
-    if (generation !== runGeneration) return
-    importedAny ||= result.imported.length > 0
-    if (result.failed.length || result.skipped.length) {
-      updateSnapshot({ summary: result })
-    }
+    const next = await libraryBridge.uploadPickAndEnqueue()
+    applyUploadSnapshot(next)
   } catch {
     // Rust host emits localized shiro://error notification.
   } finally {
-    if (generation === runGeneration) {
-      updateSnapshot({
-        pending: false,
-        progress: null,
-        canCancel: false,
-        cancelling: false,
-      })
-      if (importedAny) {
-        await queryClient.invalidateQueries({ queryKey: booksQueryKey })
-      }
-    }
+    updateView({ pickerOpening: false })
   }
 }
 
-export async function cancelActiveBookImport(): Promise<void> {
-  if (!snapshot.pending || snapshot.cancelling) return
-  updateSnapshot({ cancelling: true })
+export async function enqueueUploadPaths(paths: string[]): Promise<void> {
+  if (paths.length === 0) return
   try {
-    if (!(await libraryBridge.cancelBookImport())) {
-      updateSnapshot({ cancelling: false })
-    }
+    const next = await libraryBridge.uploadEnqueuePaths(paths)
+    applyUploadSnapshot(next)
   } catch {
-    updateSnapshot({ cancelling: false })
+    // Rust host emits localized shiro://error notification.
   }
+}
+
+export async function retryUploadTask(taskId: number): Promise<void> {
+  try {
+    const next = await libraryBridge.uploadRetryTask(taskId)
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+export async function cancelUploadTask(taskId: number): Promise<void> {
+  try {
+    const next = await libraryBridge.uploadCancelTask(taskId)
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+export async function cancelAllUploads(): Promise<void> {
+  try {
+    const next = await libraryBridge.uploadCancelAll()
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+export async function dismissUploadTask(taskId: number): Promise<void> {
+  try {
+    const next = await libraryBridge.uploadDismissTask(taskId)
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+export async function dismissUploadErrors(): Promise<void> {
+  try {
+    const next = await libraryBridge.uploadDismissErrors()
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+export async function setUploadConcurrency(concurrency: number): Promise<void> {
+  const clamped = Math.min(16, Math.max(1, Math.floor(concurrency)))
+  try {
+    const next = await libraryBridge.uploadSetConcurrency(clamped)
+    applyUploadSnapshot(next)
+  } catch {
+    // Rust host emits localized shiro://error notification.
+  }
+}
+
+/**
+ * Subscribes to `libraryBridge.listenUploadState` (covering both Tauri and mock preview),
+ * hydrates initial state, and invalidates bookshelf queries with 150ms throttling whenever
+ * the monotonic `completedCounter` advances (flushing immediately once `remaining === 0`).
+ */
+export function useUploadQueueSync(queryClient: QueryClient, enabled: boolean) {
+  const wasEnabledRef = useRef(enabled)
+
+  useEffect(() => {
+    const wasEnabled = wasEnabledRef.current
+    wasEnabledRef.current = enabled
+    if (!enabled) {
+      if (wasEnabled) {
+        if (state.mobileOpen) {
+          void libraryBridge.uploadSetMobileUiOpen(false).catch(() => {})
+        }
+        resetBookImportState()
+      }
+      return
+    }
+    let active = true
+    let unlisten: (() => void) | undefined
+    let unlistenOpenUi: (() => void) | undefined
+    let lastCompleted = state.upload.completedCounter
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null
+    let needsInvalidate = false
+
+    const flushInvalidation = () => {
+      if (pendingTimer !== null) {
+        clearTimeout(pendingTimer)
+        pendingTimer = null
+      }
+      if (!needsInvalidate) return
+      needsInvalidate = false
+      void queryClient.invalidateQueries({ queryKey: booksQueryKey })
+    }
+
+    const checkCompletedCounter = (next: UploadPanelSnapshot) => {
+      if (!active) return
+      if (next.completedCounter > lastCompleted) {
+        lastCompleted = next.completedCounter
+        needsInvalidate = true
+        if (next.stats.remaining === 0) {
+          flushInvalidation()
+        } else if (pendingTimer === null) {
+          pendingTimer = setTimeout(flushInvalidation, INVALIDATE_THROTTLE_MS)
+        }
+      } else if (needsInvalidate && next.stats.remaining === 0) {
+        flushInvalidation()
+      }
+    }
+
+    const unsubscribeStore = subscribe(() => {
+      checkCompletedCounter(state.upload)
+    })
+
+    const handleSnapshot = (next: UploadPanelSnapshot) => {
+      if (!active) return
+      applyUploadSnapshot(next)
+      checkCompletedCounter(state.upload)
+    }
+
+    const init = async () => {
+      try {
+        const stop = await libraryBridge.listenUploadState(handleSnapshot)
+        if (!active) {
+          stop()
+          return
+        }
+        unlisten = stop
+        if (isMobilePlatform()) {
+          const stopOpenUi = await libraryBridge.listenUploadOpenUi(() => {
+            if (!active) return
+            openMobileUploadPanel()
+          })
+          if (!active) {
+            stopOpenUi()
+            return
+          }
+          unlistenOpenUi = stopOpenUi
+        }
+        const initial = await libraryBridge.uploadGetState()
+        if (!active) return
+        handleSnapshot(initial)
+        if (isMobilePlatform()) {
+          const pending = await libraryBridge.uploadConsumePendingOpenUi()
+          if (active && pending) {
+            openMobileUploadPanel()
+          }
+        }
+      } catch {
+        // Ignore bridge initialization failure outside supported runtimes.
+      }
+    }
+
+    void init()
+
+    return () => {
+      active = false
+      unsubscribeStore()
+      flushInvalidation()
+      unlisten?.()
+      unlistenOpenUi?.()
+    }
+  }, [queryClient, enabled])
 }

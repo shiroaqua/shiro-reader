@@ -1,11 +1,35 @@
 import { getBookCoverProtocolUrl, tauriBridge } from "./tauri-bridge"
 
-export type LibraryBridge = Pick<typeof tauriBridge,
-  | "booksList" | "bookRename" | "booksDelete"
-  | "trashList" | "trashRestore" | "trashPermanentlyDelete"
-  | "tagsList" | "tagDefine" | "tagRename" | "tagRecolor" | "tagMove"
-  | "tagUndefine" | "bookTagsList" | "bookTagBind" | "bookTagUnbind"
-  | "pickAndImportBooks" | "cancelBookImport"
+export type LibraryBridge = Pick<
+  typeof tauriBridge,
+  | "booksList"
+  | "bookRename"
+  | "booksDelete"
+  | "trashList"
+  | "trashRestore"
+  | "trashPermanentlyDelete"
+  | "tagsList"
+  | "tagDefine"
+  | "tagRename"
+  | "tagRecolor"
+  | "tagMove"
+  | "tagUndefine"
+  | "bookTagsList"
+  | "bookTagBind"
+  | "bookTagUnbind"
+  | "listenUploadState"
+  | "listenUploadOpenUi"
+  | "uploadGetState"
+  | "uploadPickAndEnqueue"
+  | "uploadEnqueuePaths"
+  | "uploadRetryTask"
+  | "uploadCancelTask"
+  | "uploadCancelAll"
+  | "uploadDismissTask"
+  | "uploadDismissErrors"
+  | "uploadSetConcurrency"
+  | "uploadConsumePendingOpenUi"
+  | "uploadSetMobileUiOpen"
 > & {
   coverUrl: (id: string) => string | undefined
 }
@@ -50,6 +74,7 @@ export const library = {
     rename: (id: string, name: string) => libraryBridge.tagRename(id, name),
     recolor: (id: string, color: string) => libraryBridge.tagRecolor(id, color),
     move: (id: string, parentId: string | null) => libraryBridge.tagMove(id, parentId),
-    undefine: (...args: Parameters<LibraryBridge["tagUndefine"]>) => libraryBridge.tagUndefine(...args),
+    undefine: (...args: Parameters<LibraryBridge["tagUndefine"]>) =>
+      libraryBridge.tagUndefine(...args),
   },
 }

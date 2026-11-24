@@ -1,9 +1,8 @@
 import type { LibraryBridge } from "@/api/library"
 import {
   CommandError,
-  type ImportBooksResult,
-  type ImportProgressEvent,
   type RestoreBooksResult,
+  type UploadPanelSnapshot,
 } from "@/api/tauri-bridge"
 import type {
   Book,
@@ -16,22 +15,31 @@ import type {
 } from "@/lib/types"
 import {
   makeCommandErrorPayload,
-  makeImportResult,
+  makeUploadSnapshot,
   nextId,
 } from "./builders"
-import type { FakeChannel } from "./mock-tauri"
 
-type ImportHandler = (
-  emit: (event: ImportProgressEvent) => void
-) => Promise<ImportBooksResult>
+type UploadListener = (snapshot: UploadPanelSnapshot) => void
+type UploadOpenUiListener = () => void
 
 export class FakeLibrary implements LibraryBridge {
   private books = new Map<string, Book>()
   private trash = new Map<string, TrashedBook>()
   private tags = new Map<string, Tag>()
   private bindings = new Map<string, Map<string, BookTag>>()
-  private importHandler: ImportHandler = async () => makeImportResult()
-  private cancelResult = false
+  private uploadListeners = new Set<UploadListener>()
+  private uploadOpenUiListeners = new Set<UploadOpenUiListener>()
+  private pendingOpenUi = false
+  mobileUiOpenHistory: boolean[] = []
+  private uploadSnapshot: UploadPanelSnapshot = makeUploadSnapshot({
+    revision: 0,
+    visible: false,
+    tasks: [],
+  })
+  private pickHandler?: () => Promise<UploadPanelSnapshot>
+  private enqueuePathsHandler?: (
+    paths: string[]
+  ) => Promise<UploadPanelSnapshot>
   private coverBaseUrl = "shiro-cover://localhost/book/"
 
   seedBooks(items: readonly Book[]): this {
@@ -69,13 +77,40 @@ export class FakeLibrary implements LibraryBridge {
     return this
   }
 
-  setImportHandler(handler: ImportHandler): this {
-    this.importHandler = handler
+  setUploadSnapshot(snapshot: UploadPanelSnapshot): this {
+    this.uploadSnapshot = snapshot
     return this
   }
 
-  setCancelResult(result: boolean): this {
-    this.cancelResult = result
+  emitUploadSnapshot(snapshot: UploadPanelSnapshot): this {
+    this.uploadSnapshot = snapshot
+    for (const listener of [...this.uploadListeners]) {
+      listener(snapshot)
+    }
+    return this
+  }
+
+  setPendingOpenUi(pending: boolean): this {
+    this.pendingOpenUi = pending
+    return this
+  }
+
+  emitUploadOpenUi(): this {
+    for (const listener of [...this.uploadOpenUiListeners]) {
+      listener()
+    }
+    return this
+  }
+
+  setPickHandler(handler: () => Promise<UploadPanelSnapshot>): this {
+    this.pickHandler = handler
+    return this
+  }
+
+  setEnqueuePathsHandler(
+    handler: (paths: string[]) => Promise<UploadPanelSnapshot>
+  ): this {
+    this.enqueuePathsHandler = handler
     return this
   }
 
@@ -229,11 +264,139 @@ export class FakeLibrary implements LibraryBridge {
     this.bindings.get(bookId)?.delete(tagId)
   }
 
-  pickAndImportBooks = async (
-    onEvent: (event: ImportProgressEvent) => void
-  ): Promise<ImportBooksResult> => this.importHandler(onEvent)
+  listenUploadState = async (
+    handler: (snapshot: UploadPanelSnapshot) => void
+  ): Promise<() => void> => {
+    this.uploadListeners.add(handler)
+    return () => {
+      this.uploadListeners.delete(handler)
+    }
+  }
 
-  cancelBookImport = async (): Promise<boolean> => this.cancelResult
+  listenUploadOpenUi = async (handler: () => void): Promise<() => void> => {
+    this.uploadOpenUiListeners.add(handler)
+    return () => {
+      this.uploadOpenUiListeners.delete(handler)
+    }
+  }
+
+  uploadConsumePendingOpenUi = async (): Promise<boolean> => {
+    const pending = this.pendingOpenUi
+    this.pendingOpenUi = false
+    return pending
+  }
+
+  uploadSetMobileUiOpen = async (open: boolean): Promise<void> => {
+    this.mobileUiOpenHistory.push(open)
+  }
+
+  uploadGetState = async (): Promise<UploadPanelSnapshot> => this.uploadSnapshot
+
+  uploadPickAndEnqueue = async (): Promise<UploadPanelSnapshot> => {
+    if (this.pickHandler) {
+      const next = await this.pickHandler()
+      this.emitUploadSnapshot(next)
+      return next
+    }
+    return this.uploadSnapshot
+  }
+
+  uploadEnqueuePaths = async (
+    paths: string[]
+  ): Promise<UploadPanelSnapshot> => {
+    if (this.enqueuePathsHandler) {
+      const next = await this.enqueuePathsHandler(paths)
+      this.emitUploadSnapshot(next)
+      return next
+    }
+    return this.uploadSnapshot
+  }
+
+  uploadRetryTask = async (taskId: number): Promise<UploadPanelSnapshot> => {
+    const tasks = this.uploadSnapshot.tasks.map((task) =>
+      task.id === taskId && task.status.state === "failed"
+        ? { ...task, status: { state: "queued" as const } }
+        : task
+    )
+    const next = makeUploadSnapshot({
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      tasks,
+      completedCounter: this.uploadSnapshot.completedCounter,
+    })
+    this.emitUploadSnapshot(next)
+    return next
+  }
+
+  uploadCancelTask = async (taskId: number): Promise<UploadPanelSnapshot> => {
+    const tasks = this.uploadSnapshot.tasks.filter((task) => task.id !== taskId)
+    const next = makeUploadSnapshot({
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      visible: tasks.length > 0,
+      tasks,
+      completedCounter: this.uploadSnapshot.completedCounter,
+    })
+    this.emitUploadSnapshot(next)
+    return next
+  }
+
+  uploadCancelAll = async (): Promise<UploadPanelSnapshot> => {
+    const tasks = this.uploadSnapshot.tasks.filter(
+      (task) =>
+        task.status.state !== "queued" && task.status.state !== "active"
+    )
+    const next = makeUploadSnapshot({
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      visible: tasks.length > 0,
+      tasks,
+      completedCounter: this.uploadSnapshot.completedCounter,
+    })
+    this.emitUploadSnapshot(next)
+    return next
+  }
+
+  uploadDismissTask = async (taskId: number): Promise<UploadPanelSnapshot> => {
+    const tasks = this.uploadSnapshot.tasks.filter((task) => task.id !== taskId)
+    const next = makeUploadSnapshot({
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      visible: tasks.length > 0,
+      tasks,
+      completedCounter: this.uploadSnapshot.completedCounter,
+    })
+    this.emitUploadSnapshot(next)
+    return next
+  }
+
+  uploadDismissErrors = async (): Promise<UploadPanelSnapshot> => {
+    const tasks = this.uploadSnapshot.tasks.filter(
+      (task) => task.status.state !== "failed"
+    )
+    const next = makeUploadSnapshot({
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      visible: tasks.length > 0,
+      tasks,
+      completedCounter: this.uploadSnapshot.completedCounter,
+    })
+    this.emitUploadSnapshot(next)
+    return next
+  }
+
+  uploadSetConcurrency = async (
+    concurrency: number
+  ): Promise<UploadPanelSnapshot> => {
+    const clamped = Math.min(16, Math.max(1, Math.floor(concurrency)))
+    const next: UploadPanelSnapshot = {
+      ...this.uploadSnapshot,
+      revision: this.uploadSnapshot.revision + 1,
+      concurrency: clamped,
+    }
+    this.emitUploadSnapshot(next)
+    return next
+  }
 
   coverUrl = (id: string): string | undefined =>
     `${this.coverBaseUrl}${encodeURIComponent(id)}`
@@ -284,15 +447,21 @@ export class FakeLibrary implements LibraryBridge {
         }),
       book_tag_unbind: (args) =>
         this.bookTagUnbind(String(args?.bookId), String(args?.tagId)),
-      pick_and_import_books: (args) => {
-        const channel = args?.onEvent as
-          | FakeChannel<ImportProgressEvent>
-          | undefined
-        return this.pickAndImportBooks((event) => {
-          channel?.onmessage(event)
-        })
-      },
-      cancel_book_import: () => this.cancelBookImport(),
+      upload_get_state: () => this.uploadGetState(),
+      upload_pick_and_enqueue: () => this.uploadPickAndEnqueue(),
+      upload_enqueue_paths: (args) =>
+        this.uploadEnqueuePaths((args?.paths as string[] | undefined) ?? []),
+      upload_retry_task: (args) => this.uploadRetryTask(Number(args?.taskId)),
+      upload_cancel_task: (args) => this.uploadCancelTask(Number(args?.taskId)),
+      upload_cancel_all: () => this.uploadCancelAll(),
+      upload_dismiss_task: (args) =>
+        this.uploadDismissTask(Number(args?.taskId)),
+      upload_dismiss_errors: () => this.uploadDismissErrors(),
+      upload_set_concurrency: (args) =>
+        this.uploadSetConcurrency(Number(args?.concurrency)),
+      upload_consume_pending_open_ui: () => this.uploadConsumePendingOpenUi(),
+      upload_set_mobile_ui_open: (args) =>
+        this.uploadSetMobileUiOpen(Boolean(args?.open)),
     }
   }
 

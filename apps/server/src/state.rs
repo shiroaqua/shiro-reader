@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use argon2::Params;
@@ -10,7 +10,10 @@ use shiro_application::{
         ports::{UserLibraryProvisioner, UserRepository},
         user::service::UserService,
     },
-    library::{book::file::service::BookFileService, context::LibraryContext},
+    library::{
+        book::file::service::{BookFileService, UploadTimeoutPolicy},
+        context::LibraryContext,
+    },
 };
 use shiro_infrastructure::{
     crypto::CryptoService,
@@ -27,7 +30,7 @@ use shiro_infrastructure::{
 };
 use toasty::Db;
 
-use crate::{config::Config, infrastructure::dependencies};
+use crate::{app::DEFAULT_STANDARD_REQUEST_TIMEOUT, config::Config, infrastructure::dependencies};
 
 pub type ServerUserService = UserService<SqliteUserRepository, UserDatabaseProvider, CryptoService>;
 pub type ServerAuthenticationService =
@@ -40,6 +43,7 @@ pub struct AppState {
     pub bookfile_service: Arc<SqliteBookFileService>,
     pub user_database_provider: Arc<UserDatabaseProvider>,
     pub max_upload_size: usize,
+    pub standard_request_timeout: Duration,
 }
 
 impl AppState {
@@ -81,6 +85,14 @@ impl AppState {
                 .scan_async()
                 .await?;
 
+        let base_timeout = Duration::from_secs(config.server.upload_base_timeout_secs);
+        let timeout_policy = UploadTimeoutPolicy {
+            base_timeout,
+            min_bytes_per_sec: config.server.upload_min_bytes_per_sec,
+            min_timeout: base_timeout,
+            ..UploadTimeoutPolicy::default()
+        };
+
         Ok(Self {
             user_service: Arc::new(UserService::new(
                 user_repository.clone(),
@@ -92,9 +104,13 @@ impl AppState {
                 session_repository,
                 crypto_service,
             )),
-            bookfile_service: Arc::new(BookFileService::new(book_file_storage)),
+            bookfile_service: Arc::new(BookFileService::with_timeout_policy(
+                book_file_storage,
+                timeout_policy,
+            )),
             user_database_provider,
             max_upload_size: config.server.max_upload_size,
+            standard_request_timeout: DEFAULT_STANDARD_REQUEST_TIMEOUT,
         })
     }
 }

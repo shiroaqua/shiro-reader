@@ -105,7 +105,6 @@ export function renderApp(options: AppRenderOptions = {}) {
   const result = render(
     <QueryClientProvider client={queryClient}>
       <App preview={preview} />
-      <ApiErrorAlerts />
     </QueryClientProvider>
   )
 

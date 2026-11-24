@@ -2,8 +2,43 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
-function isWithinErrorAlerts(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("[data-error-alerts]") !== null
+function isWithinFloatingOverlay(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("[data-error-alerts], [data-upload-panel]") !== null
+  )
+}
+
+export function shouldCancelUnderlyingModalDismiss(
+  open: boolean,
+  eventDetails: { reason: string; event: Event; cancel: () => void },
+  protectOutsideOverlays: boolean
+): boolean {
+  if (open) return false
+  if (
+    eventDetails.reason === "escape-key" &&
+    document.querySelector('[data-upload-panel][role="dialog"]') !== null
+  ) {
+    eventDetails.cancel()
+    return true
+  }
+  if (
+    protectOutsideOverlays &&
+    (eventDetails.reason === "outside-press" ||
+      eventDetails.reason === "focus-out")
+  ) {
+    const event = eventDetails.event
+    const relatedTarget =
+      "relatedTarget" in event ? (event.relatedTarget as EventTarget | null) : null
+    if (
+      isWithinFloatingOverlay(event.target) ||
+      isWithinFloatingOverlay(relatedTarget)
+    ) {
+      eventDetails.cancel()
+      return true
+    }
+  }
+  return false
 }
 
 function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
@@ -11,22 +46,7 @@ function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
     <DialogPrimitive.Root
       data-slot="dialog"
       onOpenChange={(open, eventDetails) => {
-        if (
-          !open &&
-          (eventDetails.reason === "outside-press" ||
-            eventDetails.reason === "focus-out")
-        ) {
-          const event = eventDetails.event
-          const relatedTarget =
-            "relatedTarget" in event ? event.relatedTarget : null
-          if (
-            isWithinErrorAlerts(event.target) ||
-            isWithinErrorAlerts(relatedTarget)
-          ) {
-            eventDetails.cancel()
-            return
-          }
-        }
+        if (shouldCancelUnderlyingModalDismiss(open, eventDetails, true)) return
         onOpenChange?.(open, eventDetails)
       }}
       {...props}

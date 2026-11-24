@@ -73,4 +73,29 @@ describe("back-navigation", () => {
       }
     }
   )
+
+  it("lets uploadOverlay priority handlers consume Back before underlying DOM dialogs", () => {
+    const overlay = document.createElement("div")
+    overlay.setAttribute("role", "dialog")
+    document.body.appendChild(overlay)
+
+    const keydownListener = vi.fn()
+    document.body.addEventListener("keydown", keydownListener)
+
+    const uploadHandler = vi.fn(() => true)
+    const unsubUpload = registerBackHandler(
+      BACK_PRIORITY.uploadOverlay,
+      uploadHandler
+    )
+
+    try {
+      expect(dispatchBack()).toBe(true)
+      expect(uploadHandler).toHaveBeenCalledTimes(1)
+      expect(keydownListener).not.toHaveBeenCalled()
+    } finally {
+      unsubUpload()
+      document.body.removeEventListener("keydown", keydownListener)
+      overlay.remove()
+    }
+  })
 })

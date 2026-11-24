@@ -47,6 +47,16 @@ vi.mock("@tauri-apps/plugin-os", async () => {
   }
 })
 
+vi.mock("@tauri-apps/api/webview", async () => {
+  const { tauriTestHost: host } = await import("./support/mock-tauri")
+  return {
+    getCurrentWebview: () => ({
+      onDragDropEvent: (handler: (event: { payload: unknown }) => void) =>
+        host.registerDragDrop(handler),
+    }),
+  }
+})
+
 installMediaMocks()
 
 if (typeof globalThis.ResizeObserver === "undefined") {

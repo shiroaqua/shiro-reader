@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use shiro_application::library::book::dto::GetBookOutput;
 use shiro_domain::library::tag::value_objects::TagDeleteStrategy;
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorEventPayload};
 
@@ -41,72 +40,63 @@ pub struct RestoreBooksResult {
     pub skipped_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UploadActiveStage {
+    Staging,
+    Uploading,
+    Finalizing,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "stage", rename_all = "camelCase")]
-pub enum ImportProgressEvent {
-    Started {
-        #[serde(rename = "operationId")]
-        operation_id: String,
-        total: usize,
-    },
-    ItemProgress {
-        #[serde(rename = "operationId")]
-        operation_id: String,
-        index: usize,
-        total: usize,
-        #[serde(rename = "fileName")]
-        file_name: String,
-        #[serde(rename = "bytesRead")]
-        bytes_read: u64,
-        #[serde(rename = "totalBytes")]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum UploadTaskStatusDto {
+    Queued,
+    Active {
+        stage: UploadActiveStage,
+        progress_percent: u8,
+        bytes_processed: u64,
         total_bytes: Option<u64>,
+        speed_bytes_per_sec: Option<u64>,
+        eta_seconds: Option<u64>,
     },
-    ItemSucceeded {
-        #[serde(rename = "operationId")]
-        operation_id: String,
-        index: usize,
-        total: usize,
-        book: GetBookOutput,
+    Succeeded {
+        book_id: String,
+        title: String,
     },
-    ItemFailed {
-        #[serde(rename = "operationId")]
-        operation_id: String,
-        index: usize,
-        total: usize,
-        #[serde(rename = "fileName")]
-        file_name: String,
-        error: CommandErrorPayload,
-    },
-    Finished {
-        #[serde(rename = "operationId")]
-        operation_id: String,
-        cancelled: bool,
-        #[serde(rename = "importedCount")]
-        imported_count: usize,
-        #[serde(rename = "failedCount")]
-        failed_count: usize,
-        #[serde(rename = "skippedCount")]
-        skipped_count: usize,
+    Failed {
+        error: ErrorEventPayload,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImportBookItemFailure {
+pub struct UploadTaskDto {
+    pub id: u64,
     pub file_name: String,
-    pub error: CommandErrorPayload,
+    pub status: UploadTaskStatusDto,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadSessionStatsDto {
+    pub total: usize,
+    pub remaining: usize,
+    pub active: usize,
+    pub succeeded: usize,
+    pub failed: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ImportBooksResult {
-    pub operation_id: String,
-    pub cancelled: bool,
-    pub imported: Vec<GetBookOutput>,
-    pub failed: Vec<ImportBookItemFailure>,
-    pub skipped: Vec<String>,
-    pub aborted_reason: Option<CommandErrorPayload>,
-    pub summary_message: Option<String>,
+pub struct UploadPanelSnapshotDto {
+    pub revision: u64,
+    pub visible: bool,
+    pub concurrency: usize,
+    pub completed_counter: u64,
+    pub stats: UploadSessionStatsDto,
+    pub has_dismissible_errors: bool,
+    pub tasks: Vec<UploadTaskDto>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,6 +153,7 @@ pub struct BootstrapStateDto {
     pub default_library_root: String,
     pub cloud_origin: Option<String>,
     pub can_pick_library_dir: bool,
+    pub can_import_books: bool,
     pub cover_url_base: String,
     pub startup_error: Option<StartupDiagnostic>,
     pub cloud: Option<CloudStatusDto>,
@@ -185,4 +176,51 @@ pub struct UpdateSettingsRequest {
     pub locale: Option<AppLocale>,
     pub local_library_root: Option<String>,
     pub cloud_origin: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_panel_snapshot_serializes_with_camel_case_tagged_status() {
+        let snap = UploadPanelSnapshotDto {
+            revision: 3,
+            visible: true,
+            concurrency: 4,
+            completed_counter: 12,
+            stats: UploadSessionStatsDto {
+                total: 2,
+                remaining: 1,
+                active: 1,
+                succeeded: 1,
+                failed: 0,
+            },
+            has_dismissible_errors: false,
+            tasks: vec![UploadTaskDto {
+                id: 7,
+                file_name: "demo.epub".to_owned(),
+                status: UploadTaskStatusDto::Active {
+                    stage: UploadActiveStage::Uploading,
+                    progress_percent: 42,
+                    bytes_processed: 1024,
+                    total_bytes: Some(2048),
+                    speed_bytes_per_sec: Some(512),
+                    eta_seconds: Some(2),
+                },
+            }],
+        };
+
+        let value = serde_json::to_value(&snap).unwrap();
+        assert_eq!(value["completedCounter"], 12);
+        assert_eq!(value["hasDismissibleErrors"], false);
+        assert_eq!(value["tasks"][0]["fileName"], "demo.epub");
+        assert_eq!(value["tasks"][0]["status"]["state"], "active");
+        assert_eq!(value["tasks"][0]["status"]["stage"], "uploading");
+        assert_eq!(value["tasks"][0]["status"]["progressPercent"], 42);
+        assert_eq!(value["tasks"][0]["status"]["bytesProcessed"], 1024);
+        assert_eq!(value["tasks"][0]["status"]["totalBytes"], 2048);
+        assert_eq!(value["tasks"][0]["status"]["speedBytesPerSec"], 512);
+        assert_eq!(value["tasks"][0]["status"]["etaSeconds"], 2);
+    }
 }

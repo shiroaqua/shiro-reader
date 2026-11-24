@@ -1,18 +1,22 @@
+mod android_upload_notification;
 mod commands;
 mod cover;
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    pin::Pin,
+    sync::Arc,
 };
 
 use shiro_compatibility::{
-    BootstrapStateDto, ClientLogLevel, ClientRuntime, ConfigStore, ErrorSink, PlatformCapabilities,
+    BootstrapStateDto, ClientLogLevel, ClientRuntime, ConfigStore, ErrorSink,
+    OpenUploadSourceFuture, PlatformCapabilities, UploadPanelSnapshotDto, UploadSourceLocator,
+    UploadSourceOpener,
 };
-use shiro_error_catalog::{AppLocale, ErrorEventPayload};
+use shiro_error_catalog::{AppLocale, ErrorCode, ErrorEventPayload};
 use shiro_infrastructure::pdfium::load_bundled_pdfium;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
-use tokio_util::sync::CancellationToken;
+use tauri_plugin_dialog::FilePath;
 
 /// Tauri event name carrying Rust-localized client error notifications.
 pub const ERROR_EVENT_NAME: &str = "shiro://error";
@@ -20,63 +24,46 @@ pub const ERROR_EVENT_NAME: &str = "shiro://error";
 /// Tauri event name carrying asynchronous runtime state transitions (e.g. cloud session revocation).
 pub const RUNTIME_STATE_EVENT_NAME: &str = "shiro://runtime-state";
 
+/// Tauri event name carrying concurrent upload queue snapshots.
+pub const UPLOAD_STATE_EVENT_NAME: &str = "shiro://upload-state";
+
+/// Tauri event name emitted when the user taps the Android upload notification.
+pub const UPLOAD_OPEN_UI_EVENT_NAME: &str = "shiro://upload-open-ui";
+
 pub struct DesktopAppState {
     pub runtime: Arc<ClientRuntime>,
-    active_import_cancel: Mutex<Option<CancellationToken>>,
 }
 
 impl DesktopAppState {
     pub fn new(runtime: Arc<ClientRuntime>) -> Self {
-        Self {
-            runtime,
-            active_import_cancel: Mutex::new(None),
-        }
+        Self { runtime }
     }
+}
 
-    pub fn begin_import_session(&self) -> Option<ImportCancelGuard<'_>> {
-        let mut slot = self
-            .active_import_cancel
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if slot.is_some() {
-            return None;
-        }
-        let token = slot.insert(CancellationToken::new()).clone();
-        Some(ImportCancelGuard {
-            slot: &self.active_import_cancel,
-            token,
+struct TauriSourceOpener {
+    app: AppHandle,
+}
+
+impl UploadSourceOpener for TauriSourceOpener {
+    fn open_source(&self, locator: &UploadSourceLocator) -> OpenUploadSourceFuture {
+        let app = self.app.clone();
+        let locator = locator.clone();
+        Box::pin(async move {
+            let file_path = match locator {
+                UploadSourceLocator::Path(path) => FilePath::Path(path),
+                UploadSourceLocator::Uri(uri) => {
+                    let parsed = url::Url::parse(&uri).map_err(|_| ErrorCode::ImportReadFailed)?;
+                    FilePath::Url(parsed)
+                }
+            };
+            tokio::task::spawn_blocking(move || {
+                commands::open_book_source(&app, file_path)
+                    .map(|(reader, size)| (Pin::from(reader), size))
+                    .map_err(|_| ErrorCode::ImportReadFailed)
+            })
+            .await
+            .map_err(|_| ErrorCode::ImportReadFailed)?
         })
-    }
-
-    pub fn cancel_active_import(&self) -> bool {
-        let slot = self
-            .active_import_cancel
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(token) = slot.as_ref() {
-            token.cancel();
-            true
-        } else {
-            false
-        }
-    }
-}
-
-pub struct ImportCancelGuard<'a> {
-    slot: &'a Mutex<Option<CancellationToken>>,
-    token: CancellationToken,
-}
-
-impl ImportCancelGuard<'_> {
-    pub fn token(&self) -> &CancellationToken {
-        &self.token
-    }
-}
-
-impl Drop for ImportCancelGuard<'_> {
-    fn drop(&mut self) {
-        let mut slot = self.slot.lock().unwrap_or_else(|e| e.into_inner());
-        *slot = None;
     }
 }
 
@@ -92,6 +79,11 @@ impl ErrorSink for TauriErrorSink {
     fn emit_runtime_state(&self, state: &BootstrapStateDto) {
         let _ = self.app.emit(RUNTIME_STATE_EVENT_NAME, state);
     }
+
+    fn emit_upload_state(&self, snapshot: &UploadPanelSnapshotDto) {
+        let _ = self.app.emit(UPLOAD_STATE_EVENT_NAME, snapshot);
+        android_upload_notification::on_upload_snapshot(snapshot);
+    }
 }
 
 fn detect_system_locale() -> AppLocale {
@@ -101,6 +93,7 @@ fn detect_system_locale() -> AppLocale {
         .unwrap_or(AppLocale::En)
 }
 
+#[cfg(any(desktop, test))]
 pub(crate) fn localized_app_title(locale: AppLocale) -> &'static str {
     match locale {
         AppLocale::Zh => "白读",
@@ -193,17 +186,28 @@ pub fn run() {
             let sink = Arc::new(TauriErrorSink {
                 app: handle.clone(),
             });
+            let source_opener = Arc::new(TauriSourceOpener {
+                app: handle.clone(),
+            });
 
-            let runtime = tauri::async_runtime::block_on(ClientRuntime::initialize(
-                config_dir,
-                capabilities,
-                detected_locale,
-                pdfium,
-                sink,
-            ));
+            let runtime = tauri::async_runtime::block_on(
+                ClientRuntime::initialize_with_source_opener(
+                    config_dir,
+                    capabilities,
+                    detected_locale,
+                    pdfium,
+                    sink,
+                    source_opener,
+                ),
+            );
 
             let initial_locale = runtime.bootstrap_state().locale;
             sync_window_title(handle, initial_locale);
+            android_upload_notification::init(
+                handle.clone(),
+                Arc::downgrade(&runtime),
+                initial_locale,
+            );
             app.manage(DesktopAppState::new(runtime));
             Ok(())
         })
@@ -237,14 +241,24 @@ pub fn run() {
             commands::book_tags_list,
             commands::book_tag_bind,
             commands::book_tag_unbind,
-            commands::pick_and_import_books,
-            commands::cancel_book_import,
+            commands::upload_get_state,
+            commands::upload_pick_and_enqueue,
+            commands::upload_enqueue_paths,
+            commands::upload_retry_task,
+            commands::upload_cancel_task,
+            commands::upload_cancel_all,
+            commands::upload_dismiss_task,
+            commands::upload_dismiss_errors,
+            commands::upload_set_concurrency,
+            commands::upload_consume_pending_open_ui,
+            commands::upload_set_mobile_ui_open,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ShiroReader desktop client");
 
     app.run(|app_handle, event| {
         if let RunEvent::Exit = event {
+            android_upload_notification::clear_immediately();
             let state = app_handle.state::<DesktopAppState>();
             tauri::async_runtime::block_on(state.runtime.shutdown());
         }
@@ -403,12 +417,16 @@ mod tests {
         let desktop_caps = PlatformCapabilities {
             can_pick_library_dir: true,
             can_configure_log_level: true,
+            can_import_books: true,
+            retain_completed_uploads: false,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
         };
         let mobile_caps = PlatformCapabilities {
             can_pick_library_dir: false,
             can_configure_log_level: false,
+            can_import_books: true,
+            retain_completed_uploads: true,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
         };

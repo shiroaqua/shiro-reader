@@ -669,6 +669,7 @@ impl CloudClient {
                     file_name,
                     file,
                     size,
+                    cancel,
                     track_progress.then_some(&mut upload_cb as ImportProgressCallback<'_>),
                 )
                 .await?;
@@ -694,16 +695,20 @@ impl CloudClient {
     /// Streams a locally staged book file to the server. If the access token expired before or
     /// during upload (HTTP 401), performs a single-flight token refresh and rewinds the local
     /// staged temp file at most once without ever re-reading the caller's source stream.
-    async fn upload_staged_book_file(
+    pub(crate) async fn upload_staged_book_file(
         &self,
         hash_hex: &str,
         file_name: &str,
         mut file: File,
         file_len: u64,
+        cancel: &CancellationToken,
         mut on_progress: Option<ImportProgressCallback<'_>>,
     ) -> Result<(), ErrorCode> {
         let mut retried = false;
         loop {
+            if cancel.is_cancelled() {
+                return Err(ErrorCode::ImportCancelled);
+            }
             let (access_token, failed_epoch) = self.current_access_token_and_epoch()?;
             file.seek(SeekFrom::Start(0))
                 .await
@@ -729,8 +734,9 @@ impl CloudClient {
                 .mime_str("application/octet-stream")
                 .map_err(|_| ErrorCode::CommonInternalServerError)?;
             let form = Form::new()
-                .text("hash", hash_hex.to_owned())
-                .part("file", file_part);
+                .text(shiro_http_contract::BOOK_FILE_FIELD_HASH, hash_hex.to_owned())
+                .text(shiro_http_contract::BOOK_FILE_FIELD_SIZE, file_len.to_string())
+                .part(shiro_http_contract::BOOK_FILE_FIELD_FILE, file_part);
 
             // No 30s hard timeout on streaming upload so slow-but-active large files complete cleanly.
             let send_fut = self
@@ -744,6 +750,8 @@ impl CloudClient {
             let mut progress_open = true;
             let resp = loop {
                 tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(ErrorCode::ImportCancelled),
                     resp = &mut send_fut => {
                         while let Ok(sent) = progress_rx.try_recv() {
                             if let Some(cb) = on_progress.as_deref_mut() {
@@ -776,8 +784,16 @@ impl CloudClient {
             if resp.status() == StatusCode::UNAUTHORIZED {
                 let code = parse_server_error(resp).await;
                 if !retried && is_token_refresh_trigger(code) {
+                    if cancel.is_cancelled() {
+                        return Err(ErrorCode::ImportCancelled);
+                    }
                     retried = true;
-                    match self.refresh_session_single_flight(failed_epoch).await {
+                    let refresh_res = tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => return Err(ErrorCode::ImportCancelled),
+                        res = self.refresh_session_single_flight(failed_epoch) => res,
+                    };
+                    match refresh_res {
                         Ok(_) => continue,
                         Err(RefreshError::Revoked(revoked_code)) => return Err(revoked_code),
                         Err(RefreshError::Transient(net_code)) => return Err(net_code),
@@ -1095,17 +1111,7 @@ pub fn is_session_invalid_code(code: ErrorCode) -> bool {
     )
 }
 
-pub fn is_cloud_abort_import_code(code: ErrorCode) -> bool {
-    is_session_invalid_code(code)
-        || matches!(
-            code,
-            ErrorCode::CloudNetworkUnreachable
-                | ErrorCode::CloudRequestTimeout
-                | ErrorCode::CloudCrossOriginRedirect
-        )
-}
-
-fn staging_limit_error(max_bytes: u64) -> ErrorCode {
+pub(crate) fn staging_limit_error(max_bytes: u64) -> ErrorCode {
     if max_bytes == DEFAULT_CLOUD_MAX_UPLOAD_BYTES {
         ErrorCode::ImportFileTooLarge
     } else {

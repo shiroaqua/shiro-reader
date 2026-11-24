@@ -2,23 +2,20 @@ use std::{io, path::PathBuf};
 
 use shiro_compatibility::{
     AppTheme, BookTagOutput, BootstrapStateDto, CloudOriginCheckResult, DeleteTagStrategyDto,
-    GetBookOutput, ImportBookItemFailure, ImportBooksResult, ImportProgressEvent,
-    InitialSetupRequest, LaunchMode, RestoreBooksResult, TagDefinitionOutput, TagTreeNodeOutput,
-    TrashedBookOutput, UpdateSettingsRequest, is_cloud_abort_import_code, is_opaque_book_file_name,
+    EnqueueUploadItem, GetBookOutput, InitialSetupRequest, RestoreBooksResult, TagDefinitionOutput,
+    TagTreeNodeOutput, TrashedBookOutput, UpdateSettingsRequest, UploadPanelSnapshotDto,
+    UploadSourceLocator,
 };
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode};
 #[cfg(target_os = "android")]
 use tauri::Manager;
-use tauri::{AppHandle, State, ipc::Channel};
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_fs::{FsExt, OpenOptions};
 use tokio::io::AsyncRead;
-use tracing::warn;
 use uuid::Uuid;
 
-use crate::DesktopAppState;
-
-const PROGRESS_EMIT_STEP_BYTES: u64 = 256 * 1024;
+use crate::{DesktopAppState, android_upload_notification};
 
 // -----------------------------------------------------------------------------
 // Lifecycle, Settings & Platform Commands
@@ -39,6 +36,10 @@ pub async fn complete_initial_setup(
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.complete_initial_setup(request).await?;
     crate::sync_window_title(&app, snapshot.locale);
+    android_upload_notification::on_locale_changed(
+        snapshot.locale,
+        &state.runtime.upload_snapshot(),
+    );
     Ok(snapshot)
 }
 
@@ -50,6 +51,10 @@ pub async fn update_settings(
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.update_settings(request).await?;
     crate::sync_window_title(&app, snapshot.locale);
+    android_upload_notification::on_locale_changed(
+        snapshot.locale,
+        &state.runtime.upload_snapshot(),
+    );
     Ok(snapshot)
 }
 
@@ -61,6 +66,10 @@ pub fn set_app_locale(
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.set_locale(locale)?;
     crate::sync_window_title(&app, snapshot.locale);
+    android_upload_notification::on_locale_changed(
+        snapshot.locale,
+        &state.runtime.upload_snapshot(),
+    );
     Ok(snapshot)
 }
 
@@ -121,11 +130,11 @@ fn sync_android_status_bar(app: &AppHandle, theme: AppTheme) {
             })();
 
             if let Err(error) = result {
-                warn!(?error, "failed to synchronize Android status bar color");
+                tracing::warn!(?error, "failed to synchronize Android status bar color");
             }
         });
     }) {
-        warn!(
+        tracing::warn!(
             ?error,
             "failed to access Android WebView for status bar color"
         );
@@ -377,221 +386,146 @@ pub async fn book_tag_unbind(
 }
 
 // -----------------------------------------------------------------------------
-// Native File Selection & Streaming Import (Local & Cloud, Desktop Paths + Android SAF URIs)
+// Concurrent Upload Queue Commands (Local & Cloud, Desktop Paths + SAF URIs)
 // -----------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn cancel_book_import(state: State<'_, DesktopAppState>) -> bool {
-    state.cancel_active_import()
+pub fn upload_get_state(state: State<'_, DesktopAppState>) -> UploadPanelSnapshotDto {
+    state.runtime.upload_snapshot()
 }
 
 #[tauri::command]
-pub async fn pick_and_import_books(
+pub async fn upload_pick_and_enqueue(
     app: AppHandle,
     state: State<'_, DesktopAppState>,
-    on_event: Channel<ImportProgressEvent>,
-) -> Result<ImportBooksResult, CommandErrorPayload> {
-    let operation_id = Uuid::new_v4().to_string();
-
-    state.runtime.ensure_library_ready(&operation_id)?;
-    let cancel_guard = state.begin_import_session().ok_or_else(|| {
-        state
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    if !state.runtime.capabilities().can_import_books {
+        return Err(state
             .runtime
             .error_dispatcher()
-            .dispatch(ErrorCode::ImportAlreadyRunning, &operation_id, None)
-            .command
-    })?;
-    let cancel = cancel_guard.token();
-
-    let is_cloud_mode = state.runtime.active_mode() == Some(LaunchMode::Cloud);
-
-    let picked_files = pick_book_files(&app).await;
-    let Some(selected_files) = picked_files.filter(|list| !list.is_empty()) else {
-        // Picker cancellation is an expected control branch: never emit an error toast.
-        return Ok(ImportBooksResult {
-            operation_id,
-            cancelled: true,
-            imported: Vec::new(),
-            failed: Vec::new(),
-            skipped: Vec::new(),
-            aborted_reason: None,
-            summary_message: None,
-        });
-    };
-
-    let total = selected_files.len();
-    let all_names: Vec<String> = selected_files.iter().map(extract_file_name).collect();
-
-    let _ = on_event.send(ImportProgressEvent::Started {
-        operation_id: operation_id.clone(),
-        total,
-    });
-
-    let mut imported = Vec::new();
-    let mut failed = Vec::new();
-    let mut skipped = Vec::new();
-    let mut aborted_reason: Option<CommandErrorPayload> = None;
-    let mut was_cancelled = false;
-
-    for (index, file_path) in selected_files.into_iter().enumerate() {
-        if cancel.is_cancelled() {
-            was_cancelled = true;
-            skipped.extend(all_names[index..].iter().cloned());
-            break;
-        }
-
-        let mut file_name = all_names[index].clone();
-
-        let (reader, total_bytes, resolved_name) = match open_book_source(&app, file_path) {
-            Ok(source) => source,
-            Err(err) => {
-                warn!(file_name = %file_name, error = %err, "failed to open picked book file");
-                let cmd_err = state
-                    .runtime
-                    .error_dispatcher()
-                    .dispatch(
-                        ErrorCode::ImportReadFailed,
-                        operation_id.clone(),
-                        Some(file_name.clone()),
-                    )
-                    .command;
-                let _ = on_event.send(ImportProgressEvent::ItemFailed {
-                    operation_id: operation_id.clone(),
-                    index,
-                    total,
-                    file_name: file_name.clone(),
-                    error: cmd_err.clone(),
-                });
-                failed.push(ImportBookItemFailure {
-                    file_name,
-                    error: cmd_err,
-                });
-                continue;
-            }
-        };
-
-        if is_opaque_book_file_name(&file_name)
-            && let Some(real_name) = resolved_name
-            && !is_opaque_book_file_name(&real_name)
-        {
-            file_name = real_name;
-        }
-
-        let _ = on_event.send(ImportProgressEvent::ItemProgress {
-            operation_id: operation_id.clone(),
-            index,
-            total,
-            file_name: file_name.clone(),
-            bytes_read: 0,
-            total_bytes,
-        });
-
-        let mut last_emitted_bytes: u64 = 0;
-        let op_for_cb = operation_id.clone();
-        let name_for_cb = file_name.clone();
-        let channel_for_cb = on_event.clone();
-        let mut on_progress = move |bytes_read: u64| {
-            let reached_end = total_bytes.is_some_and(|tb| bytes_read >= tb);
-            if reached_end
-                || bytes_read.saturating_sub(last_emitted_bytes) >= PROGRESS_EMIT_STEP_BYTES
-            {
-                last_emitted_bytes = bytes_read;
-                let _ = channel_for_cb.send(ImportProgressEvent::ItemProgress {
-                    operation_id: op_for_cb.clone(),
-                    index,
-                    total,
-                    file_name: name_for_cb.clone(),
-                    bytes_read,
-                    total_bytes,
-                });
-            }
-        };
-
-        match state
-            .runtime
-            .import_stream(
-                &operation_id,
-                &file_name,
-                reader,
-                Some(cancel),
-                Some(&mut on_progress),
-            )
-            .await
-        {
-            Ok(book) => {
-                let _ = on_event.send(ImportProgressEvent::ItemSucceeded {
-                    operation_id: operation_id.clone(),
-                    index,
-                    total,
-                    book: book.clone(),
-                });
-                imported.push(book);
-            }
-            Err(err) if err.code == ErrorCode::ImportCancelled.code() => {
-                was_cancelled = true;
-                skipped.extend(all_names[index..].iter().cloned());
-                break;
-            }
-            Err(err) => {
-                let _ = on_event.send(ImportProgressEvent::ItemFailed {
-                    operation_id: operation_id.clone(),
-                    index,
-                    total,
-                    file_name: file_name.clone(),
-                    error: err.clone(),
-                });
-                let should_abort_cloud = is_cloud_mode
-                    && ErrorCode::from_code(err.code).is_some_and(is_cloud_abort_import_code);
-                failed.push(ImportBookItemFailure {
-                    file_name,
-                    error: err.clone(),
-                });
-                if should_abort_cloud {
-                    aborted_reason = Some(err);
-                    if index + 1 < all_names.len() {
-                        skipped.extend(all_names[(index + 1)..].iter().cloned());
-                    }
-                    break;
-                }
-            }
-        }
+            .dispatch_operation(ErrorCode::ImportNotSupportedOnPlatform));
     }
 
-    drop(cancel_guard);
+    let operation_id = Uuid::new_v4().to_string();
+    state.runtime.ensure_library_ready(&operation_id)?;
 
-    let _ = on_event.send(ImportProgressEvent::Finished {
-        operation_id: operation_id.clone(),
-        cancelled: was_cancelled,
-        imported_count: imported.len(),
-        failed_count: failed.len(),
-        skipped_count: skipped.len(),
-    });
+    android_upload_notification::ensure_permission(&app)
+        .await
+        .map_err(|code| state.runtime.error_dispatcher().dispatch_operation(code))?;
 
-    let summary_message = (!failed.is_empty() || !skipped.is_empty()).then(|| {
-        state
-            .runtime
-            .locale()
-            .import_summary(imported.len(), failed.len(), skipped.len())
-    });
-    Ok(ImportBooksResult {
-        operation_id,
-        cancelled: was_cancelled,
-        imported,
-        failed,
-        skipped,
-        aborted_reason,
-        summary_message,
-    })
+    let Some(selected_files) = pick_book_files(&app).await.filter(|list| !list.is_empty()) else {
+        return Ok(state.runtime.upload_snapshot());
+    };
+
+    let items: Vec<EnqueueUploadItem> = selected_files
+        .into_iter()
+        .map(|file_path| {
+            let file_name = extract_file_name(&file_path);
+            match file_path {
+                FilePath::Path(path) => {
+                    let total_bytes = std::fs::metadata(&path).ok().map(|meta| meta.len());
+                    EnqueueUploadItem {
+                        file_name,
+                        total_bytes,
+                        locator: UploadSourceLocator::Path(path),
+                    }
+                }
+                FilePath::Url(url) => EnqueueUploadItem {
+                    file_name,
+                    total_bytes: None,
+                    locator: UploadSourceLocator::Uri(url.to_string()),
+                },
+            }
+        })
+        .collect();
+
+    state.runtime.upload_enqueue(items).await
 }
 
-fn open_book_source(
+#[tauri::command]
+pub async fn upload_enqueue_paths(
+    state: State<'_, DesktopAppState>,
+    paths: Vec<String>,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    let path_bufs = paths.into_iter().map(PathBuf::from).collect();
+    state.runtime.upload_enqueue_paths(path_bufs).await
+}
+
+#[tauri::command]
+pub async fn upload_retry_task(
+    app: AppHandle,
+    state: State<'_, DesktopAppState>,
+    task_id: u64,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    android_upload_notification::ensure_permission(&app)
+        .await
+        .map_err(|code| state.runtime.error_dispatcher().dispatch_operation(code))?;
+    state.runtime.upload_retry_task(task_id).await
+}
+
+#[tauri::command]
+pub async fn upload_cancel_task(
+    state: State<'_, DesktopAppState>,
+    task_id: u64,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    Ok(state.runtime.upload_cancel_task(task_id).await)
+}
+
+#[tauri::command]
+pub async fn upload_cancel_all(
+    state: State<'_, DesktopAppState>,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    Ok(state.runtime.upload_cancel_all().await)
+}
+
+#[tauri::command]
+pub async fn upload_dismiss_task(
+    state: State<'_, DesktopAppState>,
+    task_id: u64,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    Ok(state.runtime.upload_dismiss_task(task_id).await)
+}
+
+#[tauri::command]
+pub async fn upload_dismiss_errors(
+    state: State<'_, DesktopAppState>,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    Ok(state.runtime.upload_dismiss_failed().await)
+}
+
+#[tauri::command]
+pub async fn upload_set_concurrency(
+    state: State<'_, DesktopAppState>,
+    concurrency: usize,
+) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
+    state.runtime.set_upload_concurrency(concurrency).await
+}
+
+#[tauri::command]
+pub fn upload_consume_pending_open_ui() -> bool {
+    android_upload_notification::consume_pending_open_ui()
+}
+
+#[tauri::command]
+pub async fn upload_set_mobile_ui_open(
+    state: State<'_, DesktopAppState>,
+    open: bool,
+) -> Result<(), CommandErrorPayload> {
+    if android_upload_notification::set_mobile_ui_open(open) {
+        state.runtime.upload_clear_completed().await;
+    }
+    Ok(())
+}
+
+pub(crate) type OpenedBookSource = (Box<dyn AsyncRead + Unpin + Send>, Option<u64>);
+
+pub(crate) fn open_book_source(
     app: &AppHandle,
     file_path: FilePath,
-) -> io::Result<(Box<dyn AsyncRead + Unpin + Send>, Option<u64>, Option<String>)> {
+) -> io::Result<OpenedBookSource> {
     let mut options = OpenOptions::new();
     options.read(true);
     let file = app.fs().open(file_path, options)?;
-    let resolved_name = resolve_file_name_from_fd(&file);
     let metadata = file.metadata()?;
 
     #[cfg(target_os = "android")]
@@ -600,36 +534,12 @@ fn open_book_source(
 
         if metadata.file_type().is_fifo() {
             let pipe = tokio::net::unix::pipe::Receiver::from_file(file)?;
-            return Ok((Box::new(pipe), None, resolved_name));
+            return Ok((Box::new(pipe), None));
         }
     }
 
     let bytes = Some(metadata.len()).filter(|&len| len > 0);
-    Ok((Box::new(tokio::fs::File::from_std(file)), bytes, resolved_name))
-}
-
-#[cfg(unix)]
-fn resolve_file_name_from_fd(file: &std::fs::File) -> Option<String> {
-    use std::os::fd::AsRawFd;
-
-    let target = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).ok()?;
-    let target_str = target.to_string_lossy();
-    if target_str.starts_with("pipe:")
-        || target_str.starts_with("socket:")
-        || target_str.starts_with("anon_inode:")
-        || target_str.ends_with(" (deleted)")
-    {
-        return None;
-    }
-    target
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.trim().is_empty())
-}
-
-#[cfg(not(unix))]
-fn resolve_file_name_from_fd(_file: &std::fs::File) -> Option<String> {
-    None
+    Ok((Box::new(tokio::fs::File::from_std(file)), bytes))
 }
 
 async fn pick_book_files(app: &AppHandle) -> Option<Vec<FilePath>> {
@@ -717,7 +627,7 @@ fn hex_val(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_file_name_from_uri, resolve_file_name_from_fd};
+    use super::extract_file_name_from_uri;
 
     #[test]
     fn extracts_file_names_from_android_saf_and_utf8_uris() {
@@ -744,19 +654,6 @@ mod tests {
                 "content://example/document/primary%3A%E4%B8%AD%E6%96%87%20Book.epub"
             ),
             "中文 Book.epub"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn resolves_real_file_name_from_open_file_descriptor() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("Real Book Title.epub");
-        std::fs::write(&path, b"placeholder").unwrap();
-        let file = std::fs::File::open(&path).unwrap();
-        assert_eq!(
-            resolve_file_name_from_fd(&file).as_deref(),
-            Some("Real Book Title.epub")
         );
     }
 }

@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import type { BootstrapState, StartupPhase } from "@/api/tauri-bridge"
-import { startBookImport } from "@/features/books/book-import-store"
+import { applyUploadSnapshot } from "@/features/books/book-import-store"
 import { booksQueryKey } from "@/lib/query-keys"
 import {
   cloudAuthRequiredState,
@@ -9,9 +9,10 @@ import {
   cloudUnreachableState,
   makeBook,
   makeCloudStatus,
-  makeImportResult,
   makeRustErrorEvent,
   makeStartupDiagnostic,
+  makeUploadSnapshot,
+  makeUploadTask,
   readyCloudState,
   readyLocalState,
   setupRequiredState,
@@ -135,9 +136,9 @@ describe("App runtime routing and event synchronization", () => {
     })
 
     it("clears React Query cache and resets active import when runtime-state leaves ready or switches cloud user", async () => {
-      const library = new FakeLibrary()
-        .seedBooks([makeBook({ id: "b1", title: "Cloud Book" })])
-        .setImportHandler(() => new Promise(() => {}))
+      const library = new FakeLibrary().seedBooks([
+        makeBook({ id: "b1", title: "Cloud Book" }),
+      ])
 
       const { queryClient } = renderApp({
         bootstrap: readyCloudState({
@@ -153,15 +154,33 @@ describe("App runtime routing and event synchronization", () => {
       expect(await screen.findByText("Cloud Book")).toBeInTheDocument()
       expect(queryClient.getQueryData(booksQueryKey)).toBeDefined()
 
-      // Start an in-flight import so leaving ready must reset it
+      // Populate an active upload snapshot so leaving ready must reset and hide the upload panel.
       act(() => {
-        void startBookImport(queryClient)
+        applyUploadSnapshot(
+          makeUploadSnapshot({
+            revision: 2,
+            visible: true,
+            tasks: [
+              makeUploadTask({
+                id: 1,
+                fileName: "in-flight.epub",
+                status: {
+                  state: "active",
+                  stage: "uploading",
+                  progressPercent: 40,
+                  bytesProcessed: 400,
+                  totalBytes: 1000,
+                  speedBytesPerSec: 100,
+                  etaSeconds: 6,
+                },
+              }),
+            ],
+          })
+        )
       })
-      expect(
-        await screen.findByRole("button", { name: /Uploading/i })
-      ).toBeDisabled()
+      expect(await screen.findByText("in-flight.epub")).toBeInTheDocument()
 
-      // Leaving ready -> transitions to CloudGateScreen and clears query cache + import state
+      // Leaving ready -> transitions to CloudGateScreen and clears query cache + upload panel
       act(() => {
         tauriTestHost.emitRuntimeState(cloudAuthRequiredState())
       })
@@ -169,6 +188,7 @@ describe("App runtime routing and event synchronization", () => {
         await screen.findByRole("heading", { name: "Sign In to Cloud Library" })
       ).toBeInTheDocument()
       expect(queryClient.getQueryData(booksQueryKey)).toBeUndefined()
+      expect(screen.queryByText("in-flight.epub")).not.toBeInTheDocument()
 
       // Switching back to ready as a different user also clears stale cache cleanly
       const user2Library = new FakeLibrary().seedBooks([
@@ -193,9 +213,6 @@ describe("App runtime routing and event synchronization", () => {
 
       expect(await screen.findByText("Bob Book")).toBeInTheDocument()
       expect(screen.queryByText("Stale Alice Book")).not.toBeInTheDocument()
-
-      // Clean up import store with a resolved handler if needed by afterEach
-      library.setImportHandler(async () => makeImportResult())
     })
 
     it("surfaces live shiro://error events in ApiErrorAlerts", async () => {

@@ -139,3 +139,493 @@ async fn upload_rejects_misordered_or_missing_filename_and_probe_requires_hash_q
 
     app.find_file_raw(&reader, "").await.assert_status(400);
 }
+
+// 验证缺失、重复、非法、不匹配和超限 size 字段均按契约返回 400 / 413。
+#[tokio::test]
+async fn upload_rejects_missing_duplicate_invalid_mismatched_and_oversized_size() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    let epub_bytes = Epub.bytes();
+    let epub_hash = Epub.hash();
+    let size_str = epub_bytes.len().to_string();
+
+    // Missing size before file
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(MissingSize);
+
+    // Size appearing after file
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+            ("size", None, size_str.as_bytes()),
+        ],
+    )
+    .await
+    .assert_error(MissingSize);
+
+    // Duplicate size
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("size", None, size_str.as_bytes()),
+            ("size", None, size_str.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(DuplicateSize);
+
+    // Invalid size strings
+    for bad in ["", "-1", "abc", "+10", " 10"] {
+        app.upload_raw_multipart(
+            Some(&reader),
+            &[
+                ("hash", None, epub_hash.as_bytes()),
+                ("size", None, bad.as_bytes()),
+                ("file", Some("book.epub"), &epub_bytes),
+            ],
+        )
+        .await
+        .assert_error(InvalidSize);
+    }
+
+    // Declared size larger than actual bytes -> 400 SizeMismatch
+    let too_large_declared = (epub_bytes.len() + 10).to_string();
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("size", None, too_large_declared.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(SizeMismatch);
+
+    // Declared size smaller than actual bytes -> 400 SizeMismatch
+    let too_small_declared = (epub_bytes.len() - 1).to_string();
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("size", None, too_small_declared.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(SizeMismatch);
+
+    // Oversized text fields are rejected without buffering large payloads in memory.
+    let oversized_hash = vec![b'a'; 1024];
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, &oversized_hash),
+            ("size", None, size_str.as_bytes()),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(InvalidHash);
+
+    let oversized_size = vec![b'1'; 1024];
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("size", None, &oversized_size),
+            ("file", Some("book.epub"), &epub_bytes),
+        ],
+    )
+    .await
+    .assert_error(InvalidSize);
+
+    // Declared size exceeding server max_upload_size (8 MiB in test config) -> 413 PayloadTooLarge immediately
+    let huge_declared = (9 * 1024 * 1024usize).to_string();
+    app.upload_raw_multipart(
+        Some(&reader),
+        &[
+            ("hash", None, epub_hash.as_bytes()),
+            ("size", None, huge_declared.as_bytes()),
+            ("file", Some("book.epub"), b"tiny"),
+        ],
+    )
+    .await
+    .assert_error(PayloadTooLarge);
+}
+
+// 验证多用户并发上传同一 Hash 时，探针 GET 与二次上传 POST 均返回 409，完成后探针返回 204。
+#[tokio::test]
+async fn concurrent_same_hash_probe_and_upload_return_409_until_completion() {
+    use axum::{
+        body::{Body, Bytes, to_bytes},
+        http::{Method, Request, StatusCode},
+    };
+    use futures_util::stream;
+    use serde_json::{Value, json};
+    use shiro_application::identity::{
+        authentication::commands::LoginCommand, user::commands::UserRegisterCommand,
+    };
+    use shiro_http_contract::paths;
+    use shiro_reader_server::{app::build_router, state::AppState};
+    use std::time::Duration;
+    use tokio::sync::oneshot;
+    use tower::ServiceExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    support::runtime::prepare_libs(dir.path()).await;
+    let cfg = support::runtime::config(dir.path());
+    let state = AppState::build(&cfg).await.unwrap();
+
+    for name in ["Alice", "Bob"] {
+        state
+            .user_service
+            .register(UserRegisterCommand {
+                name: name.to_owned(),
+                password: PASSWORD.to_owned(),
+            })
+            .await
+            .unwrap();
+    }
+    let alice = state
+        .auth_service
+        .login(LoginCommand {
+            username: "Alice".to_owned(),
+            password: PASSWORD.to_owned(),
+        })
+        .await
+        .unwrap();
+    let bob = state
+        .auth_service
+        .login(LoginCommand {
+            username: "Bob".to_owned(),
+            password: PASSWORD.to_owned(),
+        })
+        .await
+        .unwrap();
+
+    let router = build_router(state);
+    let sample_bytes = Epub.bytes();
+    let sample_hash = Epub.hash();
+    let boundary = "----shiro-concurrent-boundary";
+
+    let mut head = Vec::new();
+    head.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n{sample_hash}\r\n"
+        )
+        .as_bytes(),
+    );
+    head.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n",
+            sample_bytes.len()
+        )
+        .as_bytes(),
+    );
+    head.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"book.epub\"\r\nContent-Type: application/epub+zip\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    head.extend_from_slice(&sample_bytes[..16]);
+
+    let mut tail = Vec::new();
+    tail.extend_from_slice(&sample_bytes[16..]);
+    tail.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let (release_tx, release_rx) = oneshot::channel::<()>();
+    let paused_stream = stream::unfold(
+        (Some(Bytes::from(head)), Some(release_rx), Some(Bytes::from(tail))),
+        |(head, rx, tail)| async move {
+            if let Some(first) = head {
+                return Some((Ok::<Bytes, std::io::Error>(first), (None, rx, tail)));
+            }
+            if let Some(rx) = rx {
+                let _ = rx.await;
+                if let Some(rest) = tail {
+                    return Some((Ok::<Bytes, std::io::Error>(rest), (None, None, None)));
+                }
+            }
+            None
+        },
+    );
+
+    let router_alice = router.clone();
+    let alice_token = alice.access_token.clone();
+    let alice_task = tokio::spawn(async move {
+        router_alice
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(paths::BOOK_FILES)
+                    .header("authorization", format!("Bearer {alice_token}"))
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .body(Body::from_stream(paused_stream))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    });
+
+    // Wait until Alice holds the in-flight upload lease (Bob's GET probe flips from 404 to 409).
+    let probe_uri = format!("{}?hash={sample_hash}", paths::BOOK_FILES);
+    let mut saw_conflict = false;
+    for _ in 0..50 {
+        let resp = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&probe_uri)
+                    .header("authorization", format!("Bearer {}", bob.access_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if resp.status() == StatusCode::CONFLICT {
+            let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+            let parsed: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(
+                parsed,
+                json!({"error": {"code": 2101, "message": "library.book.file.upload.conflict"}})
+            );
+            saw_conflict = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(saw_conflict, "expected Bob's probe to see 409 UploadConflict");
+
+    // Bob's concurrent POST upload of the same hash must also return 409 UploadConflict.
+    let mut bob_body = Vec::new();
+    bob_body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n{sample_hash}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"book.epub\"\r\nContent-Type: application/epub+zip\r\n\r\n",
+            sample_bytes.len()
+        )
+        .as_bytes(),
+    );
+    bob_body.extend_from_slice(&sample_bytes);
+    bob_body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let bob_post = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(paths::BOOK_FILES)
+                .header("authorization", format!("Bearer {}", bob.access_token))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(bob_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bob_post.status(), StatusCode::CONFLICT);
+    let bob_post_bytes = to_bytes(bob_post.into_body(), 64 * 1024).await.unwrap();
+    let bob_post_json: Value = serde_json::from_slice(&bob_post_bytes).unwrap();
+    assert_eq!(
+        bob_post_json,
+        json!({"error": {"code": 2101, "message": "library.book.file.upload.conflict"}})
+    );
+
+    // Release Alice -> completes with 201, and Bob's probe now succeeds with 204.
+    release_tx.send(()).unwrap();
+    let alice_resp = alice_task.await.unwrap();
+    assert_eq!(alice_resp.status(), StatusCode::CREATED);
+
+    let probe_after = router
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(&probe_uri)
+                .header("authorization", format!("Bearer {}", bob.access_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(probe_after.status(), StatusCode::NO_CONTENT);
+}
+
+// 验证慢速流上传和慢速 multipart 头部均返回 408 超时并释放冲突锁。
+#[tokio::test]
+async fn slow_stream_and_slow_header_return_408_and_unlock() {
+    use axum::{
+        body::{Body, Bytes, to_bytes},
+        http::{Method, Request, StatusCode},
+    };
+    use futures_util::stream;
+    use serde_json::{Value, json};
+    use shiro_application::identity::{
+        authentication::commands::LoginCommand, user::commands::UserRegisterCommand,
+    };
+    use shiro_http_contract::paths;
+    use shiro_reader_server::{app::build_router_with_timeout, state::AppState};
+    use std::time::Duration;
+    use tower::ServiceExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    support::runtime::prepare_libs(dir.path()).await;
+    let mut cfg = support::runtime::config(dir.path());
+    cfg.server.upload_base_timeout_secs = 0;
+    cfg.server.upload_min_bytes_per_sec = 500_000;
+    let state = AppState::build(&cfg).await.unwrap();
+
+    state
+        .user_service
+        .register(UserRegisterCommand {
+            name: "SlowUser".to_owned(),
+            password: PASSWORD.to_owned(),
+        })
+        .await
+        .unwrap();
+    let login = state
+        .auth_service
+        .login(LoginCommand {
+            username: "SlowUser".to_owned(),
+            password: PASSWORD.to_owned(),
+        })
+        .await
+        .unwrap();
+
+    let router = build_router_with_timeout(state, Duration::from_millis(80));
+    let sample_bytes = Epub.bytes();
+    let sample_hash = Epub.hash();
+    let boundary = "----shiro-timeout-boundary";
+
+    // Case 1: Slow pre-file multipart header -> 408 RequestTimeout
+    let stalled_header_stream = stream::unfold(true, move |first| async move {
+        if first {
+            Some((
+                Ok::<Bytes, std::io::Error>(Bytes::from(format!(
+                    "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n"
+                ))),
+                false,
+            ))
+        } else {
+            futures_util::future::pending::<()>().await;
+            None
+        }
+    });
+    let header_timeout_resp = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(paths::BOOK_FILES)
+                .header("authorization", format!("Bearer {}", login.access_token))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from_stream(stalled_header_stream))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(header_timeout_resp.status(), StatusCode::REQUEST_TIMEOUT);
+    let header_json: Value = serde_json::from_slice(
+        &to_bytes(header_timeout_resp.into_body(), 64 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        header_json,
+        json!({"error": {"code": 2107, "message": "library.book.file.upload.timeout"}})
+    );
+
+    // Case 2: Slow file body stream -> 408 RequestTimeout and unlocks lease for retry
+    let mut head = Vec::new();
+    head.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n{sample_hash}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"book.epub\"\r\nContent-Type: application/epub+zip\r\n\r\n",
+            sample_bytes.len()
+        )
+        .as_bytes(),
+    );
+    head.extend_from_slice(&sample_bytes[..16]);
+
+    let stalled_body_stream = stream::unfold(Some(Bytes::from(head)), |state| async move {
+        if let Some(chunk) = state {
+            Some((Ok::<Bytes, std::io::Error>(chunk), None))
+        } else {
+            futures_util::future::pending::<()>().await;
+            None
+        }
+    });
+    let body_timeout_resp = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(paths::BOOK_FILES)
+                .header("authorization", format!("Bearer {}", login.access_token))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from_stream(stalled_body_stream))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(body_timeout_resp.status(), StatusCode::REQUEST_TIMEOUT);
+    let body_json: Value = serde_json::from_slice(
+        &to_bytes(body_timeout_resp.into_body(), 64 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        body_json,
+        json!({"error": {"code": 2107, "message": "library.book.file.upload.timeout"}})
+    );
+
+    // Retry upload of the exact same file now succeeds (lease was released).
+    let mut retry_body = Vec::new();
+    retry_body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"hash\"\r\n\r\n{sample_hash}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"size\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"book.epub\"\r\nContent-Type: application/epub+zip\r\n\r\n",
+            sample_bytes.len()
+        )
+        .as_bytes(),
+    );
+    retry_body.extend_from_slice(&sample_bytes);
+    retry_body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    let retry_resp = router
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(paths::BOOK_FILES)
+                .header("authorization", format!("Bearer {}", login.access_token))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(retry_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retry_resp.status(), StatusCode::CREATED);
+}

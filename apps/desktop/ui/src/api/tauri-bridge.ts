@@ -1,4 +1,4 @@
-import { Channel, invoke, isTauri } from "@tauri-apps/api/core"
+import { invoke, isTauri } from "@tauri-apps/api/core"
 import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { notifyLocalError, type RustErrorEvent } from "@/lib/error-notifications"
 import type { Locale } from "@/lib/i18n"
@@ -15,6 +15,8 @@ import type {
 
 export const RUST_ERROR_EVENT = "shiro://error"
 export const RUST_RUNTIME_STATE_EVENT = "shiro://runtime-state"
+export const RUST_UPLOAD_STATE_EVENT = "shiro://upload-state"
+export const RUST_UPLOAD_OPEN_UI_EVENT = "shiro://upload-open-ui"
 
 export type LaunchMode = "local" | "cloud"
 export type StartupPhase =
@@ -71,6 +73,7 @@ export interface BootstrapState {
   defaultLibraryRoot: string
   cloudOrigin: string | null
   canPickLibraryDir: boolean
+  canImportBooks: boolean
   coverUrlBase: string
   startupError: StartupDiagnostic | null
   cloud: CloudStatus | null
@@ -104,58 +107,51 @@ export interface RestoreBooksResult {
   skippedIds: string[]
 }
 
-export type ImportProgressEvent =
+export type UploadActiveStage = "staging" | "uploading" | "finalizing"
+
+export type UploadTaskStatus =
+  | { state: "queued" }
   | {
-      stage: "started"
-      operationId: string
-      total: number
-    }
-  | {
-      stage: "itemProgress"
-      operationId: string
-      index: number
-      total: number
-      fileName: string
-      bytesRead: number
+      state: "active"
+      stage: UploadActiveStage
+      progressPercent: number
+      bytesProcessed: number
       totalBytes: number | null
+      speedBytesPerSec: number | null
+      etaSeconds: number | null
     }
   | {
-      stage: "itemSucceeded"
-      operationId: string
-      index: number
-      total: number
-      book: Book
+      state: "succeeded"
+      bookId: string
+      title: string
     }
   | {
-      stage: "itemFailed"
-      operationId: string
-      index: number
-      total: number
-      fileName: string
-      error: CommandErrorPayload
-    }
-  | {
-      stage: "finished"
-      operationId: string
-      cancelled: boolean
-      importedCount: number
-      failedCount: number
-      skippedCount: number
+      state: "failed"
+      error: RustErrorEvent
     }
 
-export interface ImportBookItemFailure {
+export interface UploadTask {
+  id: number
   fileName: string
-  error: CommandErrorPayload
+  status: UploadTaskStatus
 }
 
-export interface ImportBooksResult {
-  operationId: string
-  cancelled: boolean
-  imported: Book[]
-  failed: ImportBookItemFailure[]
-  skipped: string[]
-  abortedReason: CommandErrorPayload | null
-  summaryMessage: string | null
+export interface UploadSessionStats {
+  total: number
+  remaining: number
+  active: number
+  succeeded: number
+  failed: number
+}
+
+export interface UploadPanelSnapshot {
+  revision: number
+  visible: boolean
+  concurrency: number
+  completedCounter: number
+  stats: UploadSessionStats
+  hasDismissibleErrors: boolean
+  tasks: UploadTask[]
 }
 
 let activeCoverUrlBase = "shiro-cover://localhost/book/"
@@ -229,6 +225,20 @@ export function listenRuntimeState(
   })
 }
 
+export function listenUploadState(
+  handler: (snapshot: UploadPanelSnapshot) => void
+): Promise<UnlistenFn> {
+  return listen<UploadPanelSnapshot>(RUST_UPLOAD_STATE_EVENT, (event) => {
+    handler(event.payload)
+  })
+}
+
+export function listenUploadOpenUi(handler: () => void): Promise<UnlistenFn> {
+  return listen<void>(RUST_UPLOAD_OPEN_UI_EVENT, () => {
+    handler()
+  })
+}
+
 export const tauriBridge = {
   // Lifecycle, settings & platform
   getBootstrapState: () => invoke<BootstrapState>("get_bootstrap_state"),
@@ -296,13 +306,27 @@ export const tauriBridge = {
   bookTagUnbind: (bookId: string, tagId: string) =>
     invokeTauri<void>("book_tag_unbind", { bookId, tagId }),
 
-  // Native file picker + Rust streaming import (Local & Cloud)
-  pickAndImportBooks: (onEvent: (event: ImportProgressEvent) => void) => {
-    const channel = new Channel<ImportProgressEvent>()
-    channel.onmessage = onEvent
-    return invokeTauri<ImportBooksResult>("pick_and_import_books", {
-      onEvent: channel,
-    })
-  },
-  cancelBookImport: () => invokeTauri<boolean>("cancel_book_import"),
+  // Concurrent upload queue (Local & Cloud)
+  listenUploadState,
+  listenUploadOpenUi,
+  uploadGetState: () => invokeTauri<UploadPanelSnapshot>("upload_get_state"),
+  uploadPickAndEnqueue: () =>
+    invokeTauri<UploadPanelSnapshot>("upload_pick_and_enqueue"),
+  uploadEnqueuePaths: (paths: string[]) =>
+    invokeTauri<UploadPanelSnapshot>("upload_enqueue_paths", { paths }),
+  uploadRetryTask: (taskId: number) =>
+    invokeTauri<UploadPanelSnapshot>("upload_retry_task", { taskId }),
+  uploadCancelTask: (taskId: number) =>
+    invokeTauri<UploadPanelSnapshot>("upload_cancel_task", { taskId }),
+  uploadCancelAll: () => invokeTauri<UploadPanelSnapshot>("upload_cancel_all"),
+  uploadDismissTask: (taskId: number) =>
+    invokeTauri<UploadPanelSnapshot>("upload_dismiss_task", { taskId }),
+  uploadDismissErrors: () =>
+    invokeTauri<UploadPanelSnapshot>("upload_dismiss_errors"),
+  uploadSetConcurrency: (concurrency: number) =>
+    invokeTauri<UploadPanelSnapshot>("upload_set_concurrency", { concurrency }),
+  uploadConsumePendingOpenUi: () =>
+    invokeTauri<boolean>("upload_consume_pending_open_ui"),
+  uploadSetMobileUiOpen: (open: boolean) =>
+    invokeTauri<void>("upload_set_mobile_ui_open", { open }),
 }
