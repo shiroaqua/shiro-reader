@@ -87,11 +87,15 @@ async fn rename_and_delete_preserve_shared_file() {
     let book = app.add_book(&reader, "Original", Epub).await;
     book.rename("Renamed").await.assert_empty(204);
     book.assert_renamed("Renamed").await;
+    let shared = app.add_book(&reader, "Shared", Epub).await;
     book.delete().await.assert_empty(204);
-    assert!(app.books(&reader).await.is_empty());
+    assert_eq!(app.books(&reader).await, [shared.data.clone()]);
     book.delete().await.assert_error(BookAlreadyDeleted);
+    app.download(&reader, &book.data.id)
+        .await
+        .assert_error(BookAlreadyDeleted);
     app.find_file(&reader, &Epub.hash()).await.assert_empty(204);
-    app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
+    app.download(&reader, &shared.data.id).await.assert_file(&Epub);
 }
 
 // 删除书籍后，普通列表隐藏书籍和标签绑定，恢复时重建仍存在的标签关系。

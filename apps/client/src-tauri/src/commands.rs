@@ -2,9 +2,9 @@ use std::{io, path::PathBuf};
 
 use shiro_compatibility::{
     AppTheme, BookTagOutput, BootstrapStateDto, CloudOriginCheckResult, DeleteTagStrategyDto,
-    EnqueueUploadItem, GetBookOutput, InitialSetupRequest, RestoreBooksResult, TagDefinitionOutput,
-    TagTreeNodeOutput, TrashedBookOutput, UpdateSettingsRequest, UploadPanelSnapshotDto,
-    UploadSourceLocator,
+    EnqueueUploadItem, EpubSessionId, GetBookOutput, InitialSetupRequest, OpenEpubResponseDto,
+    RestoreBooksResult, TagDefinitionOutput, TagTreeNodeOutput, TrashedBookOutput,
+    UpdateSettingsRequest, UploadPanelSnapshotDto, UploadSourceLocator,
 };
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode};
 #[cfg(target_os = "android")]
@@ -357,6 +357,36 @@ pub async fn trash_permanently_delete(
     ids: Vec<String>,
 ) -> Result<(), CommandErrorPayload> {
     state.runtime.permanently_delete_books(ids).await
+}
+
+// -----------------------------------------------------------------------------
+// EPUB Reader Binary IPC Commands
+// -----------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn epub_open(
+    state: State<'_, DesktopAppState>,
+    book_id: String,
+) -> Result<OpenEpubResponseDto, CommandErrorPayload> {
+    state.runtime.open_epub(book_id).await
+}
+
+#[tauri::command]
+pub async fn epub_read_entry(
+    state: State<'_, DesktopAppState>,
+    session_id: EpubSessionId,
+    path: String,
+) -> Result<tauri::ipc::Response, CommandErrorPayload> {
+    let bytes = state.runtime.read_epub_entry(session_id, &path).await?;
+    Ok(tauri::ipc::Response::new(Vec::from(bytes)))
+}
+
+#[tauri::command]
+pub async fn epub_close(
+    state: State<'_, DesktopAppState>,
+    session_id: EpubSessionId,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.close_epub(session_id).await
 }
 
 // -----------------------------------------------------------------------------

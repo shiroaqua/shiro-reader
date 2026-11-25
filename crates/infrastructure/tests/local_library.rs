@@ -8,11 +8,16 @@ use futures_util::TryStreamExt;
 use shiro_application::library::{
     book::{
         commands::{CreateBookCommand, GetBookCoverCommand},
+        file::errors::BookFileApplicationError,
         queries::GetBooksQuery,
     },
+    errors::LibraryApplicationError,
     tag::commands::{BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand},
 };
-use shiro_domain::library::tag::value_objects::TagDeleteStrategy;
+use shiro_domain::library::{
+    book::file::entity::BookFileType,
+    tag::value_objects::TagDeleteStrategy,
+};
 use shiro_infrastructure::library_runtime::LocalLibrary;
 use tokio::io::AsyncReadExt;
 
@@ -147,13 +152,18 @@ async fn local_library_operates_without_identity_or_axum_and_persists_across_res
         .expect("list books after restart");
     assert_eq!(books.len(), 2);
 
-    let mut raw_file = reopened
+    let parsed_pdf_hash = blake3::Hash::from_hex(&pdf_hash).expect("valid pdf hash hex");
+    let mut opened = reopened
         .book_file_service()
-        .download_book_file(&pdf_hash)
+        .open_book_file_range(&parsed_pdf_hash, 0, None)
         .await
-        .expect("download raw pdf after restart");
+        .expect("open raw pdf range after restart");
+    assert_eq!(opened.total_size, pdf_bytes.len() as u64);
+    assert_eq!(opened.offset, 0);
+    assert_eq!(opened.length, pdf_bytes.len() as u64);
     let mut restored_pdf = Vec::new();
-    raw_file
+    opened
+        .reader
         .read_to_end(&mut restored_pdf)
         .await
         .expect("read restored pdf");
@@ -359,6 +369,136 @@ async fn undefine_tag_promote_allows_child_with_same_name_as_deleted_parent() {
         Some(child.id.as_str())
     );
     assert_eq!(grandparent.children[0].tag.color, "#778899");
+}
+
+#[tokio::test]
+async fn local_book_file_storage_supports_meta_open_range_and_positional_read_within_container_bounds() {
+    let dir = tempfile::tempdir().unwrap();
+    let epub_bytes = fs::read(workspace_root().join("scripts/packaging/fixtures/smoke_cover.epub"))
+        .expect("smoke_cover.epub fixture");
+    let pdf_bytes = fs::read(workspace_root().join("scripts/packaging/fixtures/smoke_pattern.pdf"))
+        .expect("smoke_pattern.pdf fixture");
+
+    let library = LocalLibrary::open(dir.path(), None)
+        .await
+        .expect("open local library");
+
+    let epub_hash_hex = upload_bytes(&library, &epub_bytes).await;
+    let pdf_hash_hex = upload_bytes(&library, &pdf_bytes).await;
+    let epub_hash = blake3::Hash::from_hex(&epub_hash_hex).expect("epub hash");
+    let pdf_hash = blake3::Hash::from_hex(&pdf_hash_hex).expect("pdf hash");
+
+    let epub_size = epub_bytes.len() as u64;
+    let pdf_size = pdf_bytes.len() as u64;
+
+    let epub_meta = library
+        .book_file_service()
+        .get_book_meta(&epub_hash)
+        .expect("epub metadata");
+    assert_eq!(epub_meta.file_type, BookFileType::EPUB);
+    assert_eq!(epub_meta.size, epub_size);
+
+    let pdf_meta = library
+        .book_file_service()
+        .get_book_meta(&pdf_hash)
+        .expect("pdf metadata");
+    assert_eq!(pdf_meta.file_type, BookFileType::PDF);
+    assert_eq!(pdf_meta.size, pdf_size);
+
+    // open_range across head, middle, clamped tail, and zero-length at EOF.
+    for (offset, req_len, expected_slice) in [
+        (0u64, Some(32u64), &epub_bytes[..32]),
+        (128u64, Some(256u64), &epub_bytes[128..384]),
+        (epub_size - 64, Some(9999u64), &epub_bytes[epub_bytes.len() - 64..]),
+        (epub_size, Some(0u64), &[][..]),
+    ] {
+        let mut opened = library
+            .book_file_service()
+            .open_book_file_range(&epub_hash, offset, req_len)
+            .await
+            .expect("open_range in bounds");
+        assert_eq!(opened.total_size, epub_size);
+        assert_eq!(opened.offset, offset);
+        assert_eq!(opened.length, expected_slice.len() as u64);
+        let mut actual = Vec::new();
+        opened.reader.read_to_end(&mut actual).await.unwrap();
+        assert_eq!(actual.as_slice(), expected_slice);
+    }
+
+    // open_range rejects offset == size for non-zero reads, offset > size, and u64::MAX.
+    for (offset, req_len) in [
+        (epub_size, None),
+        (epub_size, Some(1)),
+        (epub_size + 1, Some(0)),
+        (u64::MAX, Some(1)),
+    ] {
+        let err = library
+            .book_file_service()
+            .open_book_file_range(&epub_hash, offset, req_len)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            LibraryApplicationError::BookFile(BookFileApplicationError::RangeNotSatisfiable {
+                size
+            }) if size == epub_size
+        ));
+    }
+
+    // read_exact_at across head, middle, tail, and zero-length at EOF without leaking 42B header/chapters.
+    let head = library
+        .book_file_service()
+        .read_book_file_exact_at(&epub_hash, 0, 30)
+        .await
+        .expect("read head exact");
+    assert_eq!(head.as_ref(), &epub_bytes[..30]);
+
+    let mid = library
+        .book_file_service()
+        .read_book_file_exact_at(&epub_hash, 128, 300)
+        .await
+        .expect("read mid exact");
+    assert_eq!(mid.as_ref(), &epub_bytes[128..428]);
+
+    let tail = library
+        .book_file_service()
+        .read_book_file_exact_at(&epub_hash, epub_size - 22, 22)
+        .await
+        .expect("read tail exact");
+    assert_eq!(tail.as_ref(), &epub_bytes[epub_bytes.len() - 22..]);
+
+    let empty_eof = library
+        .book_file_service()
+        .read_book_file_exact_at(&epub_hash, epub_size, 0)
+        .await
+        .expect("read zero bytes at EOF");
+    assert!(empty_eof.is_empty());
+
+    let pdf_full = library
+        .book_file_service()
+        .read_book_file_exact_at(&pdf_hash, 0, pdf_bytes.len())
+        .await
+        .expect("read full pdf exact");
+    assert_eq!(pdf_full.as_ref(), pdf_bytes.as_slice());
+
+    for (offset, len) in [
+        (epub_size, 1usize),
+        (epub_size - 4, 5usize),
+        (epub_size + 1, 0usize),
+        (u64::MAX - 2, 10usize),
+    ] {
+        let err = library
+            .book_file_service()
+            .read_book_file_exact_at(&epub_hash, offset, len)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            LibraryApplicationError::BookFile(BookFileApplicationError::RangeNotSatisfiable {
+                size
+            }) if size == epub_size
+        ));
+    }
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) {

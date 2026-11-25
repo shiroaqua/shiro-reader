@@ -233,6 +233,9 @@ pub fn run() {
             commands::trash_list,
             commands::trash_restore,
             commands::trash_permanently_delete,
+            commands::epub_open,
+            commands::epub_read_entry,
+            commands::epub_close,
             commands::tags_list,
             commands::tag_define,
             commands::tag_rename,
@@ -422,6 +425,7 @@ mod tests {
             retain_completed_uploads: false,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            epub_cache_max_bytes: 64 * 1024 * 1024,
         };
         let mobile_caps = PlatformCapabilities {
             can_pick_library_dir: false,
@@ -430,6 +434,7 @@ mod tests {
             retain_completed_uploads: true,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            epub_cache_max_bytes: 24 * 1024 * 1024,
         };
 
         assert_eq!(

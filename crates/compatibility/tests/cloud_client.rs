@@ -1028,3 +1028,216 @@ async fn cloud_import_respects_server_max_upload_bytes_and_reports_upload_progre
         .unwrap_err();
     assert_eq!(err, ErrorCode::CommonPayloadTooLarge);
 }
+
+#[tokio::test]
+async fn cloud_client_head_and_range_verify_headers_refresh_redirects_and_tampering() {
+    use axum::{http::header, response::IntoResponse};
+    use shiro_compatibility::epub_reader::ByteRange;
+    use shiro_domain::library::book::file::entity::BookFileType;
+
+    let server_root = tempfile::tempdir().unwrap();
+    let state = build_real_v1_server_state(server_root.path()).await;
+    state
+        .user_service
+        .register(UserRegisterCommand {
+            name: "RangeReader".into(),
+            password: "password123".into(),
+        })
+        .await
+        .unwrap();
+
+    let refresh_calls = Arc::new(AtomicUsize::new(0));
+    let refresh_counter = Arc::clone(&refresh_calls);
+    let router = build_router(state).layer(middleware::from_fn(move |req: Request, next: Next| {
+        let refresh_counter = Arc::clone(&refresh_counter);
+        async move {
+            if req.uri().path() == paths::AUTH_REFRESH {
+                refresh_counter.fetch_add(1, Ordering::SeqCst);
+            }
+            next.run(req).await
+        }
+    }));
+    let server = RunningHttpServer::start(router).await;
+
+    let client_root = tempfile::tempdir().unwrap();
+    let (client, _) = new_client(&server.origin, client_root.path(), None);
+    assert!(matches!(
+        client.probe().await,
+        CloudProbeOutcome::Compatible(_)
+    ));
+    client
+        .login("RangeReader".into(), "password123".into())
+        .await
+        .unwrap();
+
+    let epub_bytes = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/packaging/fixtures/smoke_cover.epub"),
+    )
+    .unwrap();
+    let expected_hash = blake3::hash(&epub_bytes);
+    let book = client
+        .import_reader_into_cloud(
+            "Range Book.epub",
+            Cursor::new(epub_bytes.clone()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 1. Real server HEAD returns exact non-zero Content-Length, hash, and EPUB type.
+    let meta = client.head_book_file(&book.id).await.expect("head book file");
+    assert_eq!(meta.hash, expected_hash);
+    assert_eq!(meta.file_type, BookFileType::EPUB);
+    assert_eq!(meta.size, epub_bytes.len() as u64);
+
+    // HEAD missing book -> BookNotFound; trashed book -> BookAlreadyDeleted.
+    assert_eq!(
+        client
+            .head_book_file("ffffffff-ffff-ffff-ffff-ffffffffffff")
+            .await
+            .unwrap_err(),
+        ErrorCode::BookNotFound
+    );
+
+    // 2. Real server Range 206 + automatic 401 single-flight refresh.
+    let slice_range = ByteRange::try_within(10, 137, meta.size).unwrap();
+    let slice = client
+        .get_book_file_range(&book.id, &meta.hash, slice_range)
+        .await
+        .expect("get range 206");
+    assert_eq!(slice.as_ref(), &epub_bytes[10..=137]);
+
+    client.replace_access_token_for_test("expired-token".into());
+    let tail_range = ByteRange::try_within(meta.size - 64, meta.size - 1, meta.size).unwrap();
+    let tail = client
+        .get_book_file_range(&book.id, &meta.hash, tail_range)
+        .await
+        .expect("get range after 401 refresh");
+    assert_eq!(tail.as_ref(), &epub_bytes[epub_bytes.len() - 64..]);
+    assert_eq!(refresh_calls.load(Ordering::SeqCst), 1);
+
+    // Trashed book rejects HEAD and GET Range with BookAlreadyDeleted.
+    client.delete_books(vec![book.id.clone()]).await.unwrap();
+    assert_eq!(
+        client.head_book_file(&book.id).await.unwrap_err(),
+        ErrorCode::BookAlreadyDeleted
+    );
+    assert_eq!(
+        client
+            .get_book_file_range(&book.id, &meta.hash, slice_range)
+            .await
+            .unwrap_err(),
+        ErrorCode::BookAlreadyDeleted
+    );
+
+    // 3. Controllable mock server verifying cross-origin redirect, 200 downgrade, ETag/Hash/Content-Range/length mismatch.
+    let mode = Arc::new(std::sync::Mutex::new("redirect"));
+    let mode_mw = Arc::clone(&mode);
+    let expected_hex = expected_hash.to_hex().to_string();
+    let other_hex = blake3::hash(b"wrong-book").to_hex().to_string();
+    let mock_router = Router::new().route(
+        &paths::book_file("b1"),
+        get(move || {
+            let current = *mode_mw.lock().unwrap();
+            let expected_hex = expected_hex.clone();
+            let other_hex = other_hex.clone();
+            async move {
+                match current {
+                    "redirect" => Redirect::temporary("http://127.0.0.1:9/evil").into_response(),
+                    "downgrade_200" => (
+                        StatusCode::OK,
+                        [
+                            (header::ETAG, format!("\"{expected_hex}\"")),
+                            (header::CONTENT_RANGE, "bytes 0-9/100".to_owned()),
+                        ],
+                        vec![1u8; 10],
+                    )
+                        .into_response(),
+                    "bad_etag" => (
+                        StatusCode::PARTIAL_CONTENT,
+                        [
+                            (header::ETAG, format!("\"{other_hex}\"")),
+                            (header::CONTENT_RANGE, "bytes 0-9/100".to_owned()),
+                        ],
+                        vec![1u8; 10],
+                    )
+                        .into_response(),
+                    "bad_x_hash" => (
+                        StatusCode::PARTIAL_CONTENT,
+                        [
+                            (header::HeaderName::from_static("x-book-hash"), other_hex),
+                            (header::CONTENT_RANGE, "bytes 0-9/100".to_owned()),
+                        ],
+                        vec![1u8; 10],
+                    )
+                        .into_response(),
+                    "bad_content_range" => (
+                        StatusCode::PARTIAL_CONTENT,
+                        [
+                            (header::ETAG, format!("\"{expected_hex}\"")),
+                            (header::CONTENT_RANGE, "bytes 1-10/100".to_owned()),
+                        ],
+                        vec![1u8; 10],
+                    )
+                        .into_response(),
+                    "bad_body_len" => (
+                        StatusCode::PARTIAL_CONTENT,
+                        [
+                            (header::ETAG, format!("\"{expected_hex}\"")),
+                            (header::CONTENT_RANGE, "bytes 0-9/100".to_owned()),
+                        ],
+                        vec![1u8; 5],
+                    )
+                        .into_response(),
+                    _ => unreachable!(),
+                }
+            }
+        }),
+    );
+
+    let mock_server = RunningHttpServer::start(mock_router).await;
+    let mock_root = tempfile::tempdir().unwrap();
+    let (mock_client, mock_cred_store) = new_client(&mock_server.origin, mock_root.path(), None);
+    mock_cred_store
+        .save(
+            &mock_server.origin,
+            &shiro_compatibility::CloudCredentials {
+                origin: mock_server.origin.clone(),
+                user_id: "u1".into(),
+                username: "MockReader".into(),
+                access_token: "dummy-access-token".into(),
+                refresh_token: "dummy-refresh-token".into(),
+            },
+        )
+        .unwrap();
+    mock_client.load_saved_credentials().unwrap();
+    let req_range = ByteRange::try_within(0, 9, 100).unwrap();
+
+    assert_eq!(
+        mock_client
+            .get_book_file_range("b1", &expected_hash, req_range)
+            .await
+            .unwrap_err(),
+        ErrorCode::CloudCrossOriginRedirect
+    );
+
+    for bad_mode in [
+        "downgrade_200",
+        "bad_etag",
+        "bad_x_hash",
+        "bad_content_range",
+        "bad_body_len",
+    ] {
+        *mode.lock().unwrap() = bad_mode;
+        assert_eq!(
+            mock_client
+                .get_book_file_range("b1", &expected_hash, req_range)
+                .await
+                .unwrap_err(),
+            ErrorCode::CloudInvalidResponse,
+            "expected CloudInvalidResponse for {bad_mode}"
+        );
+    }
+}

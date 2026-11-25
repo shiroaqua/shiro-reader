@@ -1,5 +1,3 @@
-use std::io::ErrorKind;
-
 use shiro_domain::library::{
     book::{chapter::ChapterDomainError, errors::BookDomainError},
     tag::errors::TagDomainError,
@@ -45,9 +43,15 @@ impl From<BookDomainError> for BookApplicationError {
 
 impl From<BookFileStorageError> for LibraryApplicationError {
     fn from(value: BookFileStorageError) -> Self {
-        match value.kind() {
-            ErrorKind::NotFound => BookFileApplicationError::NotFound,
-            _ => BookFileApplicationError::Storage(value.0.into()),
+        match value {
+            BookFileStorageError::NotFound => BookFileApplicationError::NotFound,
+            BookFileStorageError::AlreadyExists => BookFileApplicationError::AlreadyExists,
+            BookFileStorageError::RangeOutOfBounds { size, .. } => {
+                BookFileApplicationError::RangeNotSatisfiable { size }
+            }
+            BookFileStorageError::HashMismatch => BookFileApplicationError::HashMismatch,
+            BookFileStorageError::Unsupported => BookFileApplicationError::Unsupported,
+            BookFileStorageError::Io(err) => BookFileApplicationError::Storage(err.into()),
         }
         .into()
     }

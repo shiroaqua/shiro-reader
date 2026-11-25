@@ -72,6 +72,12 @@ async fn every_library_operation_requires_authentication() {
     for response in app.anonymous_library_requests().await {
         response.assert_error(MissingBearer);
     }
+    app.send_anonymous(
+        axum::http::Method::HEAD,
+        &shiro_http_contract::paths::book_file(UNKNOWN_ID),
+    )
+    .await
+    .assert_empty(401);
 }
 
 // 验证认证头必须提供 Bearer 令牌，且 Bearer 标识不区分大小写。

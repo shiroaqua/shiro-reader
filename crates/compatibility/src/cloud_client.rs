@@ -29,6 +29,7 @@ use shiro_application::{
         tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     },
 };
+use shiro_domain::library::book::file::entity::BookFileType;
 use shiro_error_catalog::ErrorCode;
 use shiro_http_contract::{
     BindBookTagRequest, BookIdsRequest, ChangeTagColorRequest, CreateBookRequest,
@@ -48,11 +49,19 @@ use url::Url;
 use crate::{
     credentials::{CloudCredentials, CloudUserInfo, CredentialStore, CredentialStoreError},
     dto::DeleteTagStrategyDto,
+    epub_reader::ByteRange,
     local_import::{
         ImportProgressCallback, STREAM_CHUNK_BYTES, StagedBook, derive_book_title,
         resolve_staged_book_title, stage_book,
     },
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteBookFileMeta {
+    pub hash: blake3::Hash,
+    pub file_type: BookFileType,
+    pub size: u64,
+}
 
 /// Default maximum net book file upload size in Cloud Mode before server probe (512 MiB).
 pub const DEFAULT_CLOUD_MAX_UPLOAD_BYTES: u64 = DEFAULT_MAX_UPLOAD_BYTES;
@@ -473,6 +482,124 @@ impl CloudClient {
         Ok((stream, mime))
     }
 
+    pub async fn head_book_file(&self, book_id: &str) -> Result<RemoteBookFileMeta, ErrorCode> {
+        let resp = self
+            .send_authorized_replayable_with_headers(
+                Method::HEAD,
+                &paths::book_file(book_id),
+                None::<&()>,
+                &[],
+                true,
+            )
+            .await?;
+
+        if resp.status() != StatusCode::OK {
+            return Err(ErrorCode::CloudInvalidResponse);
+        }
+
+        // reqwest 0.13 `Response::content_length()` returns `Some(0)` for bodyless HEAD responses,
+        // so parse the raw Content-Length header directly.
+        let size = resp
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .ok_or(ErrorCode::CloudInvalidResponse)?;
+
+        let hash = resp
+            .headers()
+            .get("x-book-hash")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| blake3::Hash::from_hex(s.trim()).ok())
+            .ok_or(ErrorCode::CloudInvalidResponse)?;
+
+        let file_type = match resp
+            .headers()
+            .get("x-book-type")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+        {
+            Some("EPUB") => BookFileType::EPUB,
+            Some("PDF") => BookFileType::PDF,
+            _ => return Err(ErrorCode::CloudInvalidResponse),
+        };
+
+        Ok(RemoteBookFileMeta {
+            hash,
+            file_type,
+            size,
+        })
+    }
+
+    /// Fetches exact closed byte slice `Range: bytes=start-end` with strict anti-downgrade and
+    /// hash/range integrity checks.
+    pub async fn get_book_file_range(
+        &self,
+        book_id: &str,
+        expected_hash: &blake3::Hash,
+        range: ByteRange,
+    ) -> Result<Bytes, ErrorCode> {
+        let range_header = format!("bytes={}-{}", range.start(), range.end_inclusive());
+        let resp = self
+            .send_authorized_replayable_with_headers(
+                Method::GET,
+                &paths::book_file(book_id),
+                None::<&()>,
+                &[("range", &range_header)],
+                true,
+            )
+            .await?;
+
+        if resp.status() != StatusCode::PARTIAL_CONTENT {
+            return Err(ErrorCode::CloudInvalidResponse);
+        }
+
+        if let Some(raw_etag) = resp.headers().get(reqwest::header::ETAG) {
+            let etag_str = raw_etag
+                .to_str()
+                .map_err(|_| ErrorCode::CloudInvalidResponse)?
+                .trim();
+            let hex = etag_str
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .ok_or(ErrorCode::CloudInvalidResponse)?;
+            let parsed =
+                blake3::Hash::from_hex(hex).map_err(|_| ErrorCode::CloudInvalidResponse)?;
+            if parsed != *expected_hash {
+                return Err(ErrorCode::CloudInvalidResponse);
+            }
+        }
+
+        if let Some(raw_hash) = resp.headers().get("x-book-hash") {
+            let hash_str = raw_hash
+                .to_str()
+                .map_err(|_| ErrorCode::CloudInvalidResponse)?
+                .trim();
+            let parsed =
+                blake3::Hash::from_hex(hash_str).map_err(|_| ErrorCode::CloudInvalidResponse)?;
+            if parsed != *expected_hash {
+                return Err(ErrorCode::CloudInvalidResponse);
+            }
+        }
+
+        let content_range = resp
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .ok_or(ErrorCode::CloudInvalidResponse)?;
+        let (cr_start, cr_end, cr_total) =
+            parse_content_range_header(content_range).ok_or(ErrorCode::CloudInvalidResponse)?;
+        if cr_start != range.start() || cr_end != range.end_inclusive() || cr_end >= cr_total {
+            return Err(ErrorCode::CloudInvalidResponse);
+        }
+
+        let bytes = resp.bytes().await.map_err(classify_transport_error)?;
+        if bytes.len() != range.len() {
+            return Err(ErrorCode::CloudInvalidResponse);
+        }
+        Ok(bytes)
+    }
+
     // -------------------------------------------------------------------------
     // Tag Tree & Book-Tag Bindings
     // -------------------------------------------------------------------------
@@ -863,6 +990,27 @@ impl CloudClient {
     where
         Req: Serialize + ?Sized,
     {
+        self.send_authorized_replayable_with_headers(
+            method,
+            path,
+            body,
+            &[],
+            apply_standard_timeout,
+        )
+        .await
+    }
+
+    async fn send_authorized_replayable_with_headers<Req>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Req>,
+        extra_headers: &[(&str, &str)],
+        apply_standard_timeout: bool,
+    ) -> Result<Response, ErrorCode>
+    where
+        Req: Serialize + ?Sized,
+    {
         let serialized_body: Option<Bytes> = match body {
             Some(payload) => Some(Bytes::from(
                 serde_json::to_vec(payload).map_err(|_| ErrorCode::CommonInternalServerError)?,
@@ -877,6 +1025,9 @@ impl CloudClient {
                 .http
                 .request(method.clone(), self.url(path))
                 .header(AUTHORIZATION, format!("Bearer {access_token}"));
+            for &(name, value) in extra_headers {
+                builder = builder.header(name, value);
+            }
             if apply_standard_timeout {
                 builder = builder.timeout(STANDARD_REQUEST_TIMEOUT);
             }
@@ -895,7 +1046,7 @@ impl CloudClient {
             }
 
             if resp.status() == StatusCode::UNAUTHORIZED {
-                let code = parse_server_error(resp).await;
+                let code = parse_server_error_for_method(&method, resp).await;
                 if !retried && is_token_refresh_trigger(code) {
                     retried = true;
                     match self.refresh_session_single_flight(attempt_epoch).await {
@@ -911,7 +1062,7 @@ impl CloudClient {
                 return Err(code);
             }
 
-            let code = parse_server_error(resp).await;
+            let code = parse_server_error_for_method(&method, resp).await;
             if code == ErrorCode::AuthenticationUserNotFound {
                 self.invalidate_session_if_epoch_matches(attempt_epoch)
                     .await;
@@ -1073,6 +1224,10 @@ fn classify_transport_error(err: reqwest::Error) -> ErrorCode {
 }
 
 async fn parse_server_error(resp: Response) -> ErrorCode {
+    parse_server_error_for_method(&Method::GET, resp).await
+}
+
+async fn parse_server_error_for_method(method: &Method, resp: Response) -> ErrorCode {
     let status = resp.status();
     if let Ok(body) = resp.json::<ErrorResponse>().await {
         if let Some(code) = ErrorCode::from_code(body.error.code) {
@@ -1086,9 +1241,31 @@ async fn parse_server_error(resp: Response) -> ErrorCode {
         StatusCode::UNAUTHORIZED => ErrorCode::AuthenticationInvalidToken,
         StatusCode::PAYLOAD_TOO_LARGE => ErrorCode::CommonPayloadTooLarge,
         StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => ErrorCode::CloudRequestTimeout,
+        StatusCode::NOT_FOUND if *method == Method::HEAD => ErrorCode::BookNotFound,
+        StatusCode::CONFLICT if *method == Method::HEAD => ErrorCode::BookAlreadyDeleted,
+        StatusCode::BAD_REQUEST if *method == Method::HEAD => ErrorCode::BookInvalidId,
         s if s.is_server_error() => ErrorCode::CommonInternalServerError,
         _ => ErrorCode::CloudInvalidResponse,
     }
+}
+
+fn parse_content_range_header(raw: &str) -> Option<(u64, u64, u64)> {
+    let body = raw.trim().strip_prefix("bytes ")?;
+    let (span, total_str) = body.split_once('/')?;
+    let (start_str, end_str) = span.split_once('-')?;
+    if start_str.is_empty()
+        || end_str.is_empty()
+        || total_str.is_empty()
+        || !start_str.bytes().all(|b| b.is_ascii_digit())
+        || !end_str.bytes().all(|b| b.is_ascii_digit())
+        || !total_str.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    let start = start_str.parse::<u64>().ok()?;
+    let end = end_str.parse::<u64>().ok()?;
+    let total = total_str.parse::<u64>().ok()?;
+    (start <= end && end < total).then_some((start, end, total))
 }
 
 fn is_token_refresh_trigger(code: ErrorCode) -> bool {

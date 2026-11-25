@@ -1,3 +1,4 @@
+use blake3::Hash;
 use serde::{Deserialize, Serialize};
 use shiro_domain::library::book::{
     chapter::{Chapter, ChapterLocation},
@@ -75,6 +76,13 @@ impl From<(Book, BookFileType)> for GetBookOutput {
             updated_at: book.updated_at.to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BookFileDescriptor {
+    pub hash: Hash,
+    pub file_type: BookFileType,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

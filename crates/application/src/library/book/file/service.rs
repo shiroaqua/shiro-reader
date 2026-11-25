@@ -12,18 +12,18 @@ use std::{
 };
 
 use blake3::Hash;
+use bytes::Bytes;
 use dashmap::{DashMap, mapref::entry::Entry};
 use shiro_domain::library::book::file::entity::{BookFileChapter, BookFileType};
 use tokio::{
-    fs::File,
-    io::{AsyncRead, ReadBuf, Take},
+    io::{AsyncRead, ReadBuf},
     time::{Instant, Sleep},
 };
 
 use crate::library::{
     book::file::errors::BookFileApplicationError,
     errors::LibraryApplicationError,
-    ports::{BookFileStore, CoverByteStream},
+    ports::{BookFileMetadata, BookFileStore, BookFileStorageError, CoverByteStream, OpenedBookFile},
 };
 
 const DEFAULT_BASE_TIMEOUT_SECS: u64 = 30;
@@ -169,44 +169,51 @@ impl<S: BookFileStore> BookFileService<S> {
 
         match self.storage.save(&guard.hash, exact_reader).await {
             Ok(()) => Ok(()),
-            Err(e) => {
-                if e.0
+            Err(BookFileStorageError::Io(err)) => {
+                if err
                     .get_ref()
                     .is_some_and(|inner| inner.is::<UploadStreamTimeoutError>())
                 {
                     return Err(BookFileApplicationError::UploadTimeout.into());
                 }
-                if e.0
+                if err
                     .get_ref()
                     .is_some_and(|inner| inner.is::<SizeMismatchError>())
                 {
                     return Err(BookFileApplicationError::SizeMismatch.into());
                 }
-                match e.kind() {
-                    ErrorKind::AlreadyExists => {
-                        Err(BookFileApplicationError::AlreadyExists.into())
-                    }
-                    ErrorKind::InvalidData => Err(BookFileApplicationError::HashMismatch.into()),
-                    ErrorKind::Unsupported => Err(BookFileApplicationError::Unsupported.into()),
-                    _ => Err(e.into()),
-                }
+                Err(BookFileStorageError::Io(err).into())
             }
+            Err(err) => Err(err.into()),
         }
     }
 
-    pub async fn download_book_file(
+    pub fn get_book_meta(&self, hash: &Hash) -> Option<BookFileMetadata> {
+        self.storage.get_meta(hash)
+    }
+
+    pub async fn open_book_file_range(
         &self,
-        hash: &str,
-    ) -> Result<Take<File>, LibraryApplicationError> {
-        let hash = Self::to_hex(hash)?;
-        if self.storage.contains(&hash) {
-            self.storage
-                .open(&hash)
-                .await
-                .map_err(LibraryApplicationError::from)
-        } else {
-            Err(BookFileApplicationError::NotFound.into())
-        }
+        hash: &Hash,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<OpenedBookFile<S::Reader>, LibraryApplicationError> {
+        self.storage
+            .open_range(hash, offset, length)
+            .await
+            .map_err(LibraryApplicationError::from)
+    }
+
+    pub async fn read_book_file_exact_at(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        len: usize,
+    ) -> Result<Bytes, LibraryApplicationError> {
+        self.storage
+            .read_exact_at(hash, offset, len)
+            .await
+            .map_err(LibraryApplicationError::from)
     }
 
     pub async fn download_book_cover_file(

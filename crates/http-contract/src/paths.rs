@@ -35,10 +35,14 @@ pub const TAG_NAME_ROUTE: &str = "/tags/{tag_id}/name";
 pub const TAG_COLOR_ROUTE: &str = "/tags/{tag_id}/color";
 pub const TAG_PARENT_ROUTE: &str = "/tags/{tag_id}/parent";
 pub const BOOK_FILES_ROUTE: &str = "/files/book";
-pub const BOOK_FILE_ROUTE: &str = "/files/book/{book_hash}";
+pub const BOOK_FILE_ROUTE: &str = "/bookshelf/books/{book_id}/file";
 
 pub fn book(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}")
+}
+
+pub fn book_file(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/file")
 }
 
 pub fn book_cover(book_id: &str) -> String {

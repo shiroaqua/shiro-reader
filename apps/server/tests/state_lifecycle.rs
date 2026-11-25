@@ -20,8 +20,8 @@ async fn restart_preserves_users_independent_books_files_and_existing_sessions()
         assert_eq!(app.books(&login).await, [book.clone()]);
         assert_eq!(app.books(&session).await, [book.clone()]);
         let refreshed = app.refresh(&session).await;
-        assert_eq!(app.books(&refreshed).await, [book]);
-        app.download(&login, &SampleFile::Epub.hash())
+        assert_eq!(app.books(&refreshed).await, [book.clone()]);
+        app.download(&login, &book.id)
             .await
             .assert_file(&SampleFile::Epub);
     }

@@ -2,14 +2,15 @@ pub mod cloud_client;
 pub mod config;
 pub mod credentials;
 pub mod dto;
+pub mod epub_reader;
 pub mod error_sink;
 pub mod local_import;
 pub mod runtime;
 pub mod upload_manager;
 
 pub use cloud_client::{
-    CloudClient, CloudProbeOutcome, DEFAULT_CLOUD_MAX_UPLOAD_BYTES, SessionVerifyOutcome,
-    is_session_invalid_code,
+    CloudClient, CloudProbeOutcome, DEFAULT_CLOUD_MAX_UPLOAD_BYTES, RemoteBookFileMeta,
+    SessionVerifyOutcome, is_session_invalid_code,
 };
 pub use config::{
     AppTheme, ClientConfig, ClientLogLevel, ConfigLoadError, ConfigStore,
@@ -26,6 +27,7 @@ pub use dto::{
     StartupPhase, UpdateSettingsRequest, UploadActiveStage, UploadPanelSnapshotDto,
     UploadSessionStatsDto, UploadTaskDto, UploadTaskStatusDto,
 };
+pub use epub_reader::{EpubSessionId, OpenEpubResponseDto};
 pub use error_sink::{ErrorDispatcher, ErrorSink, NoopErrorSink};
 pub use local_import::{
     ImportProgressCallback, import_reader_into_local, is_opaque_book_file_name,

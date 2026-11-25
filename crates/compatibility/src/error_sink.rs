@@ -73,6 +73,11 @@ impl ErrorDispatcher {
             .command
     }
 
+    /// Generates a localized command error payload without buffering or emitting a global error event.
+    pub fn command_only(&self, code: ErrorCode) -> CommandErrorPayload {
+        PairedClientError::new(code, self.locale(), Uuid::new_v4().to_string(), None).command
+    }
+
     /// Dispatches an error event for a startup/lifecycle diagnostic while preserving the paired ID.
     pub fn dispatch_startup(&self, code: ErrorCode) -> PairedClientError {
         self.dispatch(code, Uuid::new_v4().to_string(), None)

@@ -4,15 +4,11 @@ use std::sync::{
 };
 
 use axum::{
-    body::Body,
     extract::{
-        Multipart, Path, Query, State,
+        Multipart, Query, State,
         multipart::{Field, MultipartError},
     },
-    http::{
-        HeaderValue, Response, StatusCode,
-        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
-    },
+    http::StatusCode,
 };
 use futures_util::TryStreamExt;
 use shiro_application::library::{
@@ -22,7 +18,7 @@ use shiro_error_catalog::ErrorCode;
 use shiro_http_contract::{
     BOOK_FILE_FIELD_FILE, BOOK_FILE_FIELD_HASH, BOOK_FILE_FIELD_SIZE, BookFileQuery,
 };
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio_util::io::StreamReader;
 
 use crate::{
     api::{
@@ -180,34 +176,6 @@ pub async fn upload_book(
     }
 }
 
-pub async fn download_book(
-    State(state): State<AppState>,
-    Path(book_hash): Path<String>,
-    _: RoutedState,
-) -> Result<Response<Body>, AppError> {
-    let file = state
-        .bookfile_service
-        .download_book_file(&book_hash)
-        .await?;
-    let body = Body::from_stream(ReaderStream::new(file));
-
-    let filename = format!("{}.book", &book_hash);
-    let content_disposition = format!("attachment; filename=\"{}\"", filename);
-    let cd_header_value = HeaderValue::from_str(&content_disposition)
-        .unwrap_or_else(|_| HeaderValue::from_static("attachment"));
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(
-            CONTENT_TYPE,
-            HeaderValue::from_static("application/octet-stream"),
-        )
-        .header(CONTENT_DISPOSITION, cd_header_value)
-        .header("x-book-hash", header_value(&book_hash)?)
-        .body(body)
-        .map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
-}
-
 pub async fn get_book(
     State(state): State<AppState>,
     Query(query): Query<BookFileQuery>,
@@ -215,8 +183,4 @@ pub async fn get_book(
 ) -> Result<StatusCode, AppError> {
     let _ = state.bookfile_service.probe_book_file(&query.hash)?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn header_value(value: &str) -> Result<HeaderValue, AppError> {
-    HeaderValue::from_str(value).map_err(|error| AppError::Internal(anyhow::anyhow!(error)))
 }

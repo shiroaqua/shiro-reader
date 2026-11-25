@@ -72,6 +72,10 @@ pub fn streaming_router(upload_body_limit: usize, standard_timeout: Duration) ->
         StatusCode::REQUEST_TIMEOUT,
         standard_timeout,
     ));
+    let head_file = book::handlers::head_book_file.layer(TimeoutLayer::with_status_code(
+        StatusCode::REQUEST_TIMEOUT,
+        standard_timeout,
+    ));
     let upload_post =
         book::file::handlers::upload_book.layer(DefaultBodyLimit::max(upload_body_limit));
 
@@ -79,7 +83,7 @@ pub fn streaming_router(upload_body_limit: usize, standard_timeout: Duration) ->
         .route(paths::BOOK_FILES_ROUTE, get(probe_get).post(upload_post))
         .route(
             paths::BOOK_FILE_ROUTE,
-            get(book::file::handlers::download_book),
+            get(book::handlers::download_book_file).head(head_file),
         )
         .route(paths::BOOK_COVER_ROUTE, get(book::handlers::download_cover))
 }

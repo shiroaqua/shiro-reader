@@ -12,7 +12,9 @@ use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
 use rayon::prelude::*;
 use rbook::Epub;
-use shiro_application::library::ports::{BookFileStorageError, BookFileStore, CoverByteStream};
+use shiro_application::library::ports::{
+    BookFileMetadata, BookFileStorageError, BookFileStore, CoverByteStream, OpenedBookFile,
+};
 use shiro_domain::library::book::chapter::ChapterLocation;
 use shiro_domain::library::book::file::entity::{BookFileType, BookFileChapter};
 use tokio::{
@@ -30,7 +32,7 @@ pub type StorageResult<T> = Result<T, BookFileStorageError>;
 pub struct LocalBookFileStorage {
     dir: PathBuf,
     ext: String,
-    files: Arc<DashMap<Hash, BookFileType>>,
+    files: Arc<DashMap<Hash, BookFileMetadata>>,
     covers: Arc<DashMap<Hash, (PathBuf, ImageFormat)>>,
     pdfium: Option<Arc<Mutex<Pdfium>>>,
 }
@@ -42,7 +44,7 @@ impl LocalBookFileStorage {
         pdfium: Option<Arc<Mutex<Pdfium>>>,
     ) -> StorageResult<Self> {
         if dir.exists() && !dir.is_dir() {
-            return Err(BookFileStorageError(io::Error::new(
+            return Err(BookFileStorageError::Io(io::Error::new(
                 io::ErrorKind::NotADirectory,
                 format!("book storage path is not a directory: {}", dir.display()),
             )));
@@ -84,11 +86,9 @@ impl LocalBookFileStorage {
 }
 
 impl BookFileStore for LocalBookFileStorage {
-    fn contains(&self, key: &Hash) -> bool {
-        self.files.contains_key(key)
-    }
+    type Reader = Take<File>;
 
-    fn get_type(&self, key: &Hash) -> Option<BookFileType> {
+    fn get_meta(&self, key: &Hash) -> Option<BookFileMetadata> {
         // 书籍永不删除，因此这边的线程安全问题无需在意。
         self.files.get(key).map(|entry| *entry.value())
     }
@@ -118,7 +118,7 @@ impl BookFileStore for LocalBookFileStorage {
 
         let file_hash = hasher.finalize();
         if file_hash != *hash {
-            return Err(io::ErrorKind::InvalidData.into());
+            return Err(BookFileStorageError::HashMismatch);
         }
 
         let dir = self.dir.clone();
@@ -132,34 +132,121 @@ impl BookFileStore for LocalBookFileStorage {
         })
         .await
         .map_err(|err| {
-            BookFileStorageError(io::Error::other(format!(
+            BookFileStorageError::Io(io::Error::other(format!(
                 "book file finalization task failed: {err}"
             )))
         })?
     }
 
-    async fn open(&self, hash: &Hash) -> Result<Take<File>, BookFileStorageError> {
-        if self.files.contains_key(hash) {
-            let mut file = File::open(
-                self.dir
-                    .join(hash.to_hex().to_string())
-                    .with_extension(&self.ext),
-            )
-            .await?;
-            let mut version = [0u8; 1];
-            file.read_exact(&mut version).await?;
-            if version[0] != BOOK_FILE_VERSION {
-                return Err(io::ErrorKind::Unsupported.into());
-            }
-            file.seek(SeekFrom::Start(BOOK_FILE_HEADER_SIZE - 8))
-                .await?;
-            let mut size_bytes = [0u8; 8];
-            file.read_exact(&mut size_bytes).await?;
-            file.seek(SeekFrom::Start(BOOK_FILE_HEADER_SIZE)).await?;
-            Ok(file.take(u64::from_be_bytes(size_bytes)))
+    async fn open_range(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<OpenedBookFile<Self::Reader>, BookFileStorageError> {
+        let meta = self
+            .get_meta(hash)
+            .ok_or(BookFileStorageError::NotFound)?;
+        let is_empty_req =
+            length == Some(0) || (meta.size == 0 && offset == 0 && length.is_none());
+        let in_bounds = if is_empty_req {
+            offset <= meta.size
         } else {
-            Err(io::ErrorKind::NotFound.into())
+            offset < meta.size
+        };
+        if !in_bounds {
+            return Err(BookFileStorageError::RangeOutOfBounds {
+                offset,
+                len: length,
+                size: meta.size,
+            });
         }
+
+        let remaining = meta.size - offset;
+        let actual_len = length.map_or(remaining, |n| n.min(remaining));
+        let physical_offset = BOOK_FILE_HEADER_SIZE.checked_add(offset).ok_or_else(|| {
+            BookFileStorageError::Io(io::Error::from(io::ErrorKind::InvalidInput))
+        })?;
+
+        let path = self
+            .dir
+            .join(hash.to_hex().to_string())
+            .with_extension(&self.ext);
+        let mut file = match File::open(&path).await {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                return Err(BookFileStorageError::NotFound);
+            }
+            Err(err) => return Err(BookFileStorageError::Io(err)),
+        };
+
+        let mut version = [0u8; 1];
+        file.read_exact(&mut version).await?;
+        if version[0] != BOOK_FILE_VERSION {
+            return Err(BookFileStorageError::Unsupported);
+        }
+
+        file.seek(SeekFrom::Start(physical_offset)).await?;
+        Ok(OpenedBookFile {
+            reader: file.take(actual_len),
+            total_size: meta.size,
+            offset,
+            length: actual_len,
+        })
+    }
+
+    async fn read_exact_at(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        len: usize,
+    ) -> Result<Bytes, BookFileStorageError> {
+        let meta = self
+            .get_meta(hash)
+            .ok_or(BookFileStorageError::NotFound)?;
+        if len == 0 {
+            return if offset <= meta.size {
+                Ok(Bytes::new())
+            } else {
+                Err(BookFileStorageError::RangeOutOfBounds {
+                    offset,
+                    len: Some(0),
+                    size: meta.size,
+                })
+            };
+        }
+
+        let len_u64 = u64::try_from(len).map_err(|_| BookFileStorageError::RangeOutOfBounds {
+            offset,
+            len: Some(u64::MAX),
+            size: meta.size,
+        })?;
+        if offset
+            .checked_add(len_u64)
+            .is_none_or(|end| end > meta.size)
+        {
+            return Err(BookFileStorageError::RangeOutOfBounds {
+                offset,
+                len: Some(len_u64),
+                size: meta.size,
+            });
+        }
+
+        let physical_offset = BOOK_FILE_HEADER_SIZE.checked_add(offset).ok_or_else(|| {
+            BookFileStorageError::Io(io::Error::from(io::ErrorKind::InvalidInput))
+        })?;
+        let path = self
+            .dir
+            .join(hash.to_hex().to_string())
+            .with_extension(&self.ext);
+
+        tokio::task::spawn_blocking(move || read_exact_at_blocking(&path, physical_offset, len))
+            .await
+            .map_err(|err| {
+                BookFileStorageError::Io(io::Error::other(format!(
+                    "book file positional read task failed: {err}"
+                )))
+            })?
     }
 
 
@@ -220,7 +307,7 @@ fn scan_directory(
     dir: &Path,
     ext: &str,
 ) -> io::Result<(
-    DashMap<Hash, BookFileType>,
+    DashMap<Hash, BookFileMetadata>,
     DashMap<Hash, (PathBuf, ImageFormat)>,
 )> {
     let files = Arc::new(DashMap::new());
@@ -303,7 +390,13 @@ fn scan_directory(
                 && path.file_stem().and_then(|stem| stem.to_str())
                     == Some(file_hash.to_hex().as_str())
             {
-                files.insert(calculated_hash, file_type);
+                files.insert(
+                    calculated_hash,
+                    BookFileMetadata {
+                        file_type,
+                        size: file_size,
+                    },
+                );
                 tracing::debug!("loaded: {}", file_name);
             } else {
                 tracing::warn!(
@@ -347,19 +440,67 @@ fn scan_directory(
     Ok((files, covers))
 }
 
+fn read_exact_at_blocking(
+    path: &Path,
+    physical_offset: u64,
+    len: usize,
+) -> Result<Bytes, BookFileStorageError> {
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            return Err(BookFileStorageError::NotFound);
+        }
+        Err(err) => return Err(BookFileStorageError::Io(err)),
+    };
+
+    let mut version = [0u8; 1];
+    file.read_exact(&mut version)?;
+    if version[0] != BOOK_FILE_VERSION {
+        return Err(BookFileStorageError::Unsupported);
+    }
+
+    let mut buf = vec![0u8; len];
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(&mut buf, physical_offset)?;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut read = 0usize;
+        while read < len {
+            let n = file.seek_read(&mut buf[read..], physical_offset + read as u64)?;
+            if n == 0 {
+                return Err(BookFileStorageError::Io(io::Error::from(
+                    io::ErrorKind::UnexpectedEof,
+                )));
+            }
+            read += n;
+        }
+    }
+    Ok(Bytes::from(buf))
+}
+
 fn finalize_book_file(
     mut temp_file: tempfile::NamedTempFile,
     dir: &Path,
     ext: &str,
     file_hash: Hash,
     pdfium: Option<Arc<Mutex<Pdfium>>>,
-    files: &DashMap<Hash, BookFileType>,
+    files: &DashMap<Hash, BookFileMetadata>,
     covers: &DashMap<Hash, (PathBuf, ImageFormat)>,
 ) -> StorageResult<()> {
     let temp_dir = dir.join(".temp");
     let file_size = temp_file.as_file().metadata()?.len();
 
-    let file_type = detect_book_file_type(temp_file.as_file_mut())?;
+    let file_type = match detect_book_file_type(temp_file.as_file_mut()) {
+        Ok(file_type) => file_type,
+        Err(err) if err.kind() == io::ErrorKind::Unsupported => {
+            return Err(BookFileStorageError::Unsupported);
+        }
+        Err(err) => return Err(BookFileStorageError::Io(err)),
+    };
     let chapters =
         match extract_book_chapters(temp_file.as_file_mut(), file_type, pdfium.as_deref()) {
             Ok(chapters) => chapters,
@@ -427,17 +568,26 @@ fn finalize_book_file(
         Err(err) if err.error.kind() == io::ErrorKind::AlreadyExists => {
             tracing::debug!(path = %cover_path.display(), "reusing existing cover file");
         }
-        Err(err) => return Err(BookFileStorageError(err.error)),
+        Err(err) => return Err(BookFileStorageError::Io(err.error)),
     }
 
     let final_path = dir.join(&hash_hex).with_extension(ext);
     match final_temp_file.persist_noclobber(&final_path) {
         Ok(_) => {
             covers.insert(file_hash, (cover_path, cover_format));
-            files.insert(file_hash, file_type);
+            files.insert(
+                file_hash,
+                BookFileMetadata {
+                    file_type,
+                    size: file_size,
+                },
+            );
             Ok(())
         }
-        Err(err) => Err(BookFileStorageError(err.error)),
+        Err(err) if err.error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(BookFileStorageError::AlreadyExists)
+        }
+        Err(err) => Err(BookFileStorageError::Io(err.error)),
     }
 }
 

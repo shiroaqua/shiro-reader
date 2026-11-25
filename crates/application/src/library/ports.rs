@@ -15,10 +15,7 @@ use shiro_domain::library::{
         value_objects::TagId,
     },
 };
-use tokio::{
-    fs::File,
-    io::{AsyncRead, Take},
-};
+use tokio::io::AsyncRead;
 
 pub type CoverByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send + 'static>>;
 
@@ -240,29 +237,60 @@ pub trait TagTransaction: Send {
     fn commit(self) -> impl Future<Output = Result<(), TagRepositoryError>> + Send;
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub struct BookFileStorageError(#[from] pub io::Error);
-
-impl BookFileStorageError {
-    pub fn kind(&self) -> io::ErrorKind {
-        self.0.kind()
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BookFileMetadata {
+    pub file_type: BookFileType,
+    pub size: u64,
 }
 
-impl From<io::ErrorKind> for BookFileStorageError {
-    fn from(kind: io::ErrorKind) -> Self {
-        Self(io::Error::from(kind))
-    }
+#[derive(Debug)]
+pub struct OpenedBookFile<R> {
+    pub reader: R,
+    pub total_size: u64,
+    pub offset: u64,
+    pub length: u64,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BookFileStorageError {
+    #[error("book file not found")]
+    NotFound,
+
+    #[error("book file already exists")]
+    AlreadyExists,
+
+    #[error("byte range (offset={offset}, len={len:?}) out of bounds for file size {size}")]
+    RangeOutOfBounds {
+        offset: u64,
+        len: Option<u64>,
+        size: u64,
+    },
+
+    #[error("book file hash mismatch")]
+    HashMismatch,
+
+    #[error("unsupported book file format or container version")]
+    Unsupported,
+
+    #[error(transparent)]
+    Io(#[from] io::Error),
 }
 
 /// Append-only content-addressed book file storage.
 ///
 /// Validated and persisted book files are never deleted.
 pub trait BookFileStore: Send + Sync + 'static {
-    fn contains(&self, hash: &Hash) -> bool;
+    type Reader: AsyncRead + Unpin + Send + 'static;
 
-    fn get_type(&self, hash: &Hash) -> Option<BookFileType>;
+    fn contains(&self, hash: &Hash) -> bool {
+        self.get_meta(hash).is_some()
+    }
+
+    fn get_type(&self, hash: &Hash) -> Option<BookFileType> {
+        self.get_meta(hash).map(|meta| meta.file_type)
+    }
+
+    fn get_meta(&self, hash: &Hash) -> Option<BookFileMetadata>;
 
     fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter>;
 
@@ -274,10 +302,28 @@ pub trait BookFileStore: Send + Sync + 'static {
     where
         R: AsyncRead + Unpin + Send;
 
+    /// Opens a sequential bounded stream over `[offset .. offset + length)` for streaming transfer.
+    fn open_range(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        length: Option<u64>,
+    ) -> impl Future<Output = Result<OpenedBookFile<Self::Reader>, BookFileStorageError>> + Send;
+
+    /// Reads an exact byte slice `[offset .. offset + len)` for random-access archive parsing.
+    fn read_exact_at(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        len: usize,
+    ) -> impl Future<Output = Result<Bytes, BookFileStorageError>> + Send;
+
     fn open(
         &self,
         hash: &Hash,
-    ) -> impl Future<Output = Result<Take<File>, BookFileStorageError>> + Send;
+    ) -> impl Future<Output = Result<Self::Reader, BookFileStorageError>> + Send {
+        async move { self.open_range(hash, 0, None).await.map(|opened| opened.reader) }
+    }
 
     fn open_cover(
         &self,

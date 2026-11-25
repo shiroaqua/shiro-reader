@@ -50,6 +50,7 @@ fn desktop_caps(default_root: PathBuf) -> PlatformCapabilities {
         retain_completed_uploads: false,
         default_library_root: default_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+        epub_cache_max_bytes: 64 * 1024 * 1024,
     }
 }
 
@@ -61,6 +62,7 @@ fn android_caps(private_root: PathBuf) -> PlatformCapabilities {
         retain_completed_uploads: true,
         default_library_root: private_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+        epub_cache_max_bytes: 24 * 1024 * 1024,
     }
 }
 

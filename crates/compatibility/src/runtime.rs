@@ -3,12 +3,13 @@ use std::{
     sync::{Arc, Mutex, OnceLock, RwLock, Weak},
 };
 
+use bytes::Bytes;
 use pdfium_render::prelude::Pdfium;
 use shiro_application::library::{
     book::{
         commands::{
-            DeleteBooksCommand, GetBookCoverCommand, PermanentlyDeleteBooksCommand,
-            RenameBookCommand, RestoreBookIdCommand,
+            DeleteBooksCommand, GetBookCoverCommand, GetBookFileMetaCommand,
+            PermanentlyDeleteBooksCommand, RenameBookCommand, RestoreBookIdCommand,
         },
         dto::{GetBookOutput, TrashedBookOutput},
         queries::GetBooksQuery,
@@ -22,6 +23,7 @@ use shiro_application::library::{
         dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     },
 };
+use shiro_domain::library::book::file::entity::BookFileType;
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode, PairedClientError};
 use shiro_http_contract::ServerMetaResponse;
 use shiro_infrastructure::{db::pool::checkpoint_library_wal, library_runtime::LocalLibrary};
@@ -41,6 +43,10 @@ use crate::{
         BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
         InitialSetupRequest, RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic,
         StartupPhase, UpdateSettingsRequest, UploadPanelSnapshotDto,
+    },
+    epub_reader::{
+        EpubSessionId, OpenEpubResponseDto, byte_source::BookByteSource,
+        session::EpubSessionManager, zip_index::ZipIndex,
     },
     error_sink::{ErrorDispatcher, ErrorSink},
     local_import::{ImportProgressCallback, ImportTarget, import_reader_into_local},
@@ -90,6 +96,7 @@ pub struct ClientRuntime {
     inner: RwLock<RuntimeInner>,
     self_weak: OnceLock<Weak<Self>>,
     upload_manager: OnceLock<UploadManager>,
+    epub_sessions: EpubSessionManager,
 }
 
 impl ClientRuntime {
@@ -256,6 +263,7 @@ impl ClientRuntime {
         let initial_locale = error_dispatcher.locale();
         let can_import_books = capabilities.can_import_books;
         let retain_completed_uploads = capabilities.retain_completed_uploads;
+        let epub_cache_max_bytes = capabilities.epub_cache_max_bytes;
 
         let runtime = Arc::new(Self {
             config_store,
@@ -268,6 +276,7 @@ impl ClientRuntime {
             inner: RwLock::new(inner),
             self_weak: OnceLock::new(),
             upload_manager: OnceLock::new(),
+            epub_sessions: EpubSessionManager::new(epub_cache_max_bytes),
         });
         let _ = runtime.self_weak.set(Arc::downgrade(&runtime));
 
@@ -462,6 +471,7 @@ impl ClientRuntime {
                 }
 
                 let applied_locale = next_config.locale;
+                self.epub_sessions.clear_all();
                 {
                     let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
                     guard.config = next_config;
@@ -736,6 +746,7 @@ impl ClientRuntime {
                 .dispatch_operation(ErrorCode::ConfigSaveFailed));
         }
 
+        self.epub_sessions.clear_all();
         {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             guard.config = next_config;
@@ -785,6 +796,7 @@ impl ClientRuntime {
                     guard.config = cfg;
                 }
                 Ok(None) => {
+                    self.epub_sessions.clear_all();
                     let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
                     guard.active_mode = None;
                     guard.state = ActiveRuntimeState::SetupRequired;
@@ -806,6 +818,7 @@ impl ClientRuntime {
 
         match config_snapshot.mode {
             None => {
+                self.epub_sessions.clear_all();
                 {
                     let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
                     guard.active_mode = None;
@@ -868,6 +881,7 @@ impl ClientRuntime {
 
                 match LocalLibrary::open(target_root.clone(), self.pdfium.clone()).await {
                     Ok(library) => {
+                        self.epub_sessions.clear_all();
                         {
                             let mut guard =
                                 self.inner.write().unwrap_or_else(|e| e.into_inner());
@@ -878,6 +892,7 @@ impl ClientRuntime {
                         Ok(self.bootstrap_state())
                     }
                     Err(err) => {
+                        self.epub_sessions.clear_all();
                         let code = classify_local_startup_error(&err);
                         let paired = self.error_dispatcher.dispatch_startup(code);
                         let diagnostic = diagnostic_from_paired(
@@ -905,6 +920,7 @@ impl ClientRuntime {
     // -------------------------------------------------------------------------
 
     async fn activate_cloud_origin(&self, origin: String, emit_startup_events: bool) {
+        self.epub_sessions.clear_all();
         let on_invalidated = self.self_weak.get().cloned().map(|weak| {
             Arc::new(move || {
                 if let Some(rt) = weak.upgrade() {
@@ -1039,6 +1055,7 @@ impl ClientRuntime {
 
     fn handle_cloud_session_invalidated(&self) {
         self.upload_manager().abort_all();
+        self.epub_sessions.clear_all();
         let updated = {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             if let ActiveRuntimeState::Cloud(ctx) = &mut guard.state {
@@ -1115,6 +1132,9 @@ impl ClientRuntime {
     async fn cloud_probe_locked(&self) -> Result<BootstrapStateDto, CommandErrorPayload> {
         let client = self.require_cloud_client()?;
         let ctx = self.probe_cloud_client(client, None, false).await;
+        if ctx.phase != StartupPhase::Ready {
+            self.epub_sessions.clear_all();
+        }
         {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             guard.state = ActiveRuntimeState::Cloud(ctx);
@@ -1132,6 +1152,7 @@ impl ClientRuntime {
     ) -> Result<BootstrapStateDto, CommandErrorPayload> {
         let _lifecycle = self.lifecycle_lock.lock().await;
         self.upload_manager().abort_all_and_drain().await;
+        self.epub_sessions.clear_all();
         let normalized = normalize_cloud_origin(&new_origin).map_err(|_| {
             self.error_dispatcher
                 .dispatch_operation(ErrorCode::CloudInvalidOrigin)
@@ -1231,6 +1252,7 @@ impl ClientRuntime {
             .await
             .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
 
+        self.epub_sessions.clear_all();
         {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             guard.state = ActiveRuntimeState::Cloud(CloudRuntimeContext {
@@ -1250,6 +1272,7 @@ impl ClientRuntime {
     pub async fn cloud_logout(&self) -> Result<BootstrapStateDto, CommandErrorPayload> {
         let _lifecycle = self.lifecycle_lock.lock().await;
         self.upload_manager().abort_all_and_drain().await;
+        self.epub_sessions.clear_all();
         let client = self.require_cloud_client()?;
         client
             .logout()
@@ -1272,6 +1295,7 @@ impl ClientRuntime {
     pub async fn shutdown(&self) {
         let _lifecycle = self.lifecycle_lock.lock().await;
         self.upload_manager().abort_all_and_drain().await;
+        self.epub_sessions.clear_all();
         let db_path = {
             let mut guard = self.inner.write().unwrap_or_else(|e| e.into_inner());
             let prev = std::mem::replace(&mut guard.state, ActiveRuntimeState::SetupRequired);
@@ -1382,17 +1406,19 @@ impl ClientRuntime {
         match self.require_ready_backend()? {
             LibraryBackend::Local(lib) => lib
                 .book_service()
-                .delete_books(DeleteBooksCommand { ids })
+                .delete_books(DeleteBooksCommand { ids: ids.clone() })
                 .await
                 .map_err(|err| {
                     self.error_dispatcher
                         .dispatch_operation(ErrorCode::from(&err))
-                }),
+                })?,
             LibraryBackend::Cloud(cloud) => cloud
-                .delete_books(ids)
+                .delete_books(ids.clone())
                 .await
-                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code))?,
         }
+        self.epub_sessions.evict_books(&ids);
+        Ok(())
     }
 
     pub async fn list_trash(&self) -> Result<Vec<TrashedBookOutput>, CommandErrorPayload> {
@@ -1492,17 +1518,106 @@ impl ClientRuntime {
         match self.require_ready_backend()? {
             LibraryBackend::Local(lib) => lib
                 .book_service()
-                .permanently_delete_books(PermanentlyDeleteBooksCommand { ids })
+                .permanently_delete_books(PermanentlyDeleteBooksCommand { ids: ids.clone() })
                 .await
                 .map_err(|err| {
                     self.error_dispatcher
                         .dispatch_operation(ErrorCode::from(&err))
-                }),
+                })?,
             LibraryBackend::Cloud(cloud) => cloud
-                .permanently_delete_books(ids)
+                .permanently_delete_books(ids.clone())
                 .await
-                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code))?,
         }
+        self.epub_sessions.evict_books(&ids);
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // EPUB Reader Operations (Local & Cloud)
+    // -------------------------------------------------------------------------
+
+    pub async fn open_epub(
+        &self,
+        book_id: String,
+    ) -> Result<OpenEpubResponseDto, CommandErrorPayload> {
+        let source = match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => {
+                let descriptor = lib
+                    .book_service()
+                    .get_book_file_meta(GetBookFileMetaCommand {
+                        id: book_id.clone(),
+                    })
+                    .await
+                    .map_err(|err| {
+                        self.error_dispatcher
+                            .dispatch_operation(ErrorCode::from(&err))
+                    })?;
+                if descriptor.file_type != BookFileType::EPUB {
+                    return Err(self
+                        .error_dispatcher
+                        .dispatch_operation(ErrorCode::ReaderUnsupportedFormat));
+                }
+                BookByteSource::Local {
+                    book_files: Arc::clone(lib.book_file_service()),
+                    hash: descriptor.hash,
+                    total_size: descriptor.size,
+                }
+            }
+            LibraryBackend::Cloud(cloud) => {
+                let meta = cloud
+                    .head_book_file(&book_id)
+                    .await
+                    .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+                if meta.file_type != BookFileType::EPUB {
+                    return Err(self
+                        .error_dispatcher
+                        .dispatch_operation(ErrorCode::ReaderUnsupportedFormat));
+                }
+                BookByteSource::Cloud {
+                    client: Arc::clone(&cloud),
+                    cache: Arc::clone(self.epub_sessions.chunk_cache()),
+                    book_id: Arc::from(book_id.as_str()),
+                    hash: meta.hash,
+                    total_size: meta.size,
+                }
+            }
+        };
+
+        let file_size = source.total_size();
+        let index = ZipIndex::parse(&source)
+            .await
+            .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+        let entries = index.export_entry_sizes();
+        let session = self.epub_sessions.insert(book_id.clone(), source, index);
+        Ok(OpenEpubResponseDto {
+            session_id: session.session_id,
+            book_id,
+            file_size,
+            entries,
+        })
+    }
+
+    pub async fn read_epub_entry(
+        &self,
+        session_id: EpubSessionId,
+        path: &str,
+    ) -> Result<Bytes, CommandErrorPayload> {
+        let Some(session) = self.epub_sessions.get(session_id) else {
+            return Err(self
+                .error_dispatcher
+                .command_only(ErrorCode::ReaderSessionNotFound));
+        };
+        session
+            .index
+            .read_entry(&session.source, path)
+            .await
+            .map_err(|code| self.error_dispatcher.command_only(code))
+    }
+
+    pub async fn close_epub(&self, session_id: EpubSessionId) -> Result<(), CommandErrorPayload> {
+        self.epub_sessions.remove(session_id);
+        Ok(())
     }
 
     pub async fn get_cover_stream(

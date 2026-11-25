@@ -72,6 +72,14 @@ mod tests {
         assert_eq!(DeleteTagStrategy::Promote.as_query_str(), "PROMOTE");
         assert_eq!(paths::book("b1"), "/api/v1/library/bookshelf/books/b1");
         assert_eq!(
+            paths::book_file("b1"),
+            "/api/v1/library/bookshelf/books/b1/file"
+        );
+        assert_eq!(
+            paths::BOOK_FILE_ROUTE,
+            "/bookshelf/books/{book_id}/file"
+        );
+        assert_eq!(
             paths::book_cover("b1"),
             "/api/v1/library/bookshelf/books/b1/cover"
         );

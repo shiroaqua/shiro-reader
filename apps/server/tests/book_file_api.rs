@@ -3,15 +3,19 @@ use HttpError::*;
 use SampleFile::*;
 use support::*;
 
-// 验证 PDF 和 EPUB 文件可上传、查询和原样下载，且重复上传被拒绝。
+// 验证 PDF 和 EPUB 文件可上传、查询、创建书籍后经 HEAD/GET 原样下载，且重复上传被拒绝。
 #[tokio::test]
 async fn upload_lookup_download_and_deduplication() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
-    for file in [Pdf, Epub] {
+    for (idx, file) in [Pdf, Epub].into_iter().enumerate() {
         app.upload(&reader, file).await;
         app.find_file(&reader, &file.hash()).await.assert_empty(204);
-        app.download(&reader, &file.hash()).await.assert_file(&file);
+        let book = app.add_book(&reader, &format!("Book {idx}"), file).await;
+        app.head_book_file(&reader, &book.data.id)
+            .await
+            .assert_empty(200);
+        app.download(&reader, &book.data.id).await.assert_file(&file);
         app.upload_again(&reader, file)
             .await
             .assert_error(DuplicateFile);
@@ -49,7 +53,8 @@ async fn failed_upload_allows_valid_retry() {
         .await
         .assert_error(FileNotFound);
     app.upload(&reader, Epub).await;
-    app.download(&reader, &Epub.hash()).await.assert_file(&Epub);
+    let book = app.add_book(&reader, "Retried", Epub).await;
+    app.download(&reader, &book.data.id).await.assert_file(&Epub);
 }
 
 // 验证上传不支持的文件格式时返回对应错误。
@@ -63,24 +68,30 @@ async fn unsupported_file_is_rejected() {
         .assert_error(UnsupportedFile);
 }
 
-// 验证查询和下载文件时拒绝非法哈希或不存在的文件。
+// 验证查询和下载文件时拒绝非法参数或不存在的资源。
 #[tokio::test]
-async fn lookup_and_download_reject_invalid_and_missing_hashes() {
+async fn lookup_and_download_reject_invalid_and_missing_ids() {
     let app = TestApp::new().await;
     let reader = app.session("Reader").await;
     for (hash, error) in [(INVALID_HASH, InvalidHash), (UNKNOWN_HASH, FileNotFound)] {
         app.find_file(&reader, hash).await.assert_error(error);
-        app.download(&reader, hash).await.assert_error(error);
+    }
+    for (book_id, error) in [(INVALID_ID, InvalidBookId), (UNKNOWN_ID, BookNotFound)] {
+        app.download(&reader, book_id).await.assert_error(error);
+        app.head_book_file(&reader, book_id)
+            .await
+            .assert_status(if book_id == INVALID_ID { 400 } else { 404 });
     }
 }
 
-// 重启扫描时必须同时校验文件大小和内容哈希，损坏的文件不可查询。
+// 重启扫描时必须同时校验文件大小和内容哈希，损坏的文件不可查询或下载。
 #[tokio::test]
 async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
     let directory = tempfile::tempdir().unwrap();
     let app = TestApp::at(directory.path()).await;
     let reader = app.session("Reader").await;
     app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "RestartCheck", Epub).await.data;
     drop(app);
 
     let path = directory
@@ -103,9 +114,12 @@ async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
         app.find_file(&reader, &Epub.hash())
             .await
             .assert_error(FileNotFound);
-        app.download(&reader, &Epub.hash())
+        app.download(&reader, &book.id)
             .await
             .assert_error(FileNotFound);
+        app.head_book_file(&reader, &book.id)
+            .await
+            .assert_status(404);
     }
 }
 
@@ -628,4 +642,162 @@ async fn slow_stream_and_slow_header_return_408_and_unlock() {
         .await
         .unwrap();
     assert_eq!(retry_resp.status(), StatusCode::CREATED);
+}
+
+// 验证 /bookshelf/books/{book_id}/file 支持 HEAD、Range、If-Range、416/400 错误及回收站拦截，并确认旧 hash 下载端点已下线。
+#[tokio::test]
+async fn book_file_supports_head_range_if_range_errors_trash_guard_and_drops_legacy_endpoint() {
+    let app = TestApp::new().await;
+    let reader = app.session("Reader").await;
+    app.upload(&reader, Epub).await;
+    let book = app.add_book(&reader, "RangeEpub", Epub).await;
+    let full_bytes = Epub.bytes();
+    let total = full_bytes.len();
+    let hash = Epub.hash();
+    let strong_etag = format!("\"{hash}\"");
+
+    // 1. Legacy endpoint GET /api/v1/library/files/book/{hash} is no longer registered.
+    let legacy = app
+        .raw_get(&reader, &format!("/api/v1/library/files/book/{hash}"))
+        .await;
+    assert!(
+        legacy.header("x-book-hash").is_none(),
+        "legacy hash download endpoint must be removed"
+    );
+    let legacy_probe = app
+        .raw_get(
+            &reader,
+            &format!("{}?hash={hash}", shiro_http_contract::paths::BOOK_FILES),
+        )
+        .await;
+    legacy_probe.assert_empty(204);
+    assert!(
+        !matches!(
+            app.raw_get(&reader, &format!("/api/v1/library/files/book/{hash}"))
+                .await
+                .header("content-type"),
+            Some("application/octet-stream") | Some("application/epub+zip")
+        )
+    );
+
+    // 2. HEAD returns 200 with exact metadata and empty body.
+    let head_resp = app.head_book_file(&reader, &book.data.id).await;
+    head_resp.assert_empty(200);
+    assert_eq!(head_resp.header("accept-ranges"), Some("bytes"));
+    assert_eq!(head_resp.header("etag"), Some(strong_etag.as_str()));
+    assert_eq!(
+        head_resp.header("cache-control"),
+        Some("private, immutable")
+    );
+    assert_eq!(
+        head_resp.header("content-type"),
+        Some("application/epub+zip")
+    );
+    assert_eq!(
+        head_resp.header("content-length"),
+        Some(total.to_string().as_str())
+    );
+    assert_eq!(head_resp.header("x-book-hash"), Some(hash.as_str()));
+    assert_eq!(head_resp.header("x-book-type"), Some("EPUB"));
+
+    // 3. Range 206 slices (closed, open-ended, suffix, clamped above size, clamped above u64::MAX).
+    for (range_hdr, start, end_inclusive) in [
+        ("bytes=0-99", 0usize, 99usize),
+        ("bytes=100-", 100usize, total - 1),
+        ("bytes=-64", total - 64, total - 1),
+        ("bytes=0-99999999", 0, total - 1),
+        ("bytes=0-999999999999999999999999", 0, total - 1),
+    ] {
+        let resp = app
+            .download_with_headers(&reader, &book.data.id, &[("range", range_hdr)])
+            .await;
+        resp.assert_status(206);
+        let expected_len = end_inclusive - start + 1;
+        assert_eq!(resp.header("accept-ranges"), Some("bytes"));
+        assert_eq!(resp.header("etag"), Some(strong_etag.as_str()));
+        assert_eq!(resp.header("x-book-hash"), Some(hash.as_str()));
+        assert_eq!(resp.header("x-book-type"), Some("EPUB"));
+        assert_eq!(
+            resp.header("content-range"),
+            Some(format!("bytes {start}-{end_inclusive}/{total}").as_str())
+        );
+        assert_eq!(
+            resp.header("content-length"),
+            Some(expected_len.to_string().as_str())
+        );
+        assert_eq!(resp.bytes(), &full_bytes[start..=end_inclusive]);
+    }
+
+    // 4. If-Range strong ETag match returns 206; weak ETag, HTTP-date, or mismatch falls back to 200.
+    let matched_if_range = app
+        .download_with_headers(
+            &reader,
+            &book.data.id,
+            &[("range", "bytes=0-99"), ("if-range", &strong_etag)],
+        )
+        .await;
+    matched_if_range.assert_status(206);
+    assert_eq!(matched_if_range.bytes(), &full_bytes[..100]);
+
+    let weak_etag = format!("W/{strong_etag}");
+    for if_range in [
+        weak_etag.as_str(),
+        "Wed, 21 Oct 2015 07:28:00 GMT",
+        "\"0000000000000000000000000000000000000000000000000000000000000000\"",
+    ] {
+        let fallback = app
+            .download_with_headers(
+                &reader,
+                &book.data.id,
+                &[("range", "bytes=0-99"), ("if-range", if_range)],
+            )
+            .await;
+        fallback.assert_file(&Epub);
+    }
+
+    // 5. 416 Range Not Satisfiable includes Content-Range: bytes */<total>.
+    let total_str = total.to_string();
+    let oob_closed = format!("bytes={total}-{}", total + 10);
+    let oob_open = format!("bytes={total}-");
+    for range_hdr in [
+        oob_closed.as_str(),
+        oob_open.as_str(),
+        "bytes=999999999999999999999999-",
+        "bytes=-0",
+    ] {
+        let resp = app
+            .download_with_headers(&reader, &book.data.id, &[("range", range_hdr)])
+            .await;
+        resp.assert_error(RangeNotSatisfiable);
+        assert_eq!(
+            resp.header("content-range"),
+            Some(format!("bytes */{total_str}").as_str())
+        );
+    }
+
+    // 6. 400 InvalidRange on malformed/multi-range/reversed ranges.
+    for bad_range in [
+        "bytes=50-10",
+        "bytes=-",
+        "bytes=0-1, 2-3",
+        "0-10",
+        "bytes=0-abc",
+        "bytes=9999999999999999999999999-9999999999999999999999998",
+    ] {
+        app.download_with_headers(&reader, &book.data.id, &[("range", bad_range)])
+            .await
+            .assert_error(InvalidRange);
+    }
+
+    // 7. Trashed books reject HEAD and GET (with or without Range) with 409 BookAlreadyDeleted.
+    book.delete().await.assert_empty(204);
+    app.head_book_file(&reader, &book.data.id)
+        .await
+        .assert_status(409);
+    app.download(&reader, &book.data.id)
+        .await
+        .assert_error(BookAlreadyDeleted);
+    app.download_with_headers(&reader, &book.data.id, &[("range", "bytes=0-9")])
+        .await
+        .assert_error(BookAlreadyDeleted);
 }

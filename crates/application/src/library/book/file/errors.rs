@@ -21,6 +21,9 @@ pub enum BookFileApplicationError {
     #[error("bookfile size mismatch")]
     SizeMismatch,
 
+    #[error("bookfile byte range not satisfiable for file size {size}")]
+    RangeNotSatisfiable { size: u64 },
+
     #[error("bookfile type unsupported")]
     Unsupported,
 

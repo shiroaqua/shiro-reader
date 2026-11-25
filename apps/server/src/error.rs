@@ -35,18 +35,37 @@ pub enum AppError {
     NotFound { message: &'static str },
     RequestTimeout { message: &'static str },
     Conflict { message: &'static str },
+    RangeNotSatisfiable { total_size: u64 },
     PayloadTooLarge,
     Internal(anyhow::Error),
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        if let AppError::RangeNotSatisfiable { total_size } = self {
+            let entry = ErrorCode::BookFileRangeNotSatisfiable.entry();
+            let body = ErrorResponse {
+                error: ErrorDetail {
+                    code: entry.code,
+                    message: entry.key.to_owned(),
+                },
+            };
+            let content_range = format!("bytes */{total_size}");
+            return (
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                [(axum::http::header::CONTENT_RANGE, content_range)],
+                Json(body),
+            )
+                .into_response();
+        }
+
         let (status, message) = match self {
             AppError::BadRequest { message } => (StatusCode::BAD_REQUEST, message),
             AppError::Unauthorized { message } => (StatusCode::UNAUTHORIZED, message),
             AppError::NotFound { message } => (StatusCode::NOT_FOUND, message),
             AppError::RequestTimeout { message } => (StatusCode::REQUEST_TIMEOUT, message),
             AppError::Conflict { message } => (StatusCode::CONFLICT, message),
+            AppError::RangeNotSatisfiable { .. } => unreachable!(),
             AppError::PayloadTooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 ErrorCode::CommonPayloadTooLarge.key(),
@@ -204,6 +223,9 @@ impl From<LibraryApplicationError> for AppError {
                 BookFileApplicationError::SizeMismatch => AppError::BadRequest {
                     message: "library.book.file.size_mismatch",
                 },
+                BookFileApplicationError::RangeNotSatisfiable { size } => {
+                    AppError::RangeNotSatisfiable { total_size: size }
+                }
                 BookFileApplicationError::AlreadyExists => AppError::Conflict {
                     message: "library.book.file.already_exists",
                 },
@@ -545,6 +567,11 @@ mod tests {
                 ErrorCode::BookFileSizeMismatch,
             ),
             (
+                BookFileApplicationError::RangeNotSatisfiable { size: 123 },
+                StatusCode::RANGE_NOT_SATISFIABLE,
+                ErrorCode::BookFileRangeNotSatisfiable,
+            ),
+            (
                 BookFileApplicationError::AlreadyExists,
                 StatusCode::CONFLICT,
                 ErrorCode::BookFileAlreadyExists,
@@ -733,6 +760,10 @@ mod tests {
             ErrorCode::CommonPayloadTooLarge,
         )
         .await;
+
+        let range_resp = AppError::RangeNotSatisfiable { total_size: 456 }.into_response();
+        assert_eq!(range_resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(range_resp.headers()["content-range"], "bytes */456");
     }
 
     #[tokio::test]

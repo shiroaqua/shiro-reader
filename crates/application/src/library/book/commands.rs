@@ -36,6 +36,18 @@ pub struct GetBookCoverCommand {
 }
 
 #[derive(Debug, Clone)]
+pub struct GetBookFileMetaCommand {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OpenBookFileRangeCommand {
+    pub id: String,
+    pub offset: u64,
+    pub length: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateChapterCommand {
     pub book_id: String,
     pub position: u32,

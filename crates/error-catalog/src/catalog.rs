@@ -107,7 +107,7 @@ define_error_catalog! {
     BookNotDeleted => (2010, "library.book.not_deleted", "书籍不在回收站中，无法恢复。", "The book is not in the recycle bin and cannot be restored."),
     BookInvalidChapterTitle => (2011, "library.book.invalid_chapter_title", "章节标题格式无效。", "Invalid chapter title format."),
 
-    // Library book file (2101..2108, 2110..2115)
+    // Library book file (2101..2108, 2110..2117)
     BookFileUploadConflict => (2101, "library.book.file.upload.conflict", "文件上传冲突，请重试。", "File upload conflict. Please try again."),
     BookFileAlreadyExists => (2102, "library.book.file.already_exists", "书籍文件已存在。", "The book file already exists."),
     BookFileInvalidHashFormat => (2103, "library.book.file.invalid_hash_format", "文件哈希格式无效。", "Invalid file hash format."),
@@ -122,6 +122,8 @@ define_error_catalog! {
     BookFileUploadDuplicateSize => (2113, "library.book.file.upload.duplicate_size", "上传请求包含重复的文件大小字段。", "The upload contains duplicate file size fields."),
     BookFileUploadMissingSize => (2114, "library.book.file.upload.missing_size", "上传请求缺少文件大小字段。", "The upload is missing the file size field."),
     BookFileUploadInvalidSize => (2115, "library.book.file.upload.invalid_size", "上传请求的文件大小格式无效。", "Invalid file size in the upload request."),
+    BookFileRangeNotSatisfiable => (2116, "library.book.file.range_not_satisfiable", "请求的文件字节范围超出有效长度。", "The requested file byte range is not satisfiable."),
+    BookFileInvalidRange => (2117, "library.book.file.invalid_range", "请求的字节范围格式无效或不受支持。", "The requested byte range is invalid or unsupported."),
 
     // Library tag (2201..2218)
     TagInvalidId => (2201, "library.tag.invalid_id", "标签 ID 无效。", "Invalid tag ID."),
@@ -169,6 +171,13 @@ define_error_catalog! {
     ImportNotSupportedOnPlatform => (3030, "client.platform.import_not_supported", "当前平台暂不支持上传书籍。", "Book upload is not currently supported on this platform."),
     ImportNoSupportedBooksFound => (3031, "client.import.no_supported_books_found", "所选文件夹中未找到受支持的电子书文件（PDF / EPUB）。", "No supported e-book files (PDF / EPUB) were found in the selected folder."),
     ImportNotificationPermissionRequired => (3032, "client.import.notification_permission_required", "需要授予通知权限才能在移动端上传书籍，请在系统设置中开启通知后重试。", "Notification permission is required to upload books on mobile. Please enable notifications and try again."),
+
+    // Client EPUB reader (3101..3105)
+    ReaderSessionNotFound => (3101, "client.reader.session_not_found", "阅读会话不存在或已关闭。", "The reader session was not found or has been closed."),
+    ReaderEntryNotFound => (3102, "client.reader.entry_not_found", "书籍内部找不到指定资源路径。", "The requested entry was not found in the book archive."),
+    ReaderUnsupportedFormat => (3103, "client.reader.unsupported_format", "当前阅读器仅支持打开 EPUB 格式书籍。", "The reader currently only supports EPUB books."),
+    ReaderCorruptedEpub => (3104, "client.reader.corrupted_epub", "EPUB 文件结构损坏或包含不支持的压缩格式。", "The EPUB archive is corrupted or uses an unsupported compression method."),
+    ReaderEntryTooLarge => (3105, "client.reader.entry_too_large", "书籍内部条目或目录体积超过安全限制。", "An archive entry or directory exceeds the safety size limit."),
 
     // Common (9001, 9002, 9999)
     CommonPayloadTooLarge => (9001, "common.payload_too_large", "上传内容过大。", "The upload is too large."),

@@ -71,7 +71,7 @@ impl SampleFile {
     pub fn hash(&self) -> String {
         blake3::hash(&self.bytes()).to_hex().to_string()
     }
-    fn file_type(&self) -> &str {
+    pub(super) fn file_type(&self) -> &str {
         match self {
             Self::Pdf => "PDF",
             Self::Epub => "EPUB",
@@ -301,9 +301,43 @@ impl TestApp {
         )
         .await
     }
-    pub async fn download(&self, session: &Session, hash: &str) -> HttpResponse {
-        self.send(Method::GET, &format!("{FILES}/{hash}"), None, Some(session))
-            .await
+    pub async fn download(&self, session: &Session, book_id: &str) -> HttpResponse {
+        self.send(
+            Method::GET,
+            &format!("{BOOKS}/{book_id}/file"),
+            None,
+            Some(session),
+        )
+        .await
+    }
+    pub async fn head_book_file(&self, session: &Session, book_id: &str) -> HttpResponse {
+        self.send(
+            Method::HEAD,
+            &format!("{BOOKS}/{book_id}/file"),
+            None,
+            Some(session),
+        )
+        .await
+    }
+    pub async fn download_with_headers(
+        &self,
+        session: &Session,
+        book_id: &str,
+        headers: &[(&str, &str)],
+    ) -> HttpResponse {
+        let auth = format!("Bearer {}", session.access_token);
+        self.request_with_headers(
+            Method::GET,
+            &format!("{BOOKS}/{book_id}/file"),
+            Body::empty(),
+            None,
+            Some(&auth),
+            headers,
+        )
+        .await
+    }
+    pub async fn raw_get(&self, session: &Session, uri: &str) -> HttpResponse {
+        self.send(Method::GET, uri, None, Some(session)).await
     }
     pub async fn upload_raw_multipart(
         &self,

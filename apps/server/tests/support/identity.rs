@@ -247,7 +247,7 @@ impl TestApp {
                 None,
             ),
             (Method::GET, format!("{FILES}?hash={UNKNOWN_HASH}"), None),
-            (Method::GET, format!("{FILES}/{UNKNOWN_HASH}"), None),
+            (Method::GET, format!("{BOOKS}/{UNKNOWN_ID}/file"), None),
         ] {
             responses.push(self.send(method, &uri, body, None).await);
         }

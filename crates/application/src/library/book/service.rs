@@ -18,16 +18,19 @@ use crate::library::{
     book::{
         commands::{
             CreateBookCommand, CreateChapterCommand, DeleteBookCommand, DeleteBooksCommand,
-            DeleteChapterCommand, GetBookCoverCommand, PermanentlyDeleteBooksCommand,
-            RenameBookCommand, RestoreBookIdCommand,
+            DeleteChapterCommand, GetBookCoverCommand, GetBookFileMetaCommand,
+            OpenBookFileRangeCommand, PermanentlyDeleteBooksCommand, RenameBookCommand,
+            RestoreBookIdCommand,
         },
-        dto::{ChapterOutput, CreateBookOutput, GetBookOutput, TrashedBookOutput},
+        dto::{
+            BookFileDescriptor, ChapterOutput, CreateBookOutput, GetBookOutput, TrashedBookOutput,
+        },
         errors::BookApplicationError,
         file::{errors::BookFileApplicationError, service::BookFileService},
         queries::{GetBooksQuery, ListChaptersQuery},
     },
     errors::LibraryApplicationError,
-    ports::{BookFileStore, BookRepository, BookTransaction, CoverByteStream},
+    ports::{BookFileStore, BookRepository, BookTransaction, CoverByteStream, OpenedBookFile},
 };
 
 #[derive(new)]
@@ -311,5 +314,54 @@ where
         let id = BookId::parse(command.id)?;
         let book = self.repository.find_by_id(&id).await?;
         self.bookfile.download_book_cover_file(*book.hash()).await
+    }
+
+    pub async fn get_book_file_meta(
+        &mut self,
+        command: GetBookFileMetaCommand,
+    ) -> Result<BookFileDescriptor, LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let book = self.repository.find_by_id(&id).await?;
+        if book.status() != BookStatus::Active {
+            return Err(BookApplicationError::AlreadyDeleted.into());
+        }
+        let hash = *book.hash();
+        let meta = self
+            .bookfile
+            .get_book_meta(&hash)
+            .ok_or(BookFileApplicationError::NotFound)?;
+        Ok(BookFileDescriptor {
+            hash,
+            file_type: meta.file_type,
+            size: meta.size,
+        })
+    }
+
+    pub async fn open_book_file_range(
+        &mut self,
+        command: OpenBookFileRangeCommand,
+    ) -> Result<(BookFileDescriptor, OpenedBookFile<F::Reader>), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let book = self.repository.find_by_id(&id).await?;
+        if book.status() != BookStatus::Active {
+            return Err(BookApplicationError::AlreadyDeleted.into());
+        }
+        let hash = *book.hash();
+        let meta = self
+            .bookfile
+            .get_book_meta(&hash)
+            .ok_or(BookFileApplicationError::NotFound)?;
+        let opened = self
+            .bookfile
+            .open_book_file_range(&hash, command.offset, command.length)
+            .await?;
+        Ok((
+            BookFileDescriptor {
+                hash,
+                file_type: meta.file_type,
+                size: meta.size,
+            },
+            opened,
+        ))
     }
 }

@@ -22,6 +22,12 @@ async fn another_user_cannot_read_or_change_private_books() {
     app.cover(&other, &book.data.id)
         .await
         .assert_error(BookNotFound);
+    app.download(&other, &book.data.id)
+        .await
+        .assert_error(BookNotFound);
+    app.head_book_file(&other, &book.data.id)
+        .await
+        .assert_status(404);
     book.assert_unchanged().await;
 }
 
@@ -43,7 +49,7 @@ async fn users_share_files_but_keep_independent_bookshelves() {
     app.upload_again(&bob, Epub)
         .await
         .assert_error(DuplicateFile);
-    app.download(&bob, &Epub.hash()).await.assert_file(&Epub);
+    app.download(&bob, &second.data.id).await.assert_file(&Epub);
 }
 
 // 验证用户无法查看或操作其他用户的回收站书籍、标签树及书籍标签绑定。

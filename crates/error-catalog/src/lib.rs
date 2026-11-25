@@ -160,7 +160,54 @@ mod tests {
             assert_eq!(ErrorCode::from_code(entry.code), Some(*error_code));
             assert_eq!(ErrorCode::from_key(entry.key), Some(*error_code));
         }
-        assert!(ErrorCode::ALL.len() >= 63);
+        assert!(ErrorCode::ALL.len() >= 70);
+
+        let reader_and_range_cases = [
+            (
+                ErrorCode::BookFileRangeNotSatisfiable,
+                2116,
+                "library.book.file.range_not_satisfiable",
+            ),
+            (
+                ErrorCode::BookFileInvalidRange,
+                2117,
+                "library.book.file.invalid_range",
+            ),
+            (
+                ErrorCode::ReaderSessionNotFound,
+                3101,
+                "client.reader.session_not_found",
+            ),
+            (
+                ErrorCode::ReaderEntryNotFound,
+                3102,
+                "client.reader.entry_not_found",
+            ),
+            (
+                ErrorCode::ReaderUnsupportedFormat,
+                3103,
+                "client.reader.unsupported_format",
+            ),
+            (
+                ErrorCode::ReaderCorruptedEpub,
+                3104,
+                "client.reader.corrupted_epub",
+            ),
+            (
+                ErrorCode::ReaderEntryTooLarge,
+                3105,
+                "client.reader.entry_too_large",
+            ),
+        ];
+        for (variant, expected_code, expected_key) in reader_and_range_cases {
+            let entry = variant.entry();
+            assert_eq!(variant.code(), expected_code);
+            assert_eq!(variant.key(), expected_key);
+            assert_eq!(ErrorCode::from_code(expected_code), Some(variant));
+            assert_eq!(ErrorCode::from_key(expected_key), Some(variant));
+            assert!(!entry.zh.trim().is_empty());
+            assert!(!entry.en.trim().is_empty());
+        }
 
         let import_too_large = ErrorCode::ImportFileTooLarge.entry();
         assert!(import_too_large.zh.contains("512 MiB"));

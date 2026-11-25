@@ -8,9 +8,14 @@ use std::{
 };
 
 use blake3::Hash;
+use bytes::Bytes;
 use shiro_application::library::{
     book::{
-        commands::{CreateBookCommand, RestoreBookIdCommand},
+        commands::{
+            CreateBookCommand, GetBookFileMetaCommand, OpenBookFileRangeCommand,
+            RestoreBookIdCommand,
+        },
+        dto::BookFileDescriptor,
         errors::BookApplicationError,
         file::{
             errors::BookFileApplicationError,
@@ -21,9 +26,9 @@ use shiro_application::library::{
     },
     errors::LibraryApplicationError,
     ports::{
-        BookChapterError, BookFileStorageError, BookFileStore, BookRepository,
-        BookRepositoryError, BookTransaction, CoverByteStream, TagRepository, TagRepositoryError,
-        TagTransaction,
+        BookChapterError, BookFileMetadata, BookFileStorageError, BookFileStore, BookRepository,
+        BookRepositoryError, BookTransaction, CoverByteStream, OpenedBookFile, TagRepository,
+        TagRepositoryError, TagTransaction,
     },
     tag::service::TagService,
 };
@@ -41,8 +46,7 @@ use shiro_domain::library::{
     },
 };
 use tokio::{
-    fs::File,
-    io::{AsyncRead, AsyncReadExt, ReadBuf, Take},
+    io::{AsyncRead, AsyncReadExt, ReadBuf},
     sync::oneshot,
 };
 
@@ -53,30 +57,45 @@ struct SaveGate {
 
 #[derive(Default)]
 struct MockBookFileStore {
-    existing: Mutex<HashSet<Hash>>,
-    types: Mutex<HashMap<Hash, BookFileType>>,
+    files: Mutex<HashMap<Hash, (BookFileMetadata, Bytes)>>,
     chapters: Mutex<HashMap<Hash, Vec<BookFileChapter>>>,
-    save_error: Mutex<Option<ErrorKind>>,
-    open_error: Mutex<Option<ErrorKind>>,
+    save_error: Mutex<Option<BookFileStorageError>>,
+    open_error: Mutex<Option<BookFileStorageError>>,
     gate: Mutex<Option<Arc<SaveGate>>>,
     after_first_read_gate: Mutex<Option<Arc<SaveGate>>>,
     post_read_gate: Mutex<Option<Arc<SaveGate>>>,
 }
 
 impl MockBookFileStore {
-    fn set_save_error(&self, kind: ErrorKind) {
-        *self.save_error.lock().unwrap() = Some(kind);
+    fn set_save_error(&self, err: BookFileStorageError) {
+        *self.save_error.lock().unwrap() = Some(err);
     }
 
-    fn set_open_error(&self, kind: ErrorKind) {
-        *self.open_error.lock().unwrap() = Some(kind);
+    fn set_open_error(&self, err: BookFileStorageError) {
+        *self.open_error.lock().unwrap() = Some(err);
     }
 
     fn insert_existing(&self, hash: Hash, file_type: Option<BookFileType>) {
-        self.existing.lock().unwrap().insert(hash);
         if let Some(ft) = file_type {
-            self.types.lock().unwrap().insert(hash, ft);
+            self.files.lock().unwrap().insert(
+                hash,
+                (
+                    BookFileMetadata {
+                        file_type: ft,
+                        size: 0,
+                    },
+                    Bytes::new(),
+                ),
+            );
         }
+    }
+
+    fn insert_book_file(&self, hash: Hash, file_type: BookFileType, data: Bytes) {
+        let meta = BookFileMetadata {
+            file_type,
+            size: data.len() as u64,
+        };
+        self.files.lock().unwrap().insert(hash, (meta, data));
     }
 
     fn set_chapters(&self, hash: Hash, chapters: Vec<BookFileChapter>) {
@@ -97,12 +116,10 @@ impl MockBookFileStore {
 }
 
 impl BookFileStore for MockBookFileStore {
-    fn contains(&self, key: &Hash) -> bool {
-        self.existing.lock().unwrap().contains(key)
-    }
+    type Reader = Cursor<Bytes>;
 
-    fn get_type(&self, key: &Hash) -> Option<BookFileType> {
-        self.types.lock().unwrap().get(key).copied()
+    fn get_meta(&self, key: &Hash) -> Option<BookFileMetadata> {
+        self.files.lock().unwrap().get(key).map(|(meta, _)| *meta)
     }
 
     fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter> {
@@ -128,8 +145,8 @@ impl BookFileStore for MockBookFileStore {
             }
         }
 
-        if let Some(kind) = self.save_error.lock().unwrap().take() {
-            return Err(kind.into());
+        if let Some(err) = self.save_error.lock().unwrap().take() {
+            return Err(err);
         }
 
         let mut buf = Vec::new();
@@ -161,23 +178,108 @@ impl BookFileStore for MockBookFileStore {
             }
         }
 
-        self.existing.lock().unwrap().insert(*hash);
-        self.types.lock().unwrap().insert(*hash, BookFileType::EPUB);
+        let data = Bytes::from(buf);
+        self.files.lock().unwrap().insert(
+            *hash,
+            (
+                BookFileMetadata {
+                    file_type: BookFileType::EPUB,
+                    size: data.len() as u64,
+                },
+                data,
+            ),
+        );
         Ok(())
     }
 
-    async fn open(&self, _hash: &Hash) -> Result<Take<File>, BookFileStorageError> {
-        if let Some(kind) = self.open_error.lock().unwrap().take() {
-            return Err(kind.into());
+    async fn open_range(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        length: Option<u64>,
+    ) -> Result<OpenedBookFile<Self::Reader>, BookFileStorageError> {
+        if let Some(err) = self.open_error.lock().unwrap().take() {
+            return Err(err);
         }
-        Err(ErrorKind::NotFound.into())
+        let Some((meta, data)) = self.files.lock().unwrap().get(hash).cloned() else {
+            return Err(BookFileStorageError::NotFound);
+        };
+        let is_empty_req =
+            length == Some(0) || (meta.size == 0 && offset == 0 && length.is_none());
+        let in_bounds = if is_empty_req {
+            offset <= meta.size
+        } else {
+            offset < meta.size
+        };
+        if !in_bounds {
+            return Err(BookFileStorageError::RangeOutOfBounds {
+                offset,
+                len: length,
+                size: meta.size,
+            });
+        }
+        let remaining = meta.size - offset;
+        let actual_len = length.map_or(remaining, |n| n.min(remaining));
+        let start = usize::try_from(offset).unwrap();
+        let end = start + usize::try_from(actual_len).unwrap();
+        Ok(OpenedBookFile {
+            reader: Cursor::new(data.slice(start..end)),
+            total_size: meta.size,
+            offset,
+            length: actual_len,
+        })
+    }
+
+    async fn read_exact_at(
+        &self,
+        hash: &Hash,
+        offset: u64,
+        len: usize,
+    ) -> Result<Bytes, BookFileStorageError> {
+        if let Some(err) = self.open_error.lock().unwrap().take() {
+            return Err(err);
+        }
+        let Some((meta, data)) = self.files.lock().unwrap().get(hash).cloned() else {
+            return Err(BookFileStorageError::NotFound);
+        };
+        if len == 0 {
+            return if offset <= meta.size {
+                Ok(Bytes::new())
+            } else {
+                Err(BookFileStorageError::RangeOutOfBounds {
+                    offset,
+                    len: Some(0),
+                    size: meta.size,
+                })
+            };
+        }
+        let len_u64 = u64::try_from(len).map_err(|_| BookFileStorageError::RangeOutOfBounds {
+            offset,
+            len: Some(u64::MAX),
+            size: meta.size,
+        })?;
+        let Some(end) = offset.checked_add(len_u64) else {
+            return Err(BookFileStorageError::RangeOutOfBounds {
+                offset,
+                len: Some(len_u64),
+                size: meta.size,
+            });
+        };
+        if end > meta.size {
+            return Err(BookFileStorageError::RangeOutOfBounds {
+                offset,
+                len: Some(len_u64),
+                size: meta.size,
+            });
+        }
+        Ok(data.slice(offset as usize..end as usize))
     }
 
     async fn open_cover(
         &self,
         _hash: Hash,
     ) -> Result<(CoverByteStream, String), BookFileStorageError> {
-        Err(ErrorKind::NotFound.into())
+        Err(BookFileStorageError::NotFound)
     }
 }
 
@@ -534,7 +636,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     let hash = hash_obj.to_hex().to_string();
 
     let empty = MockBookFileStore::default();
-    empty.set_save_error(ErrorKind::AlreadyExists);
+    empty.set_save_error(BookFileStorageError::AlreadyExists);
     assert!(matches!(
         BookFileService::new(empty)
             .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
@@ -545,7 +647,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     ));
 
     let mismatch = MockBookFileStore::default();
-    mismatch.set_save_error(ErrorKind::InvalidData);
+    mismatch.set_save_error(BookFileStorageError::HashMismatch);
     assert!(matches!(
         BookFileService::new(mismatch)
             .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
@@ -556,7 +658,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     ));
 
     let unsupported = MockBookFileStore::default();
-    unsupported.set_save_error(ErrorKind::Unsupported);
+    unsupported.set_save_error(BookFileStorageError::Unsupported);
     assert!(matches!(
         BookFileService::new(unsupported)
             .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
@@ -567,7 +669,7 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
     ));
 
     let io_err = MockBookFileStore::default();
-    io_err.set_save_error(ErrorKind::Other);
+    io_err.set_save_error(BookFileStorageError::Io(io::Error::other("disk")));
     assert!(matches!(
         BookFileService::new(io_err)
             .upload_book_file(hash.clone(), 1, Cursor::new(b"x"))
@@ -577,35 +679,175 @@ async fn book_file_service_maps_storage_errors_to_application_errors() {
         ))
     ));
 
-    // download_book_file returns NotFound when absent or when open returns NotFound.
+    // open_book_file_range and read_book_file_exact_at map NotFound, RangeOutOfBounds, and Io.
     assert!(matches!(
-        service.download_book_file(&hash).await,
+        service.open_book_file_range(&hash_obj, 0, None).await,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::NotFound
+        ))
+    ));
+    assert!(matches!(
+        service.read_book_file_exact_at(&hash_obj, 0, 1).await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::NotFound
         ))
     ));
     let missing_on_disk = MockBookFileStore::default();
-    missing_on_disk.insert_existing(hash_obj, Some(BookFileType::EPUB));
-    missing_on_disk.set_open_error(ErrorKind::NotFound);
+    missing_on_disk.insert_book_file(hash_obj, BookFileType::EPUB, Bytes::from_static(b"x"));
+    missing_on_disk.set_open_error(BookFileStorageError::NotFound);
     assert!(matches!(
         BookFileService::new(missing_on_disk)
-            .download_book_file(&hash)
+            .open_book_file_range(&hash_obj, 0, None)
             .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::NotFound
         ))
     ));
 
+    let range_oob = MockBookFileStore::default();
+    range_oob.insert_book_file(hash_obj, BookFileType::EPUB, Bytes::from_static(b"x"));
+    assert!(matches!(
+        BookFileService::new(range_oob)
+            .open_book_file_range(&hash_obj, 1, Some(1))
+            .await,
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::RangeNotSatisfiable { size: 1 }
+        ))
+    ));
+
     let open_io_err = MockBookFileStore::default();
-    open_io_err.insert_existing(hash_obj, Some(BookFileType::EPUB));
-    open_io_err.set_open_error(ErrorKind::PermissionDenied);
+    open_io_err.insert_book_file(hash_obj, BookFileType::EPUB, Bytes::from_static(b"x"));
+    open_io_err.set_open_error(BookFileStorageError::Io(io::Error::from(
+        ErrorKind::PermissionDenied,
+    )));
     let err = BookFileService::new(open_io_err)
-        .download_book_file(&hash)
+        .open_book_file_range(&hash_obj, 0, None)
         .await
         .unwrap_err();
     assert!(matches!(
         err,
         LibraryApplicationError::BookFile(BookFileApplicationError::Storage(_))
+    ));
+}
+
+#[tokio::test]
+async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_existence() {
+    let payload = Bytes::from_static(b"0123456789abcdef");
+    let hash = blake3::hash(&payload);
+
+    let active = Book::new(
+        BookId::new(),
+        BookTitle::parse("Active Book").unwrap(),
+        hash,
+    )
+    .unwrap();
+    let active_id = active.id().to_string();
+
+    let mut trashed = Book::new(
+        BookId::new(),
+        BookTitle::parse("Trashed Book").unwrap(),
+        hash,
+    )
+    .unwrap();
+    let trashed_id = trashed.id().to_string();
+    let _ = trashed.mark_deleted().unwrap();
+
+    let missing_file_hash = blake3::hash(b"missing-from-store");
+    let orphan_book = Book::new(
+        BookId::new(),
+        BookTitle::parse("Missing File Book").unwrap(),
+        missing_file_hash,
+    )
+    .unwrap();
+    let orphan_id = orphan_book.id().to_string();
+
+    let repo = MockBookRepository {
+        books: Arc::new(Mutex::new(vec![active, trashed, orphan_book])),
+        chapters: Arc::new(Mutex::new(Vec::new())),
+        occupied_titles: Arc::new(Mutex::new(HashSet::new())),
+    };
+    let store = MockBookFileStore::default();
+    store.insert_book_file(hash, BookFileType::EPUB, payload.clone());
+
+    let mut service = BookService::new(repo, Arc::new(BookFileService::new(store)));
+
+    let descriptor = service
+        .get_book_file_meta(GetBookFileMetaCommand {
+            id: active_id.clone(),
+        })
+        .await
+        .expect("active book meta");
+    assert_eq!(
+        descriptor,
+        BookFileDescriptor {
+            hash,
+            file_type: BookFileType::EPUB,
+            size: payload.len() as u64,
+        }
+    );
+
+    let (opened_desc, mut opened) = service
+        .open_book_file_range(OpenBookFileRangeCommand {
+            id: active_id,
+            offset: 4,
+            length: Some(6),
+        })
+        .await
+        .expect("open active book range");
+    assert_eq!(opened_desc, descriptor);
+    assert_eq!(opened.total_size, payload.len() as u64);
+    assert_eq!(opened.offset, 4);
+    assert_eq!(opened.length, 6);
+    let mut slice = Vec::new();
+    opened.reader.read_to_end(&mut slice).await.unwrap();
+    assert_eq!(slice.as_slice(), b"456789");
+
+    for trashed_res in [
+        service
+            .get_book_file_meta(GetBookFileMetaCommand {
+                id: trashed_id.clone(),
+            })
+            .await
+            .map(|_| ()),
+        service
+            .open_book_file_range(OpenBookFileRangeCommand {
+                id: trashed_id,
+                offset: 0,
+                length: None,
+            })
+            .await
+            .map(|_| ()),
+    ] {
+        assert!(matches!(
+            trashed_res,
+            Err(LibraryApplicationError::Book(
+                BookApplicationError::AlreadyDeleted
+            ))
+        ));
+    }
+
+    let missing_book_err = service
+        .get_book_file_meta(GetBookFileMetaCommand {
+            id: BookId::new().to_string(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        missing_book_err,
+        LibraryApplicationError::Book(BookApplicationError::NotFound)
+    ));
+
+    let missing_file_err = service
+        .open_book_file_range(OpenBookFileRangeCommand {
+            id: orphan_id,
+            offset: 0,
+            length: None,
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        missing_file_err,
+        LibraryApplicationError::BookFile(BookFileApplicationError::NotFound)
     ));
 }
 

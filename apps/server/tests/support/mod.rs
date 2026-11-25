@@ -73,12 +73,28 @@ impl TestApp {
         content_type: Option<&str>,
         authorization: Option<&str>,
     ) -> HttpResponse {
+        self.request_with_headers(method, uri, body, content_type, authorization, &[])
+            .await
+    }
+
+    async fn request_with_headers(
+        &self,
+        method: Method,
+        uri: &str,
+        body: Body,
+        content_type: Option<&str>,
+        authorization: Option<&str>,
+        extra_headers: &[(&str, &str)],
+    ) -> HttpResponse {
         let mut request = Request::builder().method(method).uri(uri);
         if let Some(value) = content_type {
             request = request.header("content-type", value);
         }
         if let Some(value) = authorization {
             request = request.header("authorization", value);
+        }
+        for &(name, value) in extra_headers {
+            request = request.header(name, value);
         }
         let response = self
             .router
@@ -126,6 +142,10 @@ impl TestApp {
 
     pub async fn me_anonymous(&self) -> HttpResponse {
         self.send(Method::GET, ME, None, None).await
+    }
+
+    pub async fn send_anonymous(&self, method: Method, uri: &str) -> HttpResponse {
+        self.send(method, uri, None, None).await
     }
 }
 
@@ -211,15 +231,30 @@ impl HttpResponse {
         assert!(image.pixels().all(|pixel| pixel.0 == [255, 255, 255, 255]));
     }
 
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|v| v.to_str().ok())
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+
     pub fn assert_file(&self, file: &SampleFile) {
         self.assert_status(200);
-        assert_eq!(self.headers["content-type"], "application/octet-stream");
-        assert_eq!(self.headers["x-book-hash"], file.hash());
-        assert_eq!(
-            self.headers["content-disposition"],
-            format!("attachment; filename=\"{}.book\"", file.hash())
-        );
-        assert_eq!(self.bytes.as_ref(), file.bytes());
+        let expected_ct = match file {
+            SampleFile::Pdf => "application/pdf",
+            SampleFile::Epub => "application/epub+zip",
+        };
+        let bytes = file.bytes();
+        let hash = file.hash();
+        assert_eq!(self.headers["content-type"], expected_ct);
+        assert_eq!(self.headers["accept-ranges"], "bytes");
+        assert_eq!(self.headers["etag"], format!("\"{hash}\""));
+        assert_eq!(self.headers["cache-control"], "private, immutable");
+        assert_eq!(self.headers["x-book-hash"], hash);
+        assert_eq!(self.headers["x-book-type"], file.file_type());
+        assert_eq!(self.headers["content-length"], bytes.len().to_string());
+        assert_eq!(self.bytes.as_ref(), bytes.as_slice());
     }
 }
 
@@ -246,6 +281,8 @@ pub enum HttpError {
     MissingSize,
     DuplicateSize,
     InvalidSize,
+    RangeNotSatisfiable,
+    InvalidRange,
     MissingFile,
     DuplicateHash,
     HashMismatch,
@@ -294,6 +331,8 @@ impl HttpError {
             DuplicateSize => (400, 2113, "library.book.file.upload.duplicate_size"),
             MissingSize => (400, 2114, "library.book.file.upload.missing_size"),
             InvalidSize => (400, 2115, "library.book.file.upload.invalid_size"),
+            RangeNotSatisfiable => (416, 2116, "library.book.file.range_not_satisfiable"),
+            InvalidRange => (400, 2117, "library.book.file.invalid_range"),
             PayloadTooLarge => (413, 9001, "common.payload_too_large"),
         }
     }
