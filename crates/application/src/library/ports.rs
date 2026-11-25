@@ -5,9 +5,9 @@ use bytes::Bytes;
 use futures_util::Stream;
 use shiro_domain::library::{
     book::{
-        chapter::{Chapter, ChapterId},
         entity::{Book, BookChange},
-        file::entity::{BookFileChapter, BookFileType},
+        file::entity::BookFileType,
+        navigation::BookNavigation,
         value_objects::BookId,
     },
     tag::{
@@ -18,21 +18,6 @@ use shiro_domain::library::{
 use tokio::io::AsyncRead;
 
 pub type CoverByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send + 'static>>;
-
-#[derive(Debug, thiserror::Error)]
-pub enum BookChapterError {
-    #[error("book not found")]
-    BookNotFound,
-
-    #[error("chapter not found")]
-    ChapterNotFound,
-
-    #[error("a chapter already exists at this position")]
-    PositionConflict,
-
-    #[error(transparent)]
-    Storage(#[from] anyhow::Error),
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum BookRepositoryError {
@@ -70,22 +55,6 @@ pub trait BookRepository: Clone + Send + Sync + 'static {
         &mut self,
     ) -> impl Future<Output = Result<Vec<Book>, BookRepositoryError>> + Send;
 
-    fn create_chapter(
-        &mut self,
-        chapter: Chapter,
-    ) -> impl Future<Output = Result<Chapter, BookChapterError>> + Send;
-
-    fn delete_chapter(
-        &mut self,
-        book_id: &BookId,
-        chapter_id: &ChapterId,
-    ) -> impl Future<Output = Result<(), BookChapterError>> + Send;
-
-    fn list_chapters(
-        &mut self,
-        book_id: &BookId,
-    ) -> impl Future<Output = Result<Vec<Chapter>, BookChapterError>> + Send;
-
     fn begin_transaction(
         &mut self,
     ) -> impl Future<Output = Result<Self::Tx<'_>, BookRepositoryError>> + Send;
@@ -96,11 +65,6 @@ pub trait BookTransaction: Send {
         &mut self,
         book: Book,
     ) -> impl Future<Output = Result<Book, BookRepositoryError>> + Send;
-
-    fn create_chapter(
-        &mut self,
-        chapter: Chapter,
-    ) -> impl Future<Output = Result<Chapter, BookChapterError>> + Send;
 
     fn find_by_id(
         &mut self,
@@ -292,9 +256,7 @@ pub trait BookFileStore: Send + Sync + 'static {
 
     fn get_meta(&self, hash: &Hash) -> Option<BookFileMetadata>;
 
-    fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter>;
-
-    fn save<R>(
+    fn import<R>(
         &self,
         hash: &Hash,
         reader: R,
@@ -329,4 +291,12 @@ pub trait BookFileStore: Send + Sync + 'static {
         &self,
         hash: Hash,
     ) -> impl Future<Output = Result<(CoverByteStream, String), BookFileStorageError>> + Send;
+
+    /// Extracts the unified navigation index (TOC and linear units) from a stored book file.
+    ///
+    /// Returns an empty [`BookNavigation`] if extraction fails for any reason.
+    fn extract_navigation(
+        &self,
+        hash: &Hash,
+    ) -> impl Future<Output = BookNavigation> + Send;
 }

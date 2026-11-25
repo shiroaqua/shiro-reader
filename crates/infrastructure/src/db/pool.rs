@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use toasty::{Db, sql};
 use toasty_driver_sqlite::Sqlite;
 
-use super::models::{BookRecord, BookTagRecord, ChapterRecord, TagDefinitionRecord};
+use super::models::{BookRecord, BookTagRecord, TagDefinitionRecord};
 
 #[cfg(feature = "identity")]
 use super::models::{AuthAccessTokenRecord, AuthSessionRecord, UserRecord};
@@ -82,7 +82,6 @@ pub async fn connect_library(path: &Path) -> anyhow::Result<Db> {
     let mut db = Db::builder()
         .models(toasty::models!(
             BookRecord,
-            ChapterRecord,
             TagDefinitionRecord,
             BookTagRecord
         ))
@@ -100,7 +99,6 @@ pub async fn connect_library(path: &Path) -> anyhow::Result<Db> {
         &[
             include_str!("../../migrations/library/01_create_books.sql"),
             include_str!("../../migrations/library/02_create_tags.sql"),
-            include_str!("../../migrations/library/03_create_chapters.sql"),
         ],
     )
     .await?;

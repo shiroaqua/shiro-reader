@@ -3,7 +3,6 @@ use shiro_domain::library::{
         entity::{Book, BookInner},
         value_objects::{BookId, BookTitle},
     },
-    book::chapter::{Chapter, ChapterId, ChapterLocation, ChapterTitle},
     tag::{
         entity::{BookTag, BookTagInner, TagDefinition, TagDefinitionInner},
         value_objects::{TagColor, TagId, TagName},
@@ -146,58 +145,6 @@ pub struct BookTagRecord {
     pub created_at: DbTimestamp,
     pub updated_at: DbTimestamp,
     pub deleted_at: Option<DbTimestamp>,
-}
-
-#[derive(Debug, Clone, toasty::Model)]
-#[table = "chapters"]
-pub struct ChapterRecord {
-    #[key]
-    pub id: Uuid,
-    #[index]
-    pub book_id: Uuid,
-    pub position: i64,
-    pub title: String,
-    /// JSON encoding of `shiro_domain::library::chapter::ChapterLocation`.
-    pub location_json: String,
-}
-
-impl ChapterRecord {
-    pub fn into_create(self) -> <Self as toasty::codegen_support::Model>::Create {
-        Self::create()
-            .id(self.id)
-            .book_id(self.book_id)
-            .position(self.position)
-            .title(self.title)
-            .location_json(self.location_json)
-    }
-}
-
-impl TryFrom<Chapter> for ChapterRecord {
-    type Error = anyhow::Error;
-
-    fn try_from(chapter: Chapter) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: chapter.id().as_uuid(),
-            book_id: chapter.book_id().as_uuid(),
-            position: i64::from(chapter.position()),
-            title: chapter.title().as_str().to_owned(),
-            location_json: serde_json::to_string(chapter.location())?,
-        })
-    }
-}
-
-impl TryFrom<ChapterRecord> for Chapter {
-    type Error = anyhow::Error;
-
-    fn try_from(record: ChapterRecord) -> Result<Self, Self::Error> {
-        Ok(Chapter::new(
-            ChapterId::from_uuid(record.id),
-            BookId::from_uuid(record.book_id),
-            u32::try_from(record.position)?,
-            ChapterTitle::parse(record.title)?,
-            ChapterLocation::parse(&record.location_json)?,
-        ))
-    }
 }
 
 impl BookTagRecord {

@@ -14,7 +14,10 @@ use std::{
 use blake3::Hash;
 use bytes::Bytes;
 use dashmap::{DashMap, mapref::entry::Entry};
-use shiro_domain::library::book::file::entity::{BookFileChapter, BookFileType};
+use shiro_domain::library::book::{
+    file::entity::BookFileType,
+    navigation::BookNavigation,
+};
 use tokio::{
     io::{AsyncRead, ReadBuf},
     time::{Instant, Sleep},
@@ -167,7 +170,7 @@ impl<S: BookFileStore> BookFileService<S> {
             guard.lease_handle(),
         );
 
-        match self.storage.save(&guard.hash, exact_reader).await {
+        match self.storage.import(&guard.hash, exact_reader).await {
             Ok(()) => Ok(()),
             Err(BookFileStorageError::Io(err)) => {
                 if err
@@ -227,6 +230,10 @@ impl<S: BookFileStore> BookFileService<S> {
         })
     }
 
+    pub async fn extract_book_navigation(&self, hash: &Hash) -> BookNavigation {
+        self.storage.extract_navigation(hash).await
+    }
+
     pub fn parse_existing_hash(&self, hash: &str) -> Result<Hash, LibraryApplicationError> {
         let hash = Self::to_hex(hash)?;
         if self.storage.contains(&hash) {
@@ -254,10 +261,6 @@ impl<S: BookFileStore> BookFileService<S> {
 
     pub fn get_book_type(&self, hash: &Hash) -> Option<BookFileType> {
         self.storage.get_type(hash)
-    }
-
-    pub fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter> {
-        self.storage.get_chapters(hash)
     }
 
     #[inline]

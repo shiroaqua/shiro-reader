@@ -94,18 +94,15 @@ define_error_catalog! {
     UserNameUnchanged => (1107, "identity.user.name_unchanged", "用户名未发生变化。", "The username has not changed."),
     UserPasswordHashUnchanged => (1108, "identity.user.password_hash_unchanged", "密码未发生变化。", "The password has not changed."),
 
-    // Library book (2001..2011)
+    // Library book (2001..2010)
     BookInvalidId => (2001, "library.book.invalid_id", "书籍 ID 无效。", "Invalid book ID."),
     BookMissingTitle => (2002, "library.book.missing_title", "请输入书籍标题。", "Please enter a book title."),
     BookInvalidTitleFormat => (2003, "library.book.invalid_title_format", "书籍标题格式无效。", "Invalid book title format."),
-    BookInvalidChapterLocation => (2004, "library.book.invalid_location", "定位信息无效。", "Invalid location."),
-    BookPositionConflict => (2005, "library.book.position_conflict", "该顺序已被占用。", "A book item already exists at this position."),
     BookNotFound => (2006, "library.book.not_found", "书籍不存在。", "Book not found."),
     BookTitleConflict => (2007, "library.book.title_conflict", "已存在同名书籍。", "A book with this title already exists."),
     BookTitleUnchanged => (2008, "library.book.title_unchanged", "书籍标题未发生变化。", "The book title has not changed."),
     BookAlreadyDeleted => (2009, "library.book.already_deleted", "书籍已在回收站中。", "The book is already in the recycle bin."),
     BookNotDeleted => (2010, "library.book.not_deleted", "书籍不在回收站中，无法恢复。", "The book is not in the recycle bin and cannot be restored."),
-    BookInvalidChapterTitle => (2011, "library.book.invalid_chapter_title", "章节标题格式无效。", "Invalid chapter title format."),
 
     // Library book file (2101..2108, 2110..2117)
     BookFileUploadConflict => (2101, "library.book.file.upload.conflict", "文件上传冲突，请重试。", "File upload conflict. Please try again."),

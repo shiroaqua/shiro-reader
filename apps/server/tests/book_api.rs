@@ -360,3 +360,290 @@ async fn missing_or_unrecognized_epub_cover_uses_blank_png_after_restart() {
         app.cover(&reader, &id).await.assert_blank_cover();
     }
 }
+
+fn build_custom_navigation_epub() -> Vec<u8> {
+    use std::io::{Cursor, Write};
+
+    let mut output = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+
+    output.start_file("mimetype", stored).unwrap();
+    output.write_all(b"application/epub+zip").unwrap();
+
+    output.start_file("META-INF/container.xml", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#,
+        )
+        .unwrap();
+
+    output.start_file("EPUB/package.opf", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:11111111-1111-1111-1111-111111111111</dc:identifier>
+    <dc:title>Custom Nav</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="cover" linear="no"/>
+    <itemref idref="ch1" linear="yes"/>
+    <itemref idref="ch2" linear="yes"/>
+  </spine>
+</package>"#,
+        )
+        .unwrap();
+
+    output.start_file("EPUB/nav.xhtml", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>TOC</title></head>
+<body>
+<nav epub:type="toc" id="toc">
+  <ol>
+    <li>
+      <span>Part 1</span>
+      <ol>
+        <li>
+          <a href="chapter1.xhtml">Chapter 1</a>
+          <ol>
+            <li><a href="chapter1.xhtml#section-2">Section 1.2</a></li>
+          </ol>
+        </li>
+      </ol>
+    </li>
+    <li><a href="chapter2.xhtml">Chapter 2</a></li>
+    <li><a href="https://example.com/docs">External Site</a></li>
+  </ol>
+</nav>
+</body>
+</html>"#,
+        )
+        .unwrap();
+
+    output.start_file("EPUB/cover.xhtml", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Cover page text</p></body></html>"#,
+        )
+        .unwrap();
+
+    output.start_file("EPUB/chapter1.xhtml", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter 1</title><style>p { color: black; }</style></head>
+<body>
+  <h1 id="top">Opening Title</h1>
+  <p>First paragraph of chapter one with enough text to advance offset meaningfully.</p>
+  <h2 id="section-2">Second Section</h2>
+  <p>Trailing paragraph in section two.</p>
+</body>
+</html>"#,
+        )
+        .unwrap();
+
+    output.start_file("EPUB/chapter2.xhtml", stored).unwrap();
+    output
+        .write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body><h1>Chapter Two</h1><p>Second chapter body text.</p></body>
+</html>"#,
+        )
+        .unwrap();
+
+    output.finish().unwrap().into_inner()
+}
+
+#[tokio::test]
+async fn book_navigation_returns_epub_and_pdf_chapters_and_enforces_contracts() {
+    use shiro_reader_server::application::library::book::dto::{
+        BookLocatorOutput, BookNavigationOutput, PdfDestOutput,
+    };
+
+    let app = TestApp::new().await;
+    let reader = app.session("NavReader").await;
+    let other = app.session("OtherReader").await;
+
+    app.upload(&reader, Epub).await;
+    app.upload(&reader, Pdf).await;
+    let epub = app.add_book(&reader, "Sample EPUB", Epub).await;
+    let pdf = app.add_book(&reader, "Sample PDF", Pdf).await;
+
+    // 1. Sample EPUB navigation
+    let epub_resp = app.book_navigation(Some(&reader), &epub.data.id).await;
+    epub_resp.assert_status(200);
+    let epub_nav: BookNavigationOutput = epub_resp.json_as();
+    assert_eq!(epub_nav.toc.len(), 6);
+    assert!(!epub_nav.linear_units.is_empty());
+    assert!(epub_nav.total_weight > 0);
+
+    let mut prev_prog = -1.0f64;
+    for (i, node) in epub_nav.toc.iter().enumerate() {
+        assert_eq!(node.depth, 0);
+        assert_eq!(node.parent, None);
+        assert_eq!(node.title, "sample");
+        let prog = node.start_progression.expect("epub chapter progression");
+        assert!(prog > prev_prog, "expected progression to increase at {i}");
+        prev_prog = prog;
+        let expected_href = format!("EPUB/chapter{}.xhtml", i + 1);
+        assert!(matches!(
+            &node.locator,
+            Some(BookLocatorOutput::Epub {
+                spine_index: Some(_),
+                href,
+                fragment: None,
+                cfi: None,
+            }) if href == &expected_href
+        ));
+    }
+
+    // 2. Sample PDF navigation (8 pages, 6 bookmarks pointing to 0-based pages 2..=7 with FitPage)
+    let pdf_resp = app.book_navigation(Some(&reader), &pdf.data.id).await;
+    pdf_resp.assert_status(200);
+    let pdf_nav: BookNavigationOutput = pdf_resp.json_as();
+    assert_eq!(pdf_nav.linear_units.len(), 8);
+    assert_eq!(pdf_nav.total_weight, 8);
+    assert_eq!(pdf_nav.toc.len(), 6);
+    for (i, node) in pdf_nav.toc.iter().enumerate() {
+        let expected_page = (i + 2) as u32;
+        assert_eq!(node.unit_index, Some(expected_page));
+        assert_eq!(node.start_progression, Some(expected_page as f64 / 8.0));
+        assert!(matches!(
+            node.locator,
+            Some(BookLocatorOutput::Pdf {
+                page_index,
+                dest: PdfDestOutput::FitPage
+            }) if page_index == expected_page
+        ));
+    }
+
+    // 3. Auth, isolation, invalid/missing ID, and deleted book contracts
+    app.book_navigation(None, &epub.data.id)
+        .await
+        .assert_error(MissingBearer);
+    app.book_navigation(Some(&other), &epub.data.id)
+        .await
+        .assert_error(BookNotFound);
+    app.book_navigation(Some(&reader), INVALID_ID)
+        .await
+        .assert_error(InvalidBookId);
+    app.book_navigation(Some(&reader), UNKNOWN_ID)
+        .await
+        .assert_error(BookNotFound);
+
+    epub.delete().await.assert_empty(204);
+    app.book_navigation(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(BookAlreadyDeleted);
+}
+
+#[tokio::test]
+async fn book_navigation_supports_nested_fragments_nonlinear_units_and_failure_fallback() {
+    use shiro_reader_server::application::library::book::dto::{
+        BookLocatorOutput, BookNavigationOutput,
+    };
+
+    let app = TestApp::new().await;
+    let reader = app.session("CustomNavReader").await;
+
+    // 1. Custom EPUB with grouping parent, nested child, fragment offset, non-linear unit, external link
+    let custom_epub = build_custom_navigation_epub();
+    let custom_book = app
+        .upload_and_add_book(&reader, "Custom Nav EPUB", &custom_epub)
+        .await;
+    let resp = app.book_navigation(Some(&reader), &custom_book.id).await;
+    resp.assert_status(200);
+    let nav: BookNavigationOutput = resp.json_as();
+
+    assert_eq!(nav.linear_units.len(), 3);
+    assert!(!nav.linear_units[0].is_linear);
+    assert!(nav.linear_units[1].is_linear);
+    assert!(nav.linear_units[2].is_linear);
+    assert_eq!(
+        nav.total_weight,
+        nav.linear_units[1].weight + nav.linear_units[2].weight
+    );
+    assert_eq!(nav.toc.len(), 5);
+
+    // [0]: grouping parent "Part 1"
+    assert_eq!(nav.toc[0].title, "Part 1");
+    assert_eq!(nav.toc[0].parent, None);
+    assert_eq!(nav.toc[0].depth, 0);
+    assert_eq!(nav.toc[0].subtree_end, 3);
+    assert_eq!(nav.toc[0].locator, None);
+    assert_eq!(nav.toc[0].start_progression, None);
+
+    // [1]: "Chapter 1"
+    assert_eq!(nav.toc[1].title, "Chapter 1");
+    assert_eq!(nav.toc[1].parent, Some(0));
+    assert_eq!(nav.toc[1].depth, 1);
+    assert_eq!(nav.toc[1].subtree_end, 3);
+    assert_eq!(nav.toc[1].unit_index, Some(1));
+    assert_eq!(nav.toc[1].unit_offset, 0.0);
+
+    // [2]: "Section 1.2" (#section-2)
+    assert_eq!(nav.toc[2].title, "Section 1.2");
+    assert_eq!(nav.toc[2].parent, Some(1));
+    assert_eq!(nav.toc[2].depth, 2);
+    assert_eq!(nav.toc[2].subtree_end, 3);
+    assert_eq!(nav.toc[2].unit_index, Some(1));
+    assert!(nav.toc[2].unit_offset > 0.0);
+    assert!(nav.toc[2].start_progression > nav.toc[1].start_progression);
+    assert!(matches!(
+        &nav.toc[2].locator,
+        Some(BookLocatorOutput::Epub {
+            spine_index: Some(1),
+            href,
+            fragment: Some(frag),
+            cfi: None,
+        }) if href == "EPUB/chapter1.xhtml" && frag == "section-2"
+    ));
+
+    // [3]: "Chapter 2"
+    assert_eq!(nav.toc[3].title, "Chapter 2");
+    assert_eq!(nav.toc[3].parent, None);
+    assert_eq!(nav.toc[3].depth, 0);
+    assert_eq!(nav.toc[3].unit_index, Some(2));
+
+    // [4]: "External Site"
+    assert_eq!(nav.toc[4].title, "External Site");
+    assert_eq!(nav.toc[4].flags, 2);
+    assert_eq!(nav.toc[4].locator, None);
+
+    // 2. Broken PDF that passes %PDF- magic detection on upload returns empty navigation on GET
+    let broken_pdf = b"%PDF-1.4\nbroken-pdf-body";
+    let broken_book = app
+        .upload_and_add_book(&reader, "Broken PDF", broken_pdf)
+        .await;
+    let fallback_resp = app.book_navigation(Some(&reader), &broken_book.id).await;
+    fallback_resp.assert_status(200);
+    let fallback_nav: BookNavigationOutput = fallback_resp.json_as();
+    assert_eq!(
+        fallback_nav,
+        BookNavigationOutput {
+            toc: Vec::new(),
+            linear_units: Vec::new(),
+            total_weight: 0,
+        }
+    );
+}

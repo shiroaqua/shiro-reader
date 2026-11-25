@@ -24,7 +24,9 @@ use shiro_application::{
         user::dto::GetUserOutput,
     },
     library::{
-        book::dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
+        book::dto::{
+            BookNavigationOutput, CreateBookOutput, GetBookOutput, TrashedBookOutput,
+        },
         ports::CoverByteStream,
         tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     },
@@ -413,6 +415,18 @@ impl CloudClient {
     pub async fn list_books(&self) -> Result<Vec<GetBookOutput>, ErrorCode> {
         self.send_authorized_json::<(), Vec<GetBookOutput>>(Method::GET, paths::BOOKS, None)
             .await
+    }
+
+    pub async fn get_book_navigation(
+        &self,
+        book_id: &str,
+    ) -> Result<BookNavigationOutput, ErrorCode> {
+        self.send_authorized_json::<(), BookNavigationOutput>(
+            Method::GET,
+            &paths::book_navigation(book_id),
+            None,
+        )
+        .await
     }
 
     pub async fn create_book(

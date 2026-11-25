@@ -6,7 +6,7 @@ use crate::library::{
     tag::service::TagService,
 };
 
-/// Transport-neutral library facade combining book, chapter, tag, and book-file services.
+/// Transport-neutral library facade combining book, tag, and book-file services.
 ///
 /// Both the standalone local client runtime and the multi-user server runtime
 /// assemble a `LibraryContext` without depending on HTTP extractors or IPC details.

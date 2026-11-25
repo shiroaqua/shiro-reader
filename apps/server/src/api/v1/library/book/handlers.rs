@@ -24,8 +24,11 @@ use crate::{
             GetBookFileMetaCommand, OpenBookFileRangeCommand, PermanentlyDeleteBooksCommand,
             RenameBookCommand, RestoreBookIdCommand,
         },
-        dto::{BookFileDescriptor, CreateBookOutput, GetBookOutput, TrashedBookOutput},
-        queries::GetBooksQuery,
+        dto::{
+            BookFileDescriptor, BookNavigationOutput, CreateBookOutput, GetBookOutput,
+            TrashedBookOutput,
+        },
+        queries::{GetBookNavigationQuery, GetBooksQuery},
     },
     error::AppError,
 };
@@ -150,6 +153,17 @@ pub async fn get_books(
         .list_books(GetBooksQuery { ids: query.id })
         .await?;
     Ok((StatusCode::OK, Json(response_data)))
+}
+
+pub async fn get_book_navigation(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<Json<BookNavigationOutput>, AppError> {
+    let output = state
+        .book_service()
+        .get_book_navigation(GetBookNavigationQuery { id: book_id })
+        .await?;
+    Ok(Json(output))
 }
 
 pub async fn head_book_file(

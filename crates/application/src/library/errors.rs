@@ -1,5 +1,5 @@
 use shiro_domain::library::{
-    book::{chapter::ChapterDomainError, errors::BookDomainError},
+    book::errors::BookDomainError,
     tag::errors::TagDomainError,
 };
 use thiserror::Error;
@@ -10,7 +10,7 @@ use crate::library::{
         file::errors::BookFileApplicationError,
     },
     ports::{
-        BookChapterError, BookFileStorageError, BookRepositoryError, TagRepositoryError,
+        BookFileStorageError, BookRepositoryError, TagRepositoryError,
     },
     tag::errors::TagApplicationError,
 };
@@ -63,22 +63,6 @@ impl From<BookDomainError> for LibraryApplicationError {
     }
 }
 
-impl From<ChapterDomainError> for LibraryApplicationError {
-    fn from(err: ChapterDomainError) -> Self {
-        Self::Book(err.into())
-    }
-}
-
-impl From<ChapterDomainError> for BookApplicationError {
-    fn from(value: ChapterDomainError) -> Self {
-        match value {
-            ChapterDomainError::InvalidId => Self::InvalidId,
-            ChapterDomainError::InvalidTitle => Self::InvalidChapterTitle,
-            ChapterDomainError::InvalidLocation => Self::InvalidChapterLocation,
-        }
-    }
-}
-
 impl From<BookRepositoryError> for BookApplicationError {
     fn from(value: BookRepositoryError) -> Self {
         match value {
@@ -116,21 +100,5 @@ impl From<TagRepositoryError> for TagApplicationError {
 impl From<TagRepositoryError> for LibraryApplicationError {
     fn from(error: TagRepositoryError) -> Self {
         Self::Tag(error.into())
-    }
-}
-
-impl From<BookChapterError> for BookApplicationError {
-    fn from(value: BookChapterError) -> Self {
-        match value {
-            BookChapterError::BookNotFound | BookChapterError::ChapterNotFound => Self::NotFound,
-            BookChapterError::PositionConflict => Self::PositionConflict,
-            BookChapterError::Storage(error) => Self::Storage(error),
-        }
-    }
-}
-
-impl From<BookChapterError> for LibraryApplicationError {
-    fn from(error: BookChapterError) -> Self {
-        Self::Book(error.into())
     }
 }

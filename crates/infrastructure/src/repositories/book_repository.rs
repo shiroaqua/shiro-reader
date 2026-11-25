@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 
 use shiro_application::library::ports::{
-    BookChapterError, BookRepository, BookRepositoryError, BookTransaction,
+    BookRepository, BookRepositoryError, BookTransaction,
 };
 use shiro_domain::library::{
     book::{
-        chapter::{Chapter, ChapterId},
         entity::{Book, BookChange, BookFields},
         value_objects::{BookId, BookStatus},
     },
@@ -15,7 +14,7 @@ use toasty::{Db, Executor, Transaction};
 use uuid::Uuid;
 
 use crate::db::{
-    models::{BookRecord, BookTagRecord, ChapterRecord},
+    models::{BookRecord, BookTagRecord},
     scalars::DbTimestamp,
     sqlite::sqlite_error,
 };
@@ -81,70 +80,6 @@ impl BookRepository for SqliteBookRepository {
             .collect())
     }
 
-    async fn create_chapter(&mut self, chapter: Chapter) -> Result<Chapter, BookChapterError> {
-        let mut tx = self.db.transaction().await.map_err(map_book_chapter_error)?;
-        let chapter = create_chapter_in_executor(&mut tx, chapter).await?;
-        tx.commit().await.map_err(map_book_chapter_error)?;
-        Ok(chapter)
-    }
-
-    async fn delete_chapter(
-        &mut self,
-        book_id: &BookId,
-        chapter_id: &ChapterId,
-    ) -> Result<(), BookChapterError> {
-        let mut tx = self.db.transaction().await.map_err(map_book_chapter_error)?;
-        if !active_book_exists(&mut tx, book_id.as_uuid()).await? {
-            return Err(BookChapterError::BookNotFound);
-        }
-
-        let chapter = ChapterRecord::filter(
-            ChapterRecord::fields()
-                .book_id()
-                .eq(book_id.as_uuid())
-                .and(ChapterRecord::fields().id().eq(chapter_id.as_uuid())),
-        )
-        .first()
-        .exec(&mut tx)
-        .await
-        .map_err(map_book_chapter_error)?;
-        if chapter.is_none() {
-            return Err(BookChapterError::ChapterNotFound);
-        }
-
-        ChapterRecord::filter(
-            ChapterRecord::fields()
-                .book_id()
-                .eq(book_id.as_uuid())
-                .and(ChapterRecord::fields().id().eq(chapter_id.as_uuid())),
-        )
-        .delete()
-        .exec(&mut tx)
-        .await
-        .map_err(map_book_chapter_error)?;
-        tx.commit().await.map_err(map_book_chapter_error)
-    }
-
-    async fn list_chapters(
-        &mut self,
-        book_id: &BookId,
-    ) -> Result<Vec<Chapter>, BookChapterError> {
-        if !active_book_exists(&mut self.db, book_id.as_uuid()).await? {
-            return Err(BookChapterError::BookNotFound);
-        }
-
-        ChapterRecord::filter(ChapterRecord::fields().book_id().eq(book_id.as_uuid()))
-            .order_by(ChapterRecord::fields().position().asc())
-            .order_by(ChapterRecord::fields().id().asc())
-            .exec(&mut self.db)
-            .await
-            .map_err(map_book_chapter_error)?
-            .into_iter()
-            .map(Chapter::try_from)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(BookChapterError::Storage)
-    }
-
     async fn begin_transaction(
         &mut self,
     ) -> Result<SqliteBookTransaction<'_>, BookRepositoryError> {
@@ -165,13 +100,6 @@ impl BookTransaction for SqliteBookTransaction<'_> {
             .await
             .map_err(map_book_db_error)?;
         Book::try_from(record).map_err(BookRepositoryError::Storage)
-    }
-
-    async fn create_chapter(
-        &mut self,
-        chapter: Chapter,
-    ) -> Result<Chapter, BookChapterError> {
-        create_chapter_in_executor(&mut self.tx, chapter).await
     }
 
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
@@ -347,45 +275,4 @@ fn map_book_db_error(error: toasty::Error) -> BookRepositoryError {
         return BookRepositoryError::TitleConflict;
     }
     BookRepositoryError::Storage(error.into())
-}
-
-async fn create_chapter_in_executor(
-    executor: &mut impl Executor,
-    chapter: Chapter,
-) -> Result<Chapter, BookChapterError> {
-    if !active_book_exists(executor, chapter.book_id().as_uuid()).await? {
-        return Err(BookChapterError::BookNotFound);
-    }
-
-    let record = ChapterRecord::try_from(chapter).map_err(BookChapterError::Storage)?;
-    let record = record
-        .into_create()
-        .exec(executor)
-        .await
-        .map_err(map_book_chapter_error)?;
-    Chapter::try_from(record).map_err(BookChapterError::Storage)
-}
-
-async fn active_book_exists(
-    executor: &mut impl Executor,
-    id: uuid::Uuid,
-) -> Result<bool, BookChapterError> {
-    let book = BookRecord::filter(BookRecord::fields().id().eq(id))
-        .first()
-        .exec(executor)
-        .await
-        .map_err(map_book_chapter_error)?;
-    Ok(book.is_some_and(|book| book.deleted_at.is_none()))
-}
-
-fn map_book_chapter_error(error: toasty::Error) -> BookChapterError {
-    if let Some(rusqlite::Error::SqliteFailure(code, message)) = sqlite_error(&error)
-        && code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
-        && message
-            .as_deref()
-            .is_some_and(|message| message.contains("chapters.book_id, chapters.position"))
-    {
-        return BookChapterError::PositionConflict;
-    }
-    BookChapterError::Storage(error.into())
 }

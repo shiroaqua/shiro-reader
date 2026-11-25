@@ -46,17 +46,3 @@ pub struct OpenBookFileRangeCommand {
     pub offset: u64,
     pub length: Option<u64>,
 }
-
-#[derive(Debug, Clone)]
-pub struct CreateChapterCommand {
-    pub book_id: String,
-    pub position: u32,
-    pub title: String,
-    pub location: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct DeleteChapterCommand {
-    pub book_id: String,
-    pub chapter_id: String,
-}

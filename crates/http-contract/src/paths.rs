@@ -23,8 +23,6 @@ pub const AUTH_ME_ROUTE: &str = "/me";
 pub const BOOKS_ROUTE: &str = "/bookshelf/books";
 pub const BOOK_ROUTE: &str = "/bookshelf/books/{book_id}";
 pub const BOOK_TAGS_ROUTE: &str = "/bookshelf/books/{book_id}/tags";
-pub const BOOK_CHAPTERS_ROUTE: &str = "/bookshelf/books/{book_id}/chapters";
-pub const BOOK_CHAPTER_ROUTE: &str = "/bookshelf/books/{book_id}/chapters/{chapter_id}";
 pub const BOOK_COVER_ROUTE: &str = "/bookshelf/books/{book_id}/cover";
 pub const TRASH_ROUTE: &str = "/bookshelf/trash";
 pub const TRASH_BOOK_ROUTE: &str = "/bookshelf/trash/{book_id}";
@@ -36,6 +34,7 @@ pub const TAG_COLOR_ROUTE: &str = "/tags/{tag_id}/color";
 pub const TAG_PARENT_ROUTE: &str = "/tags/{tag_id}/parent";
 pub const BOOK_FILES_ROUTE: &str = "/files/book";
 pub const BOOK_FILE_ROUTE: &str = "/bookshelf/books/{book_id}/file";
+pub const BOOK_NAVIGATION_ROUTE: &str = "/bookshelf/books/{book_id}/navigation";
 
 pub fn book(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}")
@@ -45,20 +44,16 @@ pub fn book_file(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}/file")
 }
 
+pub fn book_navigation(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/navigation")
+}
+
 pub fn book_cover(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}/cover")
 }
 
 pub fn book_tags(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}/tags")
-}
-
-pub fn book_chapters(book_id: &str) -> String {
-    format!("{BOOKS}/{book_id}/chapters")
-}
-
-pub fn book_chapter(book_id: &str, chapter_id: &str) -> String {
-    format!("{}/{}", book_chapters(book_id), chapter_id)
 }
 
 pub fn trash_restore(book_id: &str) -> String {

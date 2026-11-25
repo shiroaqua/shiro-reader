@@ -187,15 +187,6 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::InvalidTitleFormat => AppError::BadRequest {
                     message: "library.book.invalid_title_format",
                 },
-                BookApplicationError::InvalidChapterTitle => AppError::BadRequest {
-                    message: "library.book.invalid_chapter_title",
-                },
-                BookApplicationError::InvalidChapterLocation => AppError::BadRequest {
-                    message: "library.book.invalid_location",
-                },
-                BookApplicationError::PositionConflict => AppError::Conflict {
-                    message: "library.book.position_conflict",
-                },
                 BookApplicationError::NotFound => AppError::NotFound {
                     message: "library.book.not_found",
                 },
@@ -502,11 +493,6 @@ mod tests {
                 ErrorCode::BookInvalidTitleFormat,
             ),
             (
-                BookApplicationError::InvalidChapterTitle,
-                StatusCode::BAD_REQUEST,
-                ErrorCode::BookInvalidChapterTitle,
-            ),
-            (
                 BookApplicationError::NotFound,
                 StatusCode::NOT_FOUND,
                 ErrorCode::BookNotFound,
@@ -530,16 +516,6 @@ mod tests {
                 BookApplicationError::NotDeleted,
                 StatusCode::CONFLICT,
                 ErrorCode::BookNotDeleted,
-            ),
-            (
-                BookApplicationError::InvalidChapterLocation,
-                StatusCode::BAD_REQUEST,
-                ErrorCode::BookInvalidChapterLocation,
-            ),
-            (
-                BookApplicationError::PositionConflict,
-                StatusCode::CONFLICT,
-                ErrorCode::BookPositionConflict,
             ),
             (
                 BookApplicationError::Storage(storage_err()),

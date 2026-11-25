@@ -154,8 +154,6 @@ impl UserDatabaseProvider {
     pub async fn append(&self, user_id: &str) -> anyhow::Result<()> {
         let base_path = self.root_directory.join("users").join(user_id);
         std::fs::create_dir_all(&base_path)?;
-        std::fs::create_dir_all(base_path.join("covers"))?;
-        std::fs::create_dir_all(base_path.join("notes"))?;
         let pool = connect_library(&base_path.join("library.db")).await?;
         self.map.insert(user_id.to_owned(), pool);
         Ok(())

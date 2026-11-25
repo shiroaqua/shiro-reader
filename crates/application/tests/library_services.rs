@@ -12,8 +12,7 @@ use bytes::Bytes;
 use shiro_application::library::{
     book::{
         commands::{
-            CreateBookCommand, GetBookFileMetaCommand, OpenBookFileRangeCommand,
-            RestoreBookIdCommand,
+            GetBookFileMetaCommand, OpenBookFileRangeCommand, RestoreBookIdCommand,
         },
         dto::BookFileDescriptor,
         errors::BookApplicationError,
@@ -26,7 +25,7 @@ use shiro_application::library::{
     },
     errors::LibraryApplicationError,
     ports::{
-        BookChapterError, BookFileMetadata, BookFileStorageError, BookFileStore, BookRepository,
+        BookFileMetadata, BookFileStorageError, BookFileStore, BookRepository,
         BookRepositoryError, BookTransaction, CoverByteStream, OpenedBookFile, TagRepository,
         TagRepositoryError, TagTransaction,
     },
@@ -34,9 +33,12 @@ use shiro_application::library::{
 };
 use shiro_domain::library::{
     book::{
-        chapter::{Chapter, ChapterId, ChapterLocation},
         entity::{Book, BookChange},
-        file::entity::{BookFileChapter, BookFileType},
+        file::entity::BookFileType,
+        navigation::{
+            BookLocator, BookNavigation, EpubHref, LinearUnitSpec, NormalizedOffset, TocEntrySpec,
+            TocNodeFlags,
+        },
         value_objects::{BookId, BookTitle},
     },
     tag::{
@@ -58,7 +60,7 @@ struct SaveGate {
 #[derive(Default)]
 struct MockBookFileStore {
     files: Mutex<HashMap<Hash, (BookFileMetadata, Bytes)>>,
-    chapters: Mutex<HashMap<Hash, Vec<BookFileChapter>>>,
+    navigations: Mutex<HashMap<Hash, BookNavigation>>,
     save_error: Mutex<Option<BookFileStorageError>>,
     open_error: Mutex<Option<BookFileStorageError>>,
     gate: Mutex<Option<Arc<SaveGate>>>,
@@ -73,6 +75,10 @@ impl MockBookFileStore {
 
     fn set_open_error(&self, err: BookFileStorageError) {
         *self.open_error.lock().unwrap() = Some(err);
+    }
+
+    fn set_navigation(&self, hash: Hash, navigation: BookNavigation) {
+        self.navigations.lock().unwrap().insert(hash, navigation);
     }
 
     fn insert_existing(&self, hash: Hash, file_type: Option<BookFileType>) {
@@ -98,10 +104,6 @@ impl MockBookFileStore {
         self.files.lock().unwrap().insert(hash, (meta, data));
     }
 
-    fn set_chapters(&self, hash: Hash, chapters: Vec<BookFileChapter>) {
-        self.chapters.lock().unwrap().insert(hash, chapters);
-    }
-
     fn set_gate(&self, gate: Arc<SaveGate>) {
         *self.gate.lock().unwrap() = Some(gate);
     }
@@ -122,16 +124,7 @@ impl BookFileStore for MockBookFileStore {
         self.files.lock().unwrap().get(key).map(|(meta, _)| *meta)
     }
 
-    fn get_chapters(&self, hash: &Hash) -> Vec<BookFileChapter> {
-        self.chapters
-            .lock()
-            .unwrap()
-            .get(hash)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    async fn save<R>(&self, hash: &Hash, mut reader: R) -> Result<(), BookFileStorageError>
+    async fn import<R>(&self, hash: &Hash, mut reader: R) -> Result<(), BookFileStorageError>
     where
         R: AsyncRead + Unpin + Send,
     {
@@ -281,12 +274,20 @@ impl BookFileStore for MockBookFileStore {
     ) -> Result<(CoverByteStream, String), BookFileStorageError> {
         Err(BookFileStorageError::NotFound)
     }
+
+    async fn extract_navigation(&self, hash: &Hash) -> BookNavigation {
+        self.navigations
+            .lock()
+            .unwrap()
+            .get(hash)
+            .cloned()
+            .unwrap_or_else(BookNavigation::empty)
+    }
 }
 
 #[derive(Clone, Default)]
 struct MockBookRepository {
     books: Arc<Mutex<Vec<Book>>>,
-    chapters: Arc<Mutex<Vec<Chapter>>>,
     occupied_titles: Arc<Mutex<HashSet<String>>>,
 }
 
@@ -316,109 +317,25 @@ impl BookRepository for MockBookRepository {
         Ok(self.books.lock().unwrap().clone())
     }
 
-    async fn create_chapter(&mut self, chapter: Chapter) -> Result<Chapter, BookChapterError> {
-        if !self
-            .books
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|book| book.id() == chapter.book_id())
-        {
-            return Err(BookChapterError::BookNotFound);
-        }
-        self.chapters.lock().unwrap().push(chapter.clone());
-        Ok(chapter)
-    }
-
-    async fn delete_chapter(
-        &mut self,
-        book_id: &BookId,
-        chapter_id: &ChapterId,
-    ) -> Result<(), BookChapterError> {
-        if !self
-            .books
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|book| book.id() == book_id)
-        {
-            return Err(BookChapterError::BookNotFound);
-        }
-        let mut chapters = self.chapters.lock().unwrap();
-        let Some(index) = chapters
-            .iter()
-            .position(|chapter| chapter.book_id() == book_id && chapter.id() == chapter_id)
-        else {
-            return Err(BookChapterError::ChapterNotFound);
-        };
-        chapters.remove(index);
-        Ok(())
-    }
-
-    async fn list_chapters(
-        &mut self,
-        book_id: &BookId,
-    ) -> Result<Vec<Chapter>, BookChapterError> {
-        if !self
-            .books
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|book| book.id() == book_id)
-        {
-            return Err(BookChapterError::BookNotFound);
-        }
-        Ok(self
-            .chapters
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|chapter| chapter.book_id() == book_id)
-            .cloned()
-            .collect())
-    }
-
     async fn begin_transaction(&mut self) -> Result<Self::Tx<'_>, BookRepositoryError> {
         Ok(MockBookTransaction {
             books: Arc::clone(&self.books),
-            chapters: Arc::clone(&self.chapters),
             occupied_titles: Arc::clone(&self.occupied_titles),
             pending_books: Vec::new(),
-            pending_chapters: Vec::new(),
         })
     }
 }
 
 struct MockBookTransaction {
     books: Arc<Mutex<Vec<Book>>>,
-    chapters: Arc<Mutex<Vec<Chapter>>>,
     occupied_titles: Arc<Mutex<HashSet<String>>>,
     pending_books: Vec<Book>,
-    pending_chapters: Vec<Chapter>,
 }
 
 impl BookTransaction for MockBookTransaction {
     async fn create_book(&mut self, book: Book) -> Result<Book, BookRepositoryError> {
         self.pending_books.push(book.clone());
         Ok(book)
-    }
-
-    async fn create_chapter(
-        &mut self,
-        chapter: Chapter,
-    ) -> Result<Chapter, BookChapterError> {
-        if self
-            .pending_chapters
-            .iter()
-            .any(|existing| {
-                existing.book_id() == chapter.book_id()
-                    && existing.position() == chapter.position()
-            })
-        {
-            return Err(BookChapterError::PositionConflict);
-        }
-        self.pending_chapters.push(chapter.clone());
-        Ok(chapter)
     }
 
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
@@ -463,7 +380,6 @@ impl BookTransaction for MockBookTransaction {
 
     async fn commit(self) -> Result<(), BookRepositoryError> {
         self.books.lock().unwrap().extend(self.pending_books);
-        self.chapters.lock().unwrap().extend(self.pending_chapters);
         Ok(())
     }
 }
@@ -763,7 +679,6 @@ async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_exi
 
     let repo = MockBookRepository {
         books: Arc::new(Mutex::new(vec![active, trashed, orphan_book])),
-        chapters: Arc::new(Mutex::new(Vec::new())),
         occupied_titles: Arc::new(Mutex::new(HashSet::new())),
     };
     let store = MockBookFileStore::default();
@@ -852,47 +767,6 @@ async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_exi
 }
 
 #[tokio::test]
-async fn book_creation_rolls_back_when_default_chapter_creation_fails() {
-    let hash = blake3::hash(b"book-with-duplicate-chapters");
-    let store = MockBookFileStore::default();
-    store.insert_existing(hash, Some(BookFileType::EPUB));
-    store.set_chapters(
-        hash,
-        ["First", "Duplicate"]
-            .into_iter()
-            .map(|title| BookFileChapter {
-                position: 0,
-                title: title.to_owned(),
-                location: ChapterLocation::Epub {
-                    href: "Text/chapter.xhtml".to_owned(),
-                    cfi: None,
-                },
-            })
-            .collect(),
-    );
-
-    let repository = MockBookRepository::default();
-    let mut service = BookService::new(
-        repository.clone(),
-        Arc::new(BookFileService::new(store)),
-    );
-    let error = service
-        .create_book(CreateBookCommand {
-            title: "Book".to_owned(),
-            hash: hash.to_hex().to_string(),
-        })
-        .await
-        .unwrap_err();
-
-    assert!(matches!(
-        error,
-        LibraryApplicationError::Book(BookApplicationError::PositionConflict)
-    ));
-    assert!(repository.books.lock().unwrap().is_empty());
-    assert!(repository.chapters.lock().unwrap().is_empty());
-}
-
-#[tokio::test]
 async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_application_errors() {
     let hash = blake3::hash(b"book-bytes");
     let mut trashed = Book::new(
@@ -912,7 +786,6 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
 
     let repo = MockBookRepository {
         books: Arc::new(Mutex::new(vec![trashed.clone()])),
-        chapters: Arc::new(Mutex::new(Vec::new())),
         occupied_titles: Arc::new(Mutex::new(occupied)),
     };
     let store = MockBookFileStore::default();
@@ -943,7 +816,6 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
     .unwrap();
     let active_repo = MockBookRepository {
         books: Arc::new(Mutex::new(vec![active])),
-        chapters: Arc::new(Mutex::new(Vec::new())),
         occupied_titles: Arc::new(Mutex::new(HashSet::new())),
     };
     let mut active_service = BookService::new(
@@ -1316,6 +1188,135 @@ async fn book_file_service_eof_after_deadline_expiration_cannot_enter_finalizing
     ));
     assert!(matches!(
         service.probe_book_file(&hash),
+        Err(LibraryApplicationError::BookFile(
+            BookFileApplicationError::NotFound
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn book_service_get_book_navigation_returns_navigation_and_enforces_invariants() {
+    use shiro_application::library::book::{
+        dto::BookLocatorOutput,
+        queries::GetBookNavigationQuery,
+    };
+
+    let payload = Bytes::from_static(b"navigation-book-bytes");
+    let hash = blake3::hash(&payload);
+
+    let active = Book::new(
+        BookId::new(),
+        BookTitle::parse("Active Book").unwrap(),
+        hash,
+    )
+    .unwrap();
+    let active_id = active.id().to_string();
+
+    let mut trashed = Book::new(
+        BookId::new(),
+        BookTitle::parse("Trashed Book").unwrap(),
+        hash,
+    )
+    .unwrap();
+    let trashed_id = trashed.id().to_string();
+    let _ = trashed.mark_deleted().unwrap();
+
+    let missing_file_hash = blake3::hash(b"missing-nav-file");
+    let orphan_book = Book::new(
+        BookId::new(),
+        BookTitle::parse("Missing File Book").unwrap(),
+        missing_file_hash,
+    )
+    .unwrap();
+    let orphan_id = orphan_book.id().to_string();
+
+    let nav = BookNavigation::build(
+        vec![TocEntrySpec {
+            title: "  Chapter   One ".to_owned(),
+            locator: Some(
+                BookLocator::epub(
+                    Some(0),
+                    EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                    Some("sec-1".to_owned()),
+                    None,
+                )
+                .unwrap(),
+            ),
+            unit_offset: NormalizedOffset::new(0.25).unwrap(),
+            flags: TocNodeFlags::empty(),
+            children: vec![],
+        }],
+        vec![LinearUnitSpec {
+            is_linear: true,
+            weight: 100,
+            display_label: Some("EPUB/ch1.xhtml".to_owned()),
+        }],
+    )
+    .unwrap();
+
+    let repo = MockBookRepository {
+        books: Arc::new(Mutex::new(vec![active, trashed, orphan_book])),
+        occupied_titles: Arc::new(Mutex::new(HashSet::new())),
+    };
+    let store = MockBookFileStore::default();
+    store.insert_book_file(hash, BookFileType::EPUB, payload);
+    store.set_navigation(hash, nav);
+
+    let mut service = BookService::new(repo, Arc::new(BookFileService::new(store)));
+
+    let output = service
+        .get_book_navigation(GetBookNavigationQuery {
+            id: active_id.clone(),
+        })
+        .await
+        .expect("active book navigation");
+    assert_eq!(output.total_weight, 100);
+    assert_eq!(output.linear_units.len(), 1);
+    assert_eq!(output.toc.len(), 1);
+    assert_eq!(output.toc[0].title, "Chapter One");
+    assert_eq!(output.toc[0].start_progression, Some(0.25));
+    assert!(matches!(
+        output.toc[0].locator,
+        Some(BookLocatorOutput::Epub {
+            spine_index: Some(0),
+            ref href,
+            fragment: Some(ref frag),
+            cfi: None
+        }) if href == "EPUB/ch1.xhtml" && frag == "sec-1"
+    ));
+
+    assert!(matches!(
+        service
+            .get_book_navigation(GetBookNavigationQuery {
+                id: "not-a-uuid".to_owned()
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidId
+        ))
+    ));
+    assert!(matches!(
+        service
+            .get_book_navigation(GetBookNavigationQuery {
+                id: BookId::new().to_string()
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::NotFound
+        ))
+    ));
+    assert!(matches!(
+        service
+            .get_book_navigation(GetBookNavigationQuery { id: trashed_id })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .get_book_navigation(GetBookNavigationQuery { id: orphan_id })
+            .await,
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::NotFound
         ))

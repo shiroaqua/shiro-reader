@@ -9,7 +9,7 @@ pub use error::{ErrorDetail, ErrorResponse};
 pub use library::{
     BOOK_FILE_FIELD_FILE, BOOK_FILE_FIELD_HASH, BOOK_FILE_FIELD_SIZE, BindBookTagRequest,
     BookFileQuery, BookIdsRequest, BooksQuery, ChangeTagColorRequest, CreateBookRequest,
-    CreateChapterRequest, DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
+    DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
     RenameBookRequest, RenameTagRequest, UnbindBookTagRequest,
 };
 pub use meta::ServerMetaResponse;
@@ -78,6 +78,14 @@ mod tests {
         assert_eq!(
             paths::BOOK_FILE_ROUTE,
             "/bookshelf/books/{book_id}/file"
+        );
+        assert_eq!(
+            paths::book_navigation("b1"),
+            "/api/v1/library/bookshelf/books/b1/navigation"
+        );
+        assert_eq!(
+            paths::BOOK_NAVIGATION_ROUTE,
+            "/bookshelf/books/{book_id}/navigation"
         );
         assert_eq!(
             paths::book_cover("b1"),

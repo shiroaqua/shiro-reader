@@ -112,7 +112,7 @@ impl TestApp {
         }
     }
 
-    async fn send(
+    pub async fn send(
         &self,
         method: Method,
         uri: &str,
@@ -262,15 +262,12 @@ impl HttpResponse {
 pub enum HttpError {
     MissingTitle,
     InvalidTitle,
-    InvalidChapterTitle,
     UnchangedTitle,
     TitleConflict,
     BookAlreadyDeleted,
     BookNotDeleted,
     InvalidBookId,
-    InvalidChapterLocation,
     BookNotFound,
-    PositionConflict,
     InvalidHash,
     FileNotFound,
     UploadConflict,
@@ -309,9 +306,6 @@ impl HttpError {
             InvalidBookId => (400, 2001, "library.book.invalid_id"),
             MissingTitle => (400, 2002, "library.book.missing_title"),
             InvalidTitle => (400, 2003, "library.book.invalid_title_format"),
-            InvalidChapterTitle => (400, 2011, "library.book.invalid_chapter_title"),
-            InvalidChapterLocation => (400, 2004, "library.book.invalid_location"),
-            PositionConflict => (409, 2005, "library.book.position_conflict"),
             BookNotFound => (404, 2006, "library.book.not_found"),
             TitleConflict => (409, 2007, "library.book.title_conflict"),
             UnchangedTitle => (400, 2008, "library.book.title_unchanged"),

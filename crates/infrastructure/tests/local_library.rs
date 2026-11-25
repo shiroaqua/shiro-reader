@@ -15,7 +15,10 @@ use shiro_application::library::{
     tag::commands::{BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand},
 };
 use shiro_domain::library::{
-    book::file::entity::BookFileType,
+    book::{
+        file::entity::BookFileType,
+        navigation::BookLocator,
+    },
     tag::value_objects::TagDeleteStrategy,
 };
 use shiro_infrastructure::library_runtime::LocalLibrary;
@@ -445,7 +448,7 @@ async fn local_book_file_storage_supports_meta_open_range_and_positional_read_wi
         ));
     }
 
-    // read_exact_at across head, middle, tail, and zero-length at EOF without leaking 42B header/chapters.
+    // read_exact_at across head, middle, tail, and zero-length at EOF without leaking storage metadata.
     let head = library
         .book_file_service()
         .read_book_file_exact_at(&epub_hash, 0, 30)
@@ -499,6 +502,54 @@ async fn local_book_file_storage_supports_meta_open_range_and_positional_read_wi
             }) if size == epub_size
         ));
     }
+}
+
+#[tokio::test]
+async fn local_library_extract_navigation_handles_valid_epub_and_returns_empty_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let epub_bytes = fs::read(workspace_root().join("apps/server/tests/samples/sample_document.epub"))
+        .expect("sample_document.epub fixture");
+    let broken_pdf_bytes = b"%PDF-1.4\nbroken-content-without-xref".to_vec();
+
+    let library = LocalLibrary::open(dir.path(), None)
+        .await
+        .expect("open local library");
+
+    // 1. Missing hash returns empty navigation without error.
+    let unknown_hash = blake3::hash(b"non-existent-book-hash");
+    let missing_nav = library
+        .book_file_service()
+        .extract_book_navigation(&unknown_hash)
+        .await;
+    assert!(missing_nav.is_empty());
+
+    // 2. Valid EPUB returns populated TOC and linear spine units.
+    let epub_hash_hex = upload_bytes(&library, &epub_bytes).await;
+    let epub_hash = blake3::Hash::from_hex(&epub_hash_hex).unwrap();
+    let epub_nav = library
+        .book_file_service()
+        .extract_book_navigation(&epub_hash)
+        .await;
+    assert!(!epub_nav.is_empty());
+    assert_eq!(epub_nav.toc().len(), 6);
+    assert!(epub_nav.total_weight() > 0);
+    assert!(!epub_nav.linear_units().is_empty());
+    assert!(matches!(
+        epub_nav.toc()[0].locator(),
+        Some(BookLocator::Epub {
+            spine_index: Some(_),
+            ..
+        })
+    ));
+
+    // 3. PDF when Pdfium is not loaded returns empty navigation cleanly.
+    let broken_pdf_hash_hex = upload_bytes(&library, &broken_pdf_bytes).await;
+    let broken_pdf_hash = blake3::Hash::from_hex(&broken_pdf_hash_hex).unwrap();
+    let pdf_nav = library
+        .book_file_service()
+        .extract_book_navigation(&broken_pdf_hash)
+        .await;
+    assert!(pdf_nav.is_empty());
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) {
