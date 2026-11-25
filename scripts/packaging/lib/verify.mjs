@@ -18,7 +18,7 @@ import {
   findBundletool,
   runCmd,
 } from "./env.mjs"
-import { loadLock, REPO_ROOT, resolveTargetSpec, TEMP_VERIFY_DIR } from "./lock.mjs"
+import { loadLock, REPO_ROOT, resolveTargetSpec, TAURI_DIR, TEMP_VERIFY_DIR } from "./lock.mjs"
 import { openZip } from "./zip.mjs"
 
 const RUST_ANDROID_ALLOWED_DT_NEEDED = [
@@ -104,8 +104,8 @@ function verifyWindowsArtifact(artifactPath, spec, options = {}) {
   const buildProfileDir = resolveWindowsBuildProfileDir(artifactPath, options)
   const buildExe = path.join(buildProfileDir, "shiro-reader-desktop.exe")
   const nsisScript = path.join(buildProfileDir, "nsis/x64/installer.nsi")
-  const stagedBin = path.join(REPO_ROOT, "apps/desktop/src-tauri/staging/windows-x64", spec.stagedBinaryRelativePath)
-  const stagedLic = path.join(REPO_ROOT, "apps/desktop/src-tauri/staging/windows-x64", spec.stagedLicenseRelativePath)
+  const stagedBin = path.join(TAURI_DIR, "staging/windows-x64", spec.stagedBinaryRelativePath)
+  const stagedLic = path.join(TAURI_DIR, "staging/windows-x64", spec.stagedLicenseRelativePath)
 
   if (!fs.existsSync(nsisScript)) {
     fail(

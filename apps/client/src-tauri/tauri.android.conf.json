@@ -1,0 +1,8 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../ui dev:mobile",
+    "devUrl": "http://localhost:1421",
+    "beforeBuildCommand": "pnpm --dir ../ui build:mobile",
+    "frontendDist": "../ui/packages/mobile/dist"
+  }
+}

@@ -9,7 +9,7 @@ members = [
     "crates/http-contract",
     "crates/compatibility",
     "apps/server",
-    "apps/desktop/src-tauri",
+    "apps/client/src-tauri",
 ]
 
 [workspace.package]

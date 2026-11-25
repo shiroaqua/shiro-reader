@@ -35,9 +35,9 @@ ensure_node_deps() {
   require_cmd node "Install Node.js >= 22."
   require_cmd pnpm "Install pnpm."
 
-  if [[ ! -d "${REPO_ROOT}/apps/desktop/ui/node_modules/@tauri-apps/cli" ]]; then
-    log "Installing desktop UI dependencies..."
-    pnpm --dir "${REPO_ROOT}/apps/desktop/ui" install --frozen-lockfile
+  if [[ ! -d "${REPO_ROOT}/apps/client/ui/node_modules/@tauri-apps/cli" ]]; then
+    log "Installing client UI dependencies..."
+    pnpm --dir "${REPO_ROOT}/apps/client/ui" install --frozen-lockfile
   fi
 
   if [[ ! -d "${REPO_ROOT}/scripts/packaging/node_modules/tar" ]]; then

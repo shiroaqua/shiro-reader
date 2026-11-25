@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: apps/desktop/ui
+        working-directory: apps/client/ui
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -70,7 +70,10 @@ jobs:
         with:
           version: 12.11.2
       - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
+      - run: pnpm build
 
   packaging-tests:
     name: Packaging tests
@@ -87,4 +90,7 @@ jobs:
         with:
           version: 12.11.2
       - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
+      - run: pnpm build

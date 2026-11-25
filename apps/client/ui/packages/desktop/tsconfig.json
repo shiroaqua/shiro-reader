@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../node_modules/.tmp/tsconfig.desktop.tsbuildinfo",
+    "paths": {
+      "@shiro/ui-shared/*": ["../shared/src/*"],
+      "@shiro/desktop-ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

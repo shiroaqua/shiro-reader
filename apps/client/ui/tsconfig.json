@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/desktop" },
+    { "path": "./packages/mobile" },
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.test.json" }
+  ],
+  "compilerOptions": {
+    "paths": {
+      "@shiro/ui-shared/*": ["./packages/shared/src/*"],
+      "@shiro/desktop-ui/*": ["./packages/desktop/src/*"],
+      "@shiro/mobile-ui/*": ["./packages/mobile/src/*"]
+    }
+  }
+}

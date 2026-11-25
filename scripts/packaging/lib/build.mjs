@@ -13,17 +13,17 @@ import {
   runCmd,
   tauriBinPath,
 } from "./env.mjs"
-import { DESKTOP_DIR, loadLock, REPO_ROOT, REPORTS_DIR, resolveTargetSpec, TAURI_DIR, UI_DIR } from "./lock.mjs"
+import { CLIENT_DIR, loadLock, REPO_ROOT, REPORTS_DIR, resolveTargetSpec, TAURI_DIR, UI_DIR } from "./lock.mjs"
 import { cmdPrepare } from "./prepare.mjs"
 import { verifyArtifact } from "./verify.mjs"
 
 export function checkOfflineReadiness(target) {
   const missing = []
   if (!fs.existsSync(path.join(UI_DIR, "node_modules/@tauri-apps/cli"))) {
-    missing.push("apps/desktop/ui/node_modules (@tauri-apps/cli)")
+    missing.push("apps/client/ui/node_modules (@tauri-apps/cli)")
   }
   if (!fs.existsSync(path.join(UI_DIR, "node_modules/vite"))) {
-    missing.push("apps/desktop/ui/node_modules (vite)")
+    missing.push("apps/client/ui/node_modules (vite)")
   }
   if (!fs.existsSync(path.join(REPO_ROOT, "Cargo.lock"))) {
     missing.push("Cargo.lock")
@@ -42,7 +42,7 @@ export function checkOfflineReadiness(target) {
   if (target === "android-arm64") {
     const gradlew = path.join(TAURI_DIR, "gen/android/gradlew")
     if (!fs.existsSync(gradlew)) {
-      missing.push("apps/desktop/src-tauri/gen/android/gradlew")
+      missing.push("apps/client/src-tauri/gen/android/gradlew")
     }
     const gradleHome = resolveGradleUserHome()
     const gradleCaches = path.join(gradleHome, "caches")
@@ -183,7 +183,8 @@ export async function cmdBuild(flags) {
     checkOfflineReadiness(target)
   }
 
-  runCmd("pnpm", ["--dir", UI_DIR, "run", "build"], { cwd: REPO_ROOT })
+  const uiBuildScript = target === "android-arm64" ? "build:mobile" : "build:desktop"
+  runCmd("pnpm", ["--dir", UI_DIR, "run", uiBuildScript], { cwd: REPO_ROOT })
 
   let artifactPath
   let signing = "unsigned"
@@ -201,7 +202,7 @@ export async function cmdBuild(flags) {
     if (offline) {
       args.push("--", "--offline")
     }
-    runCmd(tauri, args, { cwd: DESKTOP_DIR, env })
+    runCmd(tauri, args, { cwd: CLIENT_DIR, env })
 
     const nsisDir = path.join(REPO_ROOT, "target/x86_64-pc-windows-msvc", profile, "bundle/nsis")
     if (!fs.existsSync(nsisDir)) {
@@ -246,7 +247,7 @@ export async function cmdBuild(flags) {
     if (format === "appimage" && !env.APPIMAGE_EXTRACT_AND_RUN) {
       env.APPIMAGE_EXTRACT_AND_RUN = "1"
     }
-    runCmd(tauri, args, { cwd: DESKTOP_DIR, env })
+    runCmd(tauri, args, { cwd: CLIENT_DIR, env })
 
     const bundleDir = path.join(
       REPO_ROOT,
@@ -289,7 +290,7 @@ export async function cmdBuild(flags) {
       env.CARGO_NET_OFFLINE = "true"
       env.GRADLE_OPTS = [env.GRADLE_OPTS, "-Dorg.gradle.offline=true"].filter(Boolean).join(" ")
     }
-    runCmd(tauri, args, { cwd: DESKTOP_DIR, env })
+    runCmd(tauri, args, { cwd: CLIENT_DIR, env })
 
     if (format === "apk") {
       const apkRoot = path.join(

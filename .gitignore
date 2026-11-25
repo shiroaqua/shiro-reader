@@ -177,10 +177,10 @@ AGENTS.md
 # =========================
 
 .cache/
-apps/desktop/src-tauri/staging/
-apps/desktop/src-tauri/gen/schemas/
-apps/desktop/src-tauri/gen/android/app/src/main/jniLibs/
-apps/desktop/src-tauri/gen/android/app/src/main/assets/native/
+apps/client/src-tauri/staging/
+apps/client/src-tauri/gen/schemas/
+apps/client/src-tauri/gen/android/app/src/main/jniLibs/
+apps/client/src-tauri/gen/android/app/src/main/assets/native/
 *.apk
 *.aab
 *.apks

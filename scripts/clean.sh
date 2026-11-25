@@ -77,17 +77,17 @@ remove_rel_path() {
 if command -v cargo >/dev/null 2>&1; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     run_native_step "Cargo workspace clean" "$REPO_ROOT" cargo clean --dry-run
-    [[ -f "${REPO_ROOT}/apps/desktop/src-tauri/Cargo.toml" && -d "${REPO_ROOT}/apps/desktop/src-tauri/target" ]] && \
-      run_native_step "Tauri crate clean" "${REPO_ROOT}/apps/desktop/src-tauri" cargo clean --dry-run
+    [[ -f "${REPO_ROOT}/apps/client/src-tauri/Cargo.toml" && -d "${REPO_ROOT}/apps/client/src-tauri/target" ]] && \
+      run_native_step "Tauri crate clean" "${REPO_ROOT}/apps/client/src-tauri" cargo clean --dry-run
   else
     run_native_step "Cargo workspace clean" "$REPO_ROOT" cargo clean || true
-    [[ -f "${REPO_ROOT}/apps/desktop/src-tauri/Cargo.toml" && -d "${REPO_ROOT}/apps/desktop/src-tauri/target" ]] && \
-      run_native_step "Tauri crate clean" "${REPO_ROOT}/apps/desktop/src-tauri" cargo clean || true
+    [[ -f "${REPO_ROOT}/apps/client/src-tauri/Cargo.toml" && -d "${REPO_ROOT}/apps/client/src-tauri/target" ]] && \
+      run_native_step "Tauri crate clean" "${REPO_ROOT}/apps/client/src-tauri" cargo clean || true
   fi
 fi
 
 # 2. Frontend TypeScript incremental build cache (native: tsc -b --clean)
-UI_DIR="${REPO_ROOT}/apps/desktop/ui"
+UI_DIR="${REPO_ROOT}/apps/client/ui"
 if [[ -x "${UI_DIR}/node_modules/.bin/tsc" ]]; then
   run_native_step "TypeScript build clean" "$UI_DIR" ./node_modules/.bin/tsc -b --clean || true
 elif command -v pnpm >/dev/null 2>&1 && [[ -d "${UI_DIR}/node_modules/typescript" ]]; then
@@ -95,7 +95,7 @@ elif command -v pnpm >/dev/null 2>&1 && [[ -d "${UI_DIR}/node_modules/typescript
 fi
 
 # 3. Android Gradle project (native: ./gradlew clean --stop)
-ANDROID_DIR="${REPO_ROOT}/apps/desktop/src-tauri/gen/android"
+ANDROID_DIR="${REPO_ROOT}/apps/client/src-tauri/gen/android"
 ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 if [[ -x "${ANDROID_DIR}/gradlew" ]] && command -v java >/dev/null 2>&1 && [[ -n "$ANDROID_SDK" && -d "$ANDROID_SDK" ]]; then
   export ANDROID_HOME="$ANDROID_SDK"
@@ -109,32 +109,37 @@ fi
 CLEAN_PATHS=(
   # Remaining target directories (e.g. target/packaging/ reports or if cargo was unavailable)
   "target"
-  "apps/desktop/src-tauri/target"
+  "apps/client/src-tauri/target"
 
   # Tauri staging & generated schemas
-  "apps/desktop/src-tauri/staging"
-  "apps/desktop/src-tauri/gen/schemas"
+  "apps/client/src-tauri/staging"
+  "apps/client/src-tauri/gen/schemas"
 
   # Android Gradle caches & native outputs not removed by `./gradlew clean`
-  "apps/desktop/src-tauri/gen/android/.gradle"
-  "apps/desktop/src-tauri/gen/android/.kotlin"
-  "apps/desktop/src-tauri/gen/android/.tauri"
-  "apps/desktop/src-tauri/gen/android/build"
-  "apps/desktop/src-tauri/gen/android/app/build"
-  "apps/desktop/src-tauri/gen/android/app/.cxx"
-  "apps/desktop/src-tauri/gen/android/app/.externalNativeBuild"
-  "apps/desktop/src-tauri/gen/android/app/src/main/jniLibs"
-  "apps/desktop/src-tauri/gen/android/app/src/main/assets/native"
+  "apps/client/src-tauri/gen/android/.gradle"
+  "apps/client/src-tauri/gen/android/.kotlin"
+  "apps/client/src-tauri/gen/android/.tauri"
+  "apps/client/src-tauri/gen/android/build"
+  "apps/client/src-tauri/gen/android/app/build"
+  "apps/client/src-tauri/gen/android/app/.cxx"
+  "apps/client/src-tauri/gen/android/app/.externalNativeBuild"
+  "apps/client/src-tauri/gen/android/app/src/main/jniLibs"
+  "apps/client/src-tauri/gen/android/app/src/main/assets/native"
 
   # Frontend & packaging Node outputs / dependencies
-  "apps/desktop/ui/dist"
-  "apps/desktop/ui/dist-ssr"
-  "apps/desktop/ui/.eslintcache"
-  "apps/desktop/ui/tsconfig.tsbuildinfo"
-  "apps/desktop/ui/tsconfig.app.tsbuildinfo"
-  "apps/desktop/ui/tsconfig.node.tsbuildinfo"
-  "apps/desktop/ui/tsconfig.test.tsbuildinfo"
-  "apps/desktop/ui/node_modules"
+  "apps/client/ui/packages/desktop/dist"
+  "apps/client/ui/packages/mobile/dist"
+  "apps/client/ui/packages/shared/node_modules"
+  "apps/client/ui/packages/desktop/node_modules"
+  "apps/client/ui/packages/mobile/node_modules"
+  "apps/client/ui/dist"
+  "apps/client/ui/dist-ssr"
+  "apps/client/ui/.eslintcache"
+  "apps/client/ui/tsconfig.tsbuildinfo"
+  "apps/client/ui/tsconfig.node.tsbuildinfo"
+  "apps/client/ui/tsconfig.test.tsbuildinfo"
+  "apps/client/ui/node_modules/.tmp"
+  "apps/client/ui/node_modules"
   "scripts/packaging/node_modules"
   "node_modules"
 

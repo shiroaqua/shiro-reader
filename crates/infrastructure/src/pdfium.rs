@@ -159,14 +159,14 @@ pub fn resolve_desktop_candidates(
     #[cfg(all(target_os = "windows", any(debug_assertions, test)))]
     {
         let staging = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../apps/desktop/src-tauri/staging/windows-x64/native/pdfium.dll");
+            .join("../../apps/client/src-tauri/staging/windows-x64/native/pdfium.dll");
         candidates.push(("dev_staging", staging));
     }
 
     #[cfg(all(target_os = "linux", any(debug_assertions, test)))]
     {
         let staging = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../apps/desktop/src-tauri/staging/linux-x64/native/libpdfium.so");
+            .join("../../apps/client/src-tauri/staging/linux-x64/native/libpdfium.so");
         candidates.push(("dev_staging", staging));
     }
 
