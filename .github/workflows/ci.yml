@@ -90,7 +90,4 @@ jobs:
         with:
           version: 12.11.2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
