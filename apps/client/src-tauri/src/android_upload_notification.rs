@@ -101,6 +101,7 @@ impl NotificationPlanner {
         Some(DesiredNotification::Completed { title, body })
     }
 
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn on_notification_tapped(&mut self, is_completed: bool) {
         if is_completed {
             self.completed_notification_active = false;
@@ -110,6 +111,7 @@ impl NotificationPlanner {
     }
 
     /// Returns `true` when retained terminal results should be cleared immediately.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub(crate) fn on_notification_dismissed(&mut self) -> bool {
         self.completed_notification_active = false;
         self.completed_notification_consumed = true;
