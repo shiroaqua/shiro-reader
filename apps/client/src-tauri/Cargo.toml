@@ -1,12 +1,12 @@
 [package]
-name = "shiro-reader-desktop"
+name = "shiro-reader-client"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description = "ShiroReader Tauri 2 client"
 
 [lib]
-name = "shiro_reader_desktop_lib"
+name = "shiro_reader_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

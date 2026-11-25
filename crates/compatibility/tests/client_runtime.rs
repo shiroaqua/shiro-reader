@@ -787,8 +787,8 @@ async fn theme_selection_applies_before_setup_and_persists_across_restart() {
     assert_eq!(runtime.bootstrap_state().theme, AppTheme::Default);
 
     // Before setup: applied in memory only, settings.json is not created yet.
-    let boot = runtime.set_theme(AppTheme::Mint).expect("set theme");
-    assert_eq!(boot.theme, AppTheme::Mint);
+    let boot = runtime.set_theme(AppTheme::Green).expect("set theme");
+    assert_eq!(boot.theme, AppTheme::Green);
     assert!(!config_dir.join("settings.json").exists());
 
     runtime
@@ -800,8 +800,8 @@ async fn theme_selection_applies_before_setup_and_persists_across_restart() {
         })
         .await
         .expect("complete setup");
-    let boot = runtime.set_theme(AppTheme::Peach).expect("set theme");
-    assert_eq!(boot.theme, AppTheme::Peach);
+    let boot = runtime.set_theme(AppTheme::Yellow).expect("set theme");
+    assert_eq!(boot.theme, AppTheme::Yellow);
     drop(runtime);
 
     let restarted = ClientRuntime::initialize(
@@ -812,5 +812,5 @@ async fn theme_selection_applies_before_setup_and_persists_across_restart() {
         sink,
     )
     .await;
-    assert_eq!(restarted.bootstrap_state().theme, AppTheme::Peach);
+    assert_eq!(restarted.bootstrap_state().theme, AppTheme::Yellow);
 }

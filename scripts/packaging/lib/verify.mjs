@@ -170,7 +170,7 @@ function findSingleExe(rootDir) {
 function verifyApkContents(apkPath, spec, { requireSignature = true } = {}) {
   const zip = openZip(apkPath)
   const pdfiumMember = "lib/arm64-v8a/libpdfium.so"
-  const rustMember = "lib/arm64-v8a/libshiro_reader_desktop_lib.so"
+  const rustMember = "lib/arm64-v8a/libshiro_reader_client_lib.so"
   const licenseMember = "assets/native/PDFIUM-LICENSE.txt"
   const pdfiumLicenseMember = "assets/native/licenses/pdfium.txt"
 
@@ -194,7 +194,7 @@ function verifyApkContents(apkPath, spec, { requireSignature = true } = {}) {
   fs.mkdirSync(tmpDir, { recursive: true })
   try {
     const outPdfium = path.join(tmpDir, "libpdfium.so")
-    const outRust = path.join(tmpDir, "libshiro_reader_desktop_lib.so")
+    const outRust = path.join(tmpDir, "libshiro_reader_client_lib.so")
     const outLicense = path.join(tmpDir, "PDFIUM-LICENSE.txt")
     zip.extractMember(pdfiumMember, outPdfium)
     zip.extractMember(rustMember, outRust)
@@ -257,7 +257,7 @@ function verifyAabArtifact(aabPath, spec) {
   const zip = openZip(aabPath)
   for (const required of [
     "base/lib/arm64-v8a/libpdfium.so",
-    "base/lib/arm64-v8a/libshiro_reader_desktop_lib.so",
+    "base/lib/arm64-v8a/libshiro_reader_client_lib.so",
     "base/assets/native/PDFIUM-LICENSE.txt",
     "base/assets/native/licenses/pdfium.txt",
   ]) {

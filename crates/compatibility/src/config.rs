@@ -31,12 +31,11 @@ pub enum LaunchMode {
 #[serde(rename_all = "lowercase")]
 pub enum AppTheme {
     #[default]
-    #[serde(alias = "lavender")]
     Default,
-    Sakura,
-    Mint,
-    Sky,
-    Peach,
+    Pink,
+    Green,
+    Blue,
+    Yellow,
 }
 
 /// Configurable log level for desktop clients (`settings.json`).
@@ -455,10 +454,6 @@ mod tests {
         assert_eq!(loaded.log_level, None);
         assert_eq!(loaded.theme, AppTheme::Default);
         assert_eq!(loaded.upload_concurrency, DEFAULT_UPLOAD_CONCURRENCY);
-        assert_eq!(
-            serde_json::from_str::<AppTheme>("\"lavender\"").unwrap(),
-            AppTheme::Default
-        );
 
         let desktop = PlatformCapabilities {
             can_pick_library_dir: true,

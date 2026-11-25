@@ -30,11 +30,11 @@ pub const UPLOAD_STATE_EVENT_NAME: &str = "shiro://upload-state";
 /// Tauri event name emitted when the user taps the Android upload notification.
 pub const UPLOAD_OPEN_UI_EVENT_NAME: &str = "shiro://upload-open-ui";
 
-pub struct DesktopAppState {
+pub struct ClientAppState {
     pub runtime: Arc<ClientRuntime>,
 }
 
-impl DesktopAppState {
+impl ClientAppState {
     pub fn new(runtime: Arc<ClientRuntime>) -> Self {
         Self { runtime }
     }
@@ -153,7 +153,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
         .register_asynchronous_uri_scheme_protocol("shiro-cover", |ctx, request, responder| {
-            let runtime = Arc::clone(&ctx.app_handle().state::<DesktopAppState>().runtime);
+            let runtime = Arc::clone(&ctx.app_handle().state::<ClientAppState>().runtime);
             let path = request.uri().path().to_owned();
             tauri::async_runtime::spawn(async move {
                 let response = cover::handle_cover_request(&runtime, &path).await;
@@ -208,7 +208,7 @@ pub fn run() {
                 Arc::downgrade(&runtime),
                 initial_locale,
             );
-            app.manage(DesktopAppState::new(runtime));
+            app.manage(ClientAppState::new(runtime));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -263,7 +263,7 @@ pub fn run() {
     app.run(|app_handle, event| {
         if let RunEvent::Exit = event {
             android_upload_notification::clear_immediately();
-            let state = app_handle.state::<DesktopAppState>();
+            let state = app_handle.state::<ClientAppState>();
             tauri::async_runtime::block_on(state.runtime.shutdown());
         }
     });
@@ -449,10 +449,10 @@ mod tests {
             build_client_env_filter(
                 &desktop_caps,
                 Some(ClientLogLevel::Warn),
-                Some("shiro_reader_desktop_lib=trace"),
+                Some("shiro_reader_client_lib=trace"),
             )
             .to_string(),
-            "shiro_reader_desktop_lib=trace"
+            "shiro_reader_client_lib=trace"
         );
         assert_eq!(
             build_client_env_filter(&desktop_caps, Some(ClientLogLevel::Error), Some("   "))

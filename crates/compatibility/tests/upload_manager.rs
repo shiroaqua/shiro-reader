@@ -527,7 +527,7 @@ async fn dynamic_concurrency_scaling_and_settings_persistence_survives_theme_upd
         .await;
 
     // Changing theme must NOT overwrite upload_concurrency in settings.json!
-    runtime.set_theme(AppTheme::Mint).unwrap();
+    runtime.set_theme(AppTheme::Green).unwrap();
     runtime.shutdown().await;
 
     // Reload runtime and verify upload_concurrency == 3 persisted cleanly.

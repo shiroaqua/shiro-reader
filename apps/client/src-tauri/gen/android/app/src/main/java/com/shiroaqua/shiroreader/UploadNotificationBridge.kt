@@ -9,7 +9,7 @@ object UploadNotificationBridge {
 
   init {
     try {
-      System.loadLibrary("shiro_reader_desktop_lib")
+      System.loadLibrary("shiro_reader_client_lib")
     } catch (_: UnsatisfiedLinkError) {
     }
   }

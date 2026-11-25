@@ -15,14 +15,14 @@ use tauri_plugin_fs::{FsExt, OpenOptions};
 use tokio::io::AsyncRead;
 use uuid::Uuid;
 
-use crate::{DesktopAppState, android_upload_notification};
+use crate::{ClientAppState, android_upload_notification};
 
 // -----------------------------------------------------------------------------
 // Lifecycle, Settings & Platform Commands
 // -----------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_bootstrap_state(app: AppHandle, state: State<'_, DesktopAppState>) -> BootstrapStateDto {
+pub fn get_bootstrap_state(app: AppHandle, state: State<'_, ClientAppState>) -> BootstrapStateDto {
     let snapshot = state.runtime.bootstrap_state();
     sync_android_status_bar(&app, snapshot.theme);
     snapshot
@@ -31,7 +31,7 @@ pub fn get_bootstrap_state(app: AppHandle, state: State<'_, DesktopAppState>) ->
 #[tauri::command]
 pub async fn complete_initial_setup(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     request: InitialSetupRequest,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.complete_initial_setup(request).await?;
@@ -46,7 +46,7 @@ pub async fn complete_initial_setup(
 #[tauri::command]
 pub async fn update_settings(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     request: UpdateSettingsRequest,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.update_settings(request).await?;
@@ -61,7 +61,7 @@ pub async fn update_settings(
 #[tauri::command]
 pub fn set_app_locale(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     locale: AppLocale,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.set_locale(locale)?;
@@ -76,7 +76,7 @@ pub fn set_app_locale(
 #[tauri::command]
 pub fn set_app_theme(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     theme: AppTheme,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     let snapshot = state.runtime.set_theme(theme)?;
@@ -94,10 +94,10 @@ fn sync_android_status_bar(app: &AppHandle, theme: AppTheme) {
     // Keep these values aligned with --theme-system-bar-color in index.css.
     let color = match theme {
         AppTheme::Default => "#fafafa",
-        AppTheme::Sakura => "#fff4fe",
-        AppTheme::Mint => "#effff2",
-        AppTheme::Sky => "#e8ffff",
-        AppTheme::Peach => "#fff8e9",
+        AppTheme::Pink => "#fff4fe",
+        AppTheme::Green => "#effff2",
+        AppTheme::Blue => "#e8ffff",
+        AppTheme::Yellow => "#fff8e9",
     }
     .to_owned();
 
@@ -147,7 +147,7 @@ fn sync_android_status_bar(_app: &AppHandle, _theme: AppTheme) {}
 #[tauri::command]
 pub async fn pick_library_dir(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<Option<String>, CommandErrorPayload> {
     if !state.runtime.capabilities().can_pick_library_dir {
         return Err(state
@@ -181,7 +181,7 @@ pub async fn pick_library_dir(
 
 #[tauri::command]
 pub async fn repair_local_library_root(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     path: String,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     state
@@ -192,7 +192,7 @@ pub async fn repair_local_library_root(
 
 #[tauri::command]
 pub async fn retry_startup(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     state.runtime.retry_startup().await
 }
@@ -271,7 +271,7 @@ fn perform_android_long_press_haptic(_app: &AppHandle) {}
 
 #[tauri::command]
 pub async fn cloud_check_origin(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     origin: String,
 ) -> Result<CloudOriginCheckResult, CommandErrorPayload> {
     Ok(state.runtime.check_cloud_origin(origin).await)
@@ -279,14 +279,14 @@ pub async fn cloud_check_origin(
 
 #[tauri::command]
 pub async fn cloud_probe(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     state.runtime.cloud_probe().await
 }
 
 #[tauri::command]
 pub async fn cloud_update_origin(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     origin: String,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     state.runtime.cloud_update_origin(origin).await
@@ -294,7 +294,7 @@ pub async fn cloud_update_origin(
 
 #[tauri::command]
 pub async fn cloud_login(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     username: String,
     password: String,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
@@ -303,7 +303,7 @@ pub async fn cloud_login(
 
 #[tauri::command]
 pub async fn cloud_logout(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<BootstrapStateDto, CommandErrorPayload> {
     state.runtime.cloud_logout().await
 }
@@ -314,14 +314,14 @@ pub async fn cloud_logout(
 
 #[tauri::command]
 pub async fn books_list(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<Vec<GetBookOutput>, CommandErrorPayload> {
     state.runtime.list_books().await
 }
 
 #[tauri::command]
 pub async fn book_rename(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     id: String,
     title: String,
 ) -> Result<(), CommandErrorPayload> {
@@ -330,7 +330,7 @@ pub async fn book_rename(
 
 #[tauri::command]
 pub async fn books_delete(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     ids: Vec<String>,
 ) -> Result<(), CommandErrorPayload> {
     state.runtime.delete_books(ids).await
@@ -338,14 +338,14 @@ pub async fn books_delete(
 
 #[tauri::command]
 pub async fn trash_list(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<Vec<TrashedBookOutput>, CommandErrorPayload> {
     state.runtime.list_trash().await
 }
 
 #[tauri::command]
 pub async fn trash_restore(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     ids: Vec<String>,
 ) -> Result<RestoreBooksResult, CommandErrorPayload> {
     state.runtime.restore_books(ids).await
@@ -353,7 +353,7 @@ pub async fn trash_restore(
 
 #[tauri::command]
 pub async fn trash_permanently_delete(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     ids: Vec<String>,
 ) -> Result<(), CommandErrorPayload> {
     state.runtime.permanently_delete_books(ids).await
@@ -365,7 +365,7 @@ pub async fn trash_permanently_delete(
 
 #[tauri::command]
 pub async fn epub_open(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     book_id: String,
 ) -> Result<OpenEpubResponseDto, CommandErrorPayload> {
     state.runtime.open_epub(book_id).await
@@ -373,7 +373,7 @@ pub async fn epub_open(
 
 #[tauri::command]
 pub async fn epub_read_entry(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     session_id: EpubSessionId,
     path: String,
 ) -> Result<tauri::ipc::Response, CommandErrorPayload> {
@@ -383,7 +383,7 @@ pub async fn epub_read_entry(
 
 #[tauri::command]
 pub async fn epub_close(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     session_id: EpubSessionId,
 ) -> Result<(), CommandErrorPayload> {
     state.runtime.close_epub(session_id).await
@@ -395,14 +395,14 @@ pub async fn epub_close(
 
 #[tauri::command]
 pub async fn tags_list(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<Vec<TagTreeNodeOutput>, CommandErrorPayload> {
     state.runtime.get_tag_tree().await
 }
 
 #[tauri::command]
 pub async fn tag_define(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     name: String,
     parent_id: Option<String>,
     color: String,
@@ -417,7 +417,7 @@ pub async fn tag_define(
 
 #[tauri::command]
 pub async fn tag_rename(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     id: String,
     name: String,
 ) -> Result<(), CommandErrorPayload> {
@@ -426,7 +426,7 @@ pub async fn tag_rename(
 
 #[tauri::command]
 pub async fn tag_recolor(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     id: String,
     color: String,
 ) -> Result<(), CommandErrorPayload> {
@@ -435,7 +435,7 @@ pub async fn tag_recolor(
 
 #[tauri::command]
 pub async fn tag_move(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     id: String,
     parent_id: Option<String>,
 ) -> Result<(), CommandErrorPayload> {
@@ -444,7 +444,7 @@ pub async fn tag_move(
 
 #[tauri::command]
 pub async fn tag_undefine(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     id: String,
     strategy: DeleteTagStrategyDto,
 ) -> Result<(), CommandErrorPayload> {
@@ -453,7 +453,7 @@ pub async fn tag_undefine(
 
 #[tauri::command]
 pub async fn book_tags_list(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     book_id: String,
 ) -> Result<Vec<BookTagOutput>, CommandErrorPayload> {
     state.runtime.get_book_tags(book_id).await
@@ -461,7 +461,7 @@ pub async fn book_tags_list(
 
 #[tauri::command]
 pub async fn book_tag_bind(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     book_id: String,
     tag_id: String,
     value: Option<String>,
@@ -471,7 +471,7 @@ pub async fn book_tag_bind(
 
 #[tauri::command]
 pub async fn book_tag_unbind(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     book_id: String,
     tag_id: String,
 ) -> Result<(), CommandErrorPayload> {
@@ -483,14 +483,14 @@ pub async fn book_tag_unbind(
 // -----------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn upload_get_state(state: State<'_, DesktopAppState>) -> UploadPanelSnapshotDto {
+pub fn upload_get_state(state: State<'_, ClientAppState>) -> UploadPanelSnapshotDto {
     state.runtime.upload_snapshot()
 }
 
 #[tauri::command]
 pub async fn upload_pick_and_enqueue(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     if !state.runtime.capabilities().can_import_books {
         return Err(state
@@ -537,7 +537,7 @@ pub async fn upload_pick_and_enqueue(
 
 #[tauri::command]
 pub async fn upload_enqueue_paths(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     paths: Vec<String>,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     let path_bufs = paths.into_iter().map(PathBuf::from).collect();
@@ -547,7 +547,7 @@ pub async fn upload_enqueue_paths(
 #[tauri::command]
 pub async fn upload_retry_task(
     app: AppHandle,
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     task_id: u64,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     android_upload_notification::ensure_permission(&app)
@@ -558,7 +558,7 @@ pub async fn upload_retry_task(
 
 #[tauri::command]
 pub async fn upload_cancel_task(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     task_id: u64,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     Ok(state.runtime.upload_cancel_task(task_id).await)
@@ -566,14 +566,14 @@ pub async fn upload_cancel_task(
 
 #[tauri::command]
 pub async fn upload_cancel_all(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     Ok(state.runtime.upload_cancel_all().await)
 }
 
 #[tauri::command]
 pub async fn upload_dismiss_task(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     task_id: u64,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     Ok(state.runtime.upload_dismiss_task(task_id).await)
@@ -581,14 +581,14 @@ pub async fn upload_dismiss_task(
 
 #[tauri::command]
 pub async fn upload_dismiss_errors(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     Ok(state.runtime.upload_dismiss_failed().await)
 }
 
 #[tauri::command]
 pub async fn upload_set_concurrency(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     concurrency: usize,
 ) -> Result<UploadPanelSnapshotDto, CommandErrorPayload> {
     state.runtime.set_upload_concurrency(concurrency).await
@@ -601,7 +601,7 @@ pub fn upload_consume_pending_open_ui() -> bool {
 
 #[tauri::command]
 pub async fn upload_set_mobile_ui_open(
-    state: State<'_, DesktopAppState>,
+    state: State<'_, ClientAppState>,
     open: bool,
 ) -> Result<(), CommandErrorPayload> {
     if android_upload_notification::set_mobile_ui_open(open) {

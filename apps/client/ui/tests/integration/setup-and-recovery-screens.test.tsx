@@ -65,7 +65,7 @@ describe("Setup and StartupError screens (desktop and mobile)", () => {
     it("switches the color theme through the Rust settings store", async () => {
       tauriTestHost.onInvoke("get_bootstrap_state", () => setupRequiredState())
       tauriTestHost.onInvoke("set_app_theme", (args) =>
-        setupRequiredState({ theme: args?.theme as "mint" })
+        setupRequiredState({ theme: args?.theme as "green" })
       )
 
       const { user } = renderWithProviders(<DesktopSetupScreen />, {
@@ -74,17 +74,17 @@ describe("Setup and StartupError screens (desktop and mobile)", () => {
 
       const defaultTheme = await screen.findByRole("radio", { name: "Gray" })
       await waitFor(() => {
-        expect(document.documentElement.dataset.theme).toBe("default")
+      expect(document.documentElement.dataset.theme).toBe("default")
       })
       expect(defaultTheme).toHaveAttribute("aria-checked", "true")
 
       await user.click(screen.getByRole("radio", { name: "Green" }))
 
       await waitFor(() => {
-        expect(document.documentElement.dataset.theme).toBe("mint")
+      expect(document.documentElement.dataset.theme).toBe("green")
       })
       expect(tauriTestHost.invokeCalls("set_app_theme")[0]!.args).toEqual({
-        theme: "mint",
+        theme: "green",
       })
       expect(screen.getByRole("radio", { name: "Green" })).toHaveAttribute(
         "aria-checked",
@@ -203,7 +203,7 @@ describe("Setup and StartupError screens (desktop and mobile)", () => {
       tauriTestHost.onInvoke("set_app_theme", (args) =>
         setupRequiredState({
           canPickLibraryDir: false,
-          theme: args?.theme as "mint",
+          theme: args?.theme as "green",
         })
       )
       tauriTestHost.onInvoke("cloud_check_origin", () => ({
@@ -220,7 +220,7 @@ describe("Setup and StartupError screens (desktop and mobile)", () => {
 
       await user.click(await screen.findByRole("radio", { name: "Green" }))
       await waitFor(() => {
-        expect(document.documentElement.dataset.theme).toBe("mint")
+        expect(document.documentElement.dataset.theme).toBe("green")
       })
 
       await user.click(screen.getByRole("button", { name: /Cloud Mode/ }))

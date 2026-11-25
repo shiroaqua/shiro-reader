@@ -46,25 +46,8 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/*
- * Multi-theme palette (OKLCH) with a neutral default theme.
- *
- * Each theme sets its hue and chroma scale. All shadcn tokens are derived below with
- * FIXED lightness steps, so all themes (and all hues inside one theme, e.g.
- * charts) share the same perceived lightness. Chroma steps stay inside the sRGB
- * gamut of every hue at that lightness.
- *
- *   --theme-hue            OKLCH hue angle of the theme
- *   --theme-chroma-strong  chroma of the deep "anchor" primary (L 0.46-0.54)
- *
- * Pastel primary fills use dark foreground text for strong contrast. Surface
- * foreground tokens retain the palette's fixed lightness contrast steps.
- *
- * Tokens are declared on `:root` AND on every `[data-theme]` element so a
- * nested element (e.g. a theme swatch) can preview another theme in place.
- */
 :root,
-[data-theme="sakura"] {
+[data-theme="pink"] {
     --theme-system-bar-color: #fff4fe;
     --mobile-nav-active: rgb(99, 65, 76);
     --mobile-nav-inactive: rgb(118, 98, 107);
@@ -91,7 +74,7 @@
     --theme-primary-foreground: oklch(0.24 calc(0.02 * var(--theme-chroma-scale)) var(--theme-hue));
 }
 
-[data-theme="mint"] {
+[data-theme="green"] {
     --theme-system-bar-color: #effff2;
     --mobile-nav-active: rgb(52, 89, 71);
     --mobile-nav-inactive: rgb(102, 128, 116);
@@ -100,7 +83,7 @@
     --theme-chroma-scale: 0.7;
 }
 
-[data-theme="sky"] {
+[data-theme="blue"] {
     --theme-system-bar-color: #e8ffff;
     --mobile-nav-active: rgb(49, 86, 97);
     --mobile-nav-inactive: rgb(101, 127, 135);
@@ -109,7 +92,7 @@
     --theme-chroma-scale: 0.7;
 }
 
-[data-theme="peach"] {
+[data-theme="yellow"] {
     --theme-system-bar-color: #fff8e9;
     --mobile-nav-active: rgb(92, 79, 46);
     --mobile-nav-inactive: rgb(126, 112, 75);
