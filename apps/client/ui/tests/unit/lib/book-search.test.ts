@@ -21,7 +21,7 @@ function createSampleLibrary() {
     id: "tag-author",
     name: "Author",
     color: "#75a9cc",
-    allows_value: true,
+    value_type: "text",
   })
   const sciFiTag = makeTagNode({
     id: "tag-scifi",
@@ -36,7 +36,7 @@ function createSampleLibrary() {
   const isbnTag = makeTagNode({
     id: "tag-isbn",
     name: "ISBN",
-    allows_value: true,
+    value_type: "text",
   })
   sciFiTag.children.push(spaceOperaTag)
 

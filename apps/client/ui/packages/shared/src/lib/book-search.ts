@@ -437,7 +437,7 @@ export function applySuggestion(
   let caretOffset: number | null = null
   if (suggestion.kind === "tag") {
     const hasValues =
-      suggestion.entry.tag.allows_value &&
+      suggestion.entry.tag.value_type !== "none" &&
       (index?.valuesByTag.get(suggestion.entry.tag.id)?.size ?? 0) > 0
     if (hasValues) {
       token = `#${suggestion.entry.tokenName}:""`

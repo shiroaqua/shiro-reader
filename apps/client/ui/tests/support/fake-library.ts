@@ -10,6 +10,7 @@ import type {
   Tag,
   TagDefinitionInput,
   TagTreeNode,
+  TagValueType,
   TrashedBook,
   UndefineTagStrategy,
 } from "@shiro/ui-shared/lib/types"
@@ -204,6 +205,7 @@ export class FakeLibrary implements LibraryBridge {
     const now = new Date().toISOString()
     const created: Tag = {
       ...definition,
+      value_regex: null,
       id: nextId("tag"),
       created_at: now,
       updated_at: now,
@@ -422,8 +424,7 @@ export class FakeLibrary implements LibraryBridge {
           name: String(args?.name),
           parent_id: (args?.parentId as string | null | undefined) ?? null,
           color: String(args?.color),
-          allows_value: Boolean(args?.allowsValue),
-          value_regex: (args?.valueRegex as string | null | undefined) ?? null,
+          value_type: (args?.valueType as TagValueType | undefined) ?? "none",
         }),
       tag_rename: (args) =>
         this.tagRename(String(args?.id), String(args?.name)),

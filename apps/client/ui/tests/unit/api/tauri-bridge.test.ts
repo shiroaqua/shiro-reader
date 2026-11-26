@@ -85,8 +85,10 @@ describe("tauri-bridge", () => {
         name: "Author",
         parent_id: "root",
         color: "#000000",
-        allows_value: true,
-        value_regex: ".+",
+        value_type: "text",
+        value_regex: "[A-Z]+",
+        created_at: "2026-01-15T10:00:00.000Z",
+        updated_at: "2026-01-15T10:00:00.000Z",
       }))
       tauriTestHost.onInvoke("book_tag_bind", () => undefined)
 
@@ -94,8 +96,7 @@ describe("tauri-bridge", () => {
         name: "Author",
         parent_id: "root",
         color: "#000000",
-        allows_value: true,
-        value_regex: ".+",
+        value_type: "text",
       })
       await tauriBridge.bookTagBind("b1", { tag_id: "t1", value: "Alice" })
 
@@ -103,8 +104,7 @@ describe("tauri-bridge", () => {
         name: "Author",
         parentId: "root",
         color: "#000000",
-        allowsValue: true,
-        valueRegex: ".+",
+        valueType: "text",
       })
       expect(tauriTestHost.invokeCalls("book_tag_bind")[0]!.args).toEqual({
         bookId: "b1",

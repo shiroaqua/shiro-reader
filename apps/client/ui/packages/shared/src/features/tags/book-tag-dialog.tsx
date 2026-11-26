@@ -586,7 +586,7 @@ function BindTreeRow({
           onSelect={(color) => onRecolor(node, color)}
         />
       </div>
-      {checked && node.allows_value && (
+      {checked && node.value_type !== "none" && (
         <TagValueInput
           tag={node}
           value={value}

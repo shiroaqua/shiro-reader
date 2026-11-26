@@ -14,18 +14,32 @@ export interface TrashedBook extends Book {
   deleted_at: string;
 }
 
+export type TagValueType =
+  | "none"
+  | "number"
+  | "text"
+  | "date"
+  | "language"
+  | "issn_isbn"
+  | "clc"
+  | "ddc"
+  | "lcc";
+
 export interface Tag {
   id: UUID;
   name: string;
   parent_id: UUID | null;
   color: string;
-  allows_value: boolean;
+  value_type: TagValueType;
   value_regex: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export type TagDefinitionInput = Omit<Tag, "id" | "created_at" | "updated_at">;
+export type TagDefinitionInput = Omit<
+  Tag,
+  "id" | "value_regex" | "created_at" | "updated_at"
+>;
 
 export interface TagTreeNode extends Tag {
   children: TagTreeNode[];

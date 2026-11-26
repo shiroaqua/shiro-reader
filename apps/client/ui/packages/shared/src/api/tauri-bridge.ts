@@ -285,8 +285,7 @@ export const tauriBridge = {
       name: definition.name,
       parentId: definition.parent_id,
       color: definition.color,
-      allowsValue: definition.allows_value,
-      valueRegex: definition.value_regex,
+      valueType: definition.value_type,
     }),
   tagRename: (id: string, name: string) =>
     invokeTauri<void>("tag_rename", { id, name }),

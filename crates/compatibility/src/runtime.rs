@@ -20,7 +20,7 @@ use shiro_application::library::{
             BindBookTagCommand, ChangeTagColorCommand, CreateTagDefinitionCommand, MoveTagCommand,
             RenameTagCommand, UnbindBookTagCommand, UndefineTagCommand,
         },
-        dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
+        dto::BookTagOutput,
     },
 };
 use shiro_domain::library::book::file::entity::BookFileType;
@@ -42,7 +42,8 @@ use crate::{
     dto::{
         BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
         InitialSetupRequest, RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic,
-        StartupPhase, UpdateSettingsRequest, UploadPanelSnapshotDto,
+        StartupPhase, TagDefinitionDto, TagTreeNodeDto, UpdateSettingsRequest,
+        UploadPanelSnapshotDto,
     },
     epub_reader::{
         EpubSessionId, OpenEpubResponseDto, byte_source::BookByteSource,
@@ -50,6 +51,7 @@ use crate::{
     },
     error_sink::{ErrorDispatcher, ErrorSink},
     local_import::{ImportProgressCallback, ImportTarget, import_reader_into_local},
+    tag_value::TagValueType,
     upload_manager::{
         EnqueueUploadItem, StdFsSourceOpener, UploadManager, UploadSourceOpener,
     },
@@ -1770,17 +1772,18 @@ impl ClientRuntime {
     // Unified Tag Tree & Book-Tag Binding Operations (Local & Cloud)
     // -------------------------------------------------------------------------
 
-    pub async fn get_tag_tree(&self) -> Result<Vec<TagTreeNodeOutput>, CommandErrorPayload> {
-        match self.require_ready_backend()? {
+    pub async fn get_tag_tree(&self) -> Result<Vec<TagTreeNodeDto>, CommandErrorPayload> {
+        let nodes = match self.require_ready_backend()? {
             LibraryBackend::Local(lib) => lib.tag_service().get_tree().await.map_err(|err| {
                 self.error_dispatcher
                     .dispatch_operation(ErrorCode::from(&err))
-            }),
+            })?,
             LibraryBackend::Cloud(cloud) => cloud
                 .get_tag_tree()
                 .await
-                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
-        }
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code))?,
+        };
+        Ok(nodes.into_iter().map(TagTreeNodeDto::from).collect())
     }
 
     pub async fn define_tag(
@@ -1788,10 +1791,10 @@ impl ClientRuntime {
         name: String,
         parent_id: Option<String>,
         color: String,
-        allows_value: bool,
-        value_regex: Option<String>,
-    ) -> Result<TagDefinitionOutput, CommandErrorPayload> {
-        match self.require_ready_backend()? {
+        value_type: TagValueType,
+    ) -> Result<TagDefinitionDto, CommandErrorPayload> {
+        let (allows_value, value_regex) = value_type.to_value_rule();
+        let output = match self.require_ready_backend()? {
             LibraryBackend::Local(lib) => lib
                 .tag_service()
                 .define_tag(CreateTagDefinitionCommand {
@@ -1805,12 +1808,13 @@ impl ClientRuntime {
                 .map_err(|err| {
                     self.error_dispatcher
                         .dispatch_operation(ErrorCode::from(&err))
-                }),
+                })?,
             LibraryBackend::Cloud(cloud) => cloud
                 .define_tag(name, parent_id, color, allows_value, value_regex)
                 .await
-                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
-        }
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code))?,
+        };
+        Ok(TagDefinitionDto::from(output))
     }
 
     pub async fn rename_tag(&self, id: String, name: String) -> Result<(), CommandErrorPayload> {

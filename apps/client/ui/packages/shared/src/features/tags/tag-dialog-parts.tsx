@@ -32,7 +32,6 @@ import { filterTagTree } from "@shiro/ui-shared/lib/tag-filter"
 import {
   VALUE_TYPES,
   isValidTagName,
-  toValueRule,
   valueTypeLabelKey,
   type ValueType,
 } from "@shiro/ui-shared/lib/tag-value-patterns"
@@ -355,7 +354,7 @@ export function CreateTagDialog({
         name: trimmedName,
         parent_id: parentId,
         color,
-        ...toValueRule(valueType),
+        value_type: valueType,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: tagsQueryKey })
@@ -371,7 +370,7 @@ export function CreateTagDialog({
       name: trimmedName,
       parent_id: parentId,
       color,
-      ...toValueRule(valueType),
+      value_type: valueType,
     }
     if (onStage) {
       onStage(definition)

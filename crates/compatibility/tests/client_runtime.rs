@@ -8,7 +8,7 @@ use std::{
 use futures_util::TryStreamExt;
 use shiro_compatibility::{
     AppTheme, ClientRuntime, DeleteTagStrategyDto, ErrorSink, InitialSetupRequest, LaunchMode,
-    PlatformCapabilities, StartupPhase, UpdateSettingsRequest,
+    PlatformCapabilities, StartupPhase, TagValueType, UpdateSettingsRequest,
 };
 use shiro_error_catalog::{AppLocale, ErrorCode, ErrorEventPayload};
 use tokio_util::sync::CancellationToken;
@@ -498,19 +498,37 @@ async fn bookshelf_trash_tags_streaming_import_cancellation_and_error_id_pairing
 
     // 4. Tags CRUD & book binding.
     let root_tag = runtime
-        .define_tag("Science".into(), None, "#336699".into(), false, None)
+        .define_tag("Science".into(), None, "#336699".into(), TagValueType::None)
         .await
         .expect("define root tag");
+    assert_eq!(root_tag.value_type, TagValueType::None);
+    assert_eq!(root_tag.value_regex, None);
+
     let child_tag = runtime
         .define_tag(
             "Physics".into(),
             Some(root_tag.id.clone()),
             "#224466".into(),
-            true,
-            Some("^[0-9]+$".into()),
+            TagValueType::Number,
         )
         .await
         .expect("define child tag");
+    assert_eq!(child_tag.value_type, TagValueType::Number);
+    assert_eq!(
+        child_tag.value_regex.as_deref(),
+        TagValueType::Number.default_regex()
+    );
+
+    let invalid_bind = runtime
+        .bind_book_tag(
+            book1.id.clone(),
+            child_tag.id.clone(),
+            Some("not-a-number".into()),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(invalid_bind.code, ErrorCode::TagValueRegexMismatch.code());
+
     runtime
         .bind_book_tag(book1.id.clone(), child_tag.id.clone(), Some("101".into()))
         .await
@@ -813,4 +831,137 @@ async fn theme_selection_applies_before_setup_and_persists_across_restart() {
     )
     .await;
     assert_eq!(restarted.bootstrap_state().theme, AppTheme::Yellow);
+}
+
+#[tokio::test]
+async fn custom_regex_tags_resolve_to_text_while_preserving_regex_validation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    let lib_root = tmp.path().join("library");
+
+    let (custom_tag_id, date_tag_id, plain_text_tag_id, none_tag_id) = {
+        let local = shiro_infrastructure::library_runtime::LocalLibrary::open(&lib_root, None)
+            .await
+            .expect("open local library");
+
+        let custom_tag = local
+            .tag_service()
+            .define_tag(
+                shiro_application::library::tag::commands::CreateTagDefinitionCommand {
+                    name: "Code".into(),
+                    parent_id: None,
+                    color: "#336699".into(),
+                    allows_value: true,
+                    value_regex: Some("[A-Z]{3}".into()),
+                },
+            )
+            .await
+            .expect("define custom regex tag");
+
+        let date_tag = local
+            .tag_service()
+            .define_tag(
+                shiro_application::library::tag::commands::CreateTagDefinitionCommand {
+                    name: "Published".into(),
+                    parent_id: None,
+                    color: "#336699".into(),
+                    allows_value: true,
+                    value_regex: TagValueType::Date.default_regex().map(str::to_owned),
+                },
+            )
+            .await
+            .expect("define preset date tag");
+
+        let plain_text_tag = local
+            .tag_service()
+            .define_tag(
+                shiro_application::library::tag::commands::CreateTagDefinitionCommand {
+                    name: "Note".into(),
+                    parent_id: None,
+                    color: "#336699".into(),
+                    allows_value: true,
+                    value_regex: None,
+                },
+            )
+            .await
+            .expect("define plain text tag");
+
+        let none_tag = local
+            .tag_service()
+            .define_tag(
+                shiro_application::library::tag::commands::CreateTagDefinitionCommand {
+                    name: "Favorite".into(),
+                    parent_id: None,
+                    color: "#336699".into(),
+                    allows_value: false,
+                    value_regex: None,
+                },
+            )
+            .await
+            .expect("define none tag");
+
+        (custom_tag.id, date_tag.id, plain_text_tag.id, none_tag.id)
+    };
+
+    let runtime = ClientRuntime::initialize(
+        &config_dir,
+        desktop_caps(lib_root.clone()),
+        AppLocale::En,
+        None,
+        Arc::new(RecordingSink::default()),
+    )
+    .await;
+    runtime
+        .complete_initial_setup(InitialSetupRequest {
+            mode: LaunchMode::Local,
+            locale: AppLocale::En,
+            local_library_root: Some(lib_root.display().to_string()),
+            cloud_origin: None,
+        })
+        .await
+        .expect("complete setup");
+
+    let pdf_bytes = fs::read(workspace_root().join("scripts/packaging/fixtures/smoke_pattern.pdf"))
+        .expect("smoke_pattern.pdf");
+    let book = runtime
+        .import_stream(
+            "op-custom-regex",
+            "CustomTag.pdf",
+            Cursor::new(pdf_bytes),
+            None,
+            None,
+        )
+        .await
+        .expect("import pdf");
+
+    let tree = runtime.get_tag_tree().await.expect("get tag tree");
+    let custom = tree.iter().find(|n| n.tag.id == custom_tag_id).unwrap();
+    assert_eq!(custom.tag.value_type, TagValueType::Text);
+    assert_eq!(custom.tag.value_regex.as_deref(), Some("[A-Z]{3}"));
+
+    let date = tree.iter().find(|n| n.tag.id == date_tag_id).unwrap();
+    assert_eq!(date.tag.value_type, TagValueType::Date);
+    assert_eq!(
+        date.tag.value_regex.as_deref(),
+        Some("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    );
+
+    let plain = tree.iter().find(|n| n.tag.id == plain_text_tag_id).unwrap();
+    assert_eq!(plain.tag.value_type, TagValueType::Text);
+    assert_eq!(plain.tag.value_regex, None);
+
+    let none = tree.iter().find(|n| n.tag.id == none_tag_id).unwrap();
+    assert_eq!(none.tag.value_type, TagValueType::None);
+    assert_eq!(none.tag.value_regex, None);
+
+    let invalid = runtime
+        .bind_book_tag(book.id.clone(), custom_tag_id.clone(), Some("ab".into()))
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code, ErrorCode::TagValueRegexMismatch.code());
+
+    runtime
+        .bind_book_tag(book.id.clone(), custom_tag_id, Some("ABC".into()))
+        .await
+        .expect("custom regex matching value should succeed");
 }

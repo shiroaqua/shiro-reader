@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
+use shiro_application::library::tag::dto::{TagDefinitionOutput, TagTreeNodeOutput};
 use shiro_domain::library::tag::value_objects::TagDeleteStrategy;
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorEventPayload};
 
 use crate::{
     config::{AppTheme, LaunchMode},
     credentials::CloudUserInfo,
+    tag_value::TagValueType,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +180,59 @@ pub struct UpdateSettingsRequest {
     pub cloud_origin: Option<String>,
 }
 
+/// Client-facing tag definition carrying a resolved [`TagValueType`] and optional regex.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagDefinitionDto {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub color: String,
+    pub value_type: TagValueType,
+    pub value_regex: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<TagDefinitionOutput> for TagDefinitionDto {
+    fn from(output: TagDefinitionOutput) -> Self {
+        let normalized_regex = output.value_regex.filter(|pattern| !pattern.is_empty());
+        let value_type =
+            TagValueType::from_value_rule(output.allows_value, normalized_regex.as_deref());
+        let value_regex = if output.allows_value {
+            normalized_regex
+        } else {
+            None
+        };
+        Self {
+            id: output.id,
+            name: output.name,
+            parent_id: output.parent_id,
+            color: output.color,
+            value_type,
+            value_regex,
+            created_at: output.created_at,
+            updated_at: output.updated_at,
+        }
+    }
+}
+
+/// Client-facing tag tree node wrapping [`TagDefinitionDto`] and recursive children.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagTreeNodeDto {
+    #[serde(flatten)]
+    pub tag: TagDefinitionDto,
+    pub children: Vec<TagTreeNodeDto>,
+}
+
+impl From<TagTreeNodeOutput> for TagTreeNodeDto {
+    fn from(node: TagTreeNodeOutput) -> Self {
+        Self {
+            tag: node.tag.into(),
+            children: node.children.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +277,93 @@ mod tests {
         assert_eq!(value["tasks"][0]["status"]["totalBytes"], 2048);
         assert_eq!(value["tasks"][0]["status"]["speedBytesPerSec"], 512);
         assert_eq!(value["tasks"][0]["status"]["etaSeconds"], 2);
+    }
+
+    #[test]
+    fn tag_definition_dto_maps_custom_regex_to_text_and_preserves_regex() {
+        let custom = TagDefinitionOutput {
+            id: "tag-1".to_owned(),
+            name: "Code".to_owned(),
+            parent_id: None,
+            color: "#336699".to_owned(),
+            allows_value: true,
+            value_regex: Some("[A-Z]{3}".to_owned()),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        let dto = TagDefinitionDto::from(custom);
+        assert_eq!(dto.value_type, TagValueType::Text);
+        assert_eq!(dto.value_regex.as_deref(), Some("[A-Z]{3}"));
+
+        let empty_regex = TagDefinitionOutput {
+            id: "tag-2".to_owned(),
+            name: "Note".to_owned(),
+            parent_id: None,
+            color: "#336699".to_owned(),
+            allows_value: true,
+            value_regex: Some(String::new()),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        let empty_dto = TagDefinitionDto::from(empty_regex);
+        assert_eq!(empty_dto.value_type, TagValueType::Text);
+        assert_eq!(empty_dto.value_regex, None);
+
+        let disabled = TagDefinitionOutput {
+            id: "tag-3".to_owned(),
+            name: "Flag".to_owned(),
+            parent_id: None,
+            color: "#336699".to_owned(),
+            allows_value: false,
+            value_regex: Some("[A-Z]+".to_owned()),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        let disabled_dto = TagDefinitionDto::from(disabled);
+        assert_eq!(disabled_dto.value_type, TagValueType::None);
+        assert_eq!(disabled_dto.value_regex, None);
+    }
+
+    #[test]
+    fn tag_tree_node_dto_flattens_fields_and_converts_children() {
+        let node = TagTreeNodeOutput {
+            tag: TagDefinitionOutput {
+                id: "root".to_owned(),
+                name: "Root".to_owned(),
+                parent_id: None,
+                color: "#112233".to_owned(),
+                allows_value: true,
+                value_regex: TagValueType::Date.default_regex().map(str::to_owned),
+                created_at: "2026-01-01T00:00:00Z".to_owned(),
+                updated_at: "2026-01-01T00:00:00Z".to_owned(),
+            },
+            children: vec![TagTreeNodeOutput {
+                tag: TagDefinitionOutput {
+                    id: "child".to_owned(),
+                    name: "Child".to_owned(),
+                    parent_id: Some("root".to_owned()),
+                    color: "#445566".to_owned(),
+                    allows_value: true,
+                    value_regex: Some("^[0-9]{4}$".to_owned()),
+                    created_at: "2026-01-01T00:00:00Z".to_owned(),
+                    updated_at: "2026-01-01T00:00:00Z".to_owned(),
+                },
+                children: vec![],
+            }],
+        };
+
+        let dto = TagTreeNodeDto::from(node);
+        let value = serde_json::to_value(&dto).unwrap();
+        assert_eq!(value["id"], "root");
+        assert_eq!(value["value_type"], "date");
+        assert_eq!(
+            value["value_regex"],
+            TagValueType::Date.default_regex().unwrap()
+        );
+        assert!(value.get("allows_value").is_none());
+        assert_eq!(value["children"][0]["id"], "child");
+        assert_eq!(value["children"][0]["parent_id"], "root");
+        assert_eq!(value["children"][0]["value_type"], "text");
+        assert_eq!(value["children"][0]["value_regex"], "^[0-9]{4}$");
     }
 }

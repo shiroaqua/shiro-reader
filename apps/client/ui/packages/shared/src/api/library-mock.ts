@@ -286,6 +286,7 @@ const previewLibrary: LibraryBridge = {
     const now = new Date().toISOString()
     const tag = {
       ...definition,
+      value_regex: null,
       id: crypto.randomUUID(),
       created_at: now,
       updated_at: now,

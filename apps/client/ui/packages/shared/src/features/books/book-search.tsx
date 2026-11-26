@@ -884,7 +884,7 @@ function SuggestionRow({
           <span className="truncate" style={{ color: accent }}>
             <Highlight text={item.entry.displayName} keyword={keyword} />
           </span>
-          {item.entry.tag.allows_value && (
+          {item.entry.tag.value_type !== "none" && (
             <span className="shrink-0 rounded-[4px] border px-1 py-px text-[10px] leading-none font-normal text-muted-foreground">
               {t("local.search.valued")}
             </span>

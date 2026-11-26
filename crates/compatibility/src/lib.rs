@@ -6,6 +6,7 @@ pub mod epub_reader;
 pub mod error_sink;
 pub mod local_import;
 pub mod runtime;
+pub mod tag_value;
 pub mod upload_manager;
 
 pub use cloud_client::{
@@ -24,8 +25,8 @@ pub use credentials::{
 pub use dto::{
     BootstrapStateDto, CloudOriginCheckResult, CloudStatusDto, DeleteTagStrategyDto,
     InitialSetupRequest, RestoreBooksItemResult, RestoreBooksResult, StartupDiagnostic,
-    StartupPhase, UpdateSettingsRequest, UploadActiveStage, UploadPanelSnapshotDto,
-    UploadSessionStatsDto, UploadTaskDto, UploadTaskStatusDto,
+    StartupPhase, TagDefinitionDto, TagTreeNodeDto, UpdateSettingsRequest, UploadActiveStage,
+    UploadPanelSnapshotDto, UploadSessionStatsDto, UploadTaskDto, UploadTaskStatusDto,
 };
 pub use epub_reader::{EpubSessionId, OpenEpubResponseDto};
 pub use error_sink::{ErrorDispatcher, ErrorSink, NoopErrorSink};
@@ -35,8 +36,9 @@ pub use local_import::{
 pub use runtime::ClientRuntime;
 pub use shiro_application::library::{
     book::dto::{CreateBookOutput, GetBookOutput, TrashedBookOutput},
-    tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
+    tag::dto::BookTagOutput,
 };
+pub use tag_value::TagValueType;
 pub use upload_manager::{
     BoxedUploadReader, EnqueueUploadItem, ExpandedUploadPaths, OpenUploadSourceFuture,
     StdFsSourceOpener, UploadManager, UploadSourceLocator, UploadSourceOpener,

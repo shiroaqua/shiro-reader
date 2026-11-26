@@ -1,21 +1,12 @@
 import type { LocalTranslationKey } from "@shiro/ui-shared/lib/i18n"
-import type { Tag } from "@shiro/ui-shared/lib/types"
+import type { Tag, TagValueType } from "@shiro/ui-shared/lib/types"
 
 /**
- * The server only knows "allows a value" plus an optional regex, so value types
- * are a frontend convention: every type owns a fixed regex, and a tag is mapped
- * back to its type by comparing its stored regex with these.
+ * Rust owns the mapping between `value_type` and `(allows_value, value_regex)`
+ * and provides concrete `value_type` + `value_regex` to TypeScript so input
+ * validation stays synchronous without extra IPC calls.
  */
-export type ValueType =
-  | "none"
-  | "number"
-  | "text"
-  | "date"
-  | "language"
-  | "issn_isbn"
-  | "clc"
-  | "ddc"
-  | "lcc"
+export type ValueType = TagValueType
 
 /**
  * ISO 639-1 language codes with a hardcoded display name per code. Priority
@@ -210,16 +201,7 @@ export const LANGUAGE_OPTIONS = [
   { code: "zu", label: "isiZulu" },
 ] as const
 
-const LANGUAGE_CODES = LANGUAGE_OPTIONS.map(({ code }) => code)
-const LANGUAGE_CODE_SET: ReadonlySet<string> = new Set(LANGUAGE_CODES)
-const LANGUAGE_REGEX = `^(?:${LANGUAGE_CODES.join("|")})$`
-const ISSN_ISBN_REGEX =
-  "^(?:97[89](-?[0-9]){10}|([0-9]-?){9}[0-9Xx]|[0-9]{4}-?[0-9]{3}[0-9Xx])$"
-const CLC_REGEX = "^[A-Z][A-Z0-9]*([.][A-Z0-9]+)*$"
-const DDC_REGEX = "^[0-9]{3}([.][0-9]+)*$"
-const LCC_REGEX = "^[A-Z]{1,3}[0-9]{0,4}([.][A-Z0-9]+)*$"
-
-type ValueRule = Pick<Tag, "allows_value" | "value_regex">
+type ValueRule = Pick<Tag, "value_type" | "value_regex">
 
 /** Order of the options in the value type select. */
 export const VALUE_TYPES: readonly ValueType[] = [
@@ -234,69 +216,20 @@ export const VALUE_TYPES: readonly ValueType[] = [
   "lcc",
 ]
 
-const VALUE_TYPE_SPECS: Record<
-  ValueType,
-  {
-    labelKey: LocalTranslationKey
-    /** `null` accepts any value. */
-    regex: string | null
-  }
-> = {
-  none: { labelKey: "local.tag.value_type.none", regex: null },
-  number: {
-    labelKey: "local.tag.value_type.number",
-    regex: "^-?[0-9]+([.][0-9]+)?$",
-  },
-  text: { labelKey: "local.tag.value_type.text", regex: null },
-  date: {
-    labelKey: "local.tag.value_type.date",
-    regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-  },
-  language: {
-    labelKey: "local.tag.value_type.language",
-    regex: LANGUAGE_REGEX,
-  },
-  issn_isbn: {
-    labelKey: "local.tag.value_type.issn_isbn",
-    regex: ISSN_ISBN_REGEX,
-  },
-  clc: {
-    labelKey: "local.tag.value_type.clc",
-    regex: CLC_REGEX,
-  },
-  ddc: {
-    labelKey: "local.tag.value_type.ddc",
-    regex: DDC_REGEX,
-  },
-  lcc: {
-    labelKey: "local.tag.value_type.lcc",
-    regex: LCC_REGEX,
-  },
+const VALUE_TYPE_LABEL_KEYS: Record<ValueType, LocalTranslationKey> = {
+  none: "local.tag.value_type.none",
+  number: "local.tag.value_type.number",
+  text: "local.tag.value_type.text",
+  date: "local.tag.value_type.date",
+  language: "local.tag.value_type.language",
+  issn_isbn: "local.tag.value_type.issn_isbn",
+  clc: "local.tag.value_type.clc",
+  ddc: "local.tag.value_type.ddc",
+  lcc: "local.tag.value_type.lcc",
 }
 
 export function valueTypeLabelKey(type: ValueType): LocalTranslationKey {
-  return VALUE_TYPE_SPECS[type].labelKey
-}
-
-/** The fields the server stores for a tag of the given value type. */
-export function toValueRule(type: ValueType): ValueRule {
-  return {
-    allows_value: type !== "none",
-    value_regex: VALUE_TYPE_SPECS[type].regex,
-  }
-}
-
-/** The value type of a stored tag; an unrecognised regex is treated as text. */
-export function getValueType(rule: ValueRule): ValueType {
-  if (!rule.allows_value) return "none"
-  if (rule.value_regex === VALUE_TYPE_SPECS.number.regex) return "number"
-  if (rule.value_regex === VALUE_TYPE_SPECS.date.regex) return "date"
-  if (rule.value_regex === VALUE_TYPE_SPECS.language.regex) return "language"
-  if (rule.value_regex === VALUE_TYPE_SPECS.issn_isbn.regex) return "issn_isbn"
-  if (rule.value_regex === VALUE_TYPE_SPECS.clc.regex) return "clc"
-  if (rule.value_regex === VALUE_TYPE_SPECS.ddc.regex) return "ddc"
-  if (rule.value_regex === VALUE_TYPE_SPECS.lcc.regex) return "lcc"
-  return "text"
+  return VALUE_TYPE_LABEL_KEYS[type]
 }
 
 const TAG_NAME_PATTERN = /^[\p{L}\p{N}.]+$/u
@@ -306,23 +239,19 @@ export function isValidTagName(name: string): boolean {
   return TAG_NAME_PATTERN.test(name)
 }
 
-/** Client-side check; the server still validates the regex on its own. */
+/** Real-time client check using the value_type and value_regex provided by Rust. */
 export function isValueValid(rule: ValueRule, value: string): boolean {
-  const type = getValueType(rule)
-  if (type === "none") return value === ""
+  if (rule.value_type === "none") return value === ""
   if (value === "") return false
-  const { regex } = VALUE_TYPE_SPECS[type]
-  if (regex !== null && !new RegExp(regex).test(value)) return false
-  if (type === "text" && rule.value_regex) {
+  if (rule.value_regex !== null && rule.value_regex !== "") {
     try {
       if (!new RegExp(`^(?:${rule.value_regex})$`).test(value)) return false
     } catch {
-      // Regex features unsupported in JS RegExp fall back to server-side validation.
+      // Regex features unsupported in JS RegExp fall back to Rust/server validation.
     }
   }
-  if (type === "date") return isCalendarDate(value)
-  if (type === "language") return LANGUAGE_CODE_SET.has(value)
-  return type !== "issn_isbn" || isValidIssnIsbn(value)
+  if (rule.value_type === "date") return isCalendarDate(value)
+  return rule.value_type !== "issn_isbn" || isValidIssnIsbn(value)
 }
 
 function isValidIssnIsbn(value: string): boolean {

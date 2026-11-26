@@ -2,7 +2,6 @@ import { Input } from "@shiro/ui-shared/components/ui/input"
 import { NativeSelect } from "@shiro/ui-shared/components/ui/native-select"
 import { useTranslation } from "@shiro/ui-shared/lib/i18n"
 import {
-  getValueType,
   isValueValid,
   LANGUAGE_OPTIONS,
 } from "@shiro/ui-shared/lib/tag-value-patterns"
@@ -16,13 +15,13 @@ export function TagValueInput({
   disabled,
   onChange,
 }: {
-  tag: Pick<Tag, "allows_value" | "value_regex">
+  tag: Pick<Tag, "value_type" | "value_regex">
   value: string
   disabled: boolean
   onChange: (value: string) => void
 }) {
   const { t } = useTranslation()
-  const valueType = getValueType(tag)
+  const valueType = tag.value_type
   const isDate = valueType === "date"
 
   if (valueType === "language") {

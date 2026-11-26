@@ -27,8 +27,7 @@ function draft(
     name,
     parent_id: parentId,
     color: "#75a9cc",
-    allows_value: false,
-    value_regex: null,
+    value_type: "none",
   }
 }
 

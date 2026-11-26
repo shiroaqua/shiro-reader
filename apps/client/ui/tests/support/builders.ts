@@ -53,7 +53,7 @@ export function makeTag(overrides: Partial<Tag> = {}): Tag {
     name: `tag_${id}`,
     parent_id: null,
     color: "#75a9cc",
-    allows_value: false,
+    value_type: "none",
     value_regex: null,
     created_at: overrides.created_at ?? timestamp,
     updated_at: timestamp,

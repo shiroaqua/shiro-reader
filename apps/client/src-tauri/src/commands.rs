@@ -3,7 +3,7 @@ use std::{io, path::PathBuf};
 use shiro_compatibility::{
     AppTheme, BookTagOutput, BootstrapStateDto, CloudOriginCheckResult, DeleteTagStrategyDto,
     EnqueueUploadItem, EpubSessionId, GetBookOutput, InitialSetupRequest, OpenEpubResponseDto,
-    RestoreBooksResult, TagDefinitionOutput, TagTreeNodeOutput, TrashedBookOutput,
+    RestoreBooksResult, TagDefinitionDto, TagTreeNodeDto, TagValueType, TrashedBookOutput,
     UpdateSettingsRequest, UploadPanelSnapshotDto, UploadSourceLocator,
 };
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode};
@@ -396,7 +396,7 @@ pub async fn epub_close(
 #[tauri::command]
 pub async fn tags_list(
     state: State<'_, ClientAppState>,
-) -> Result<Vec<TagTreeNodeOutput>, CommandErrorPayload> {
+) -> Result<Vec<TagTreeNodeDto>, CommandErrorPayload> {
     state.runtime.get_tag_tree().await
 }
 
@@ -406,12 +406,11 @@ pub async fn tag_define(
     name: String,
     parent_id: Option<String>,
     color: String,
-    allows_value: bool,
-    value_regex: Option<String>,
-) -> Result<TagDefinitionOutput, CommandErrorPayload> {
+    value_type: TagValueType,
+) -> Result<TagDefinitionDto, CommandErrorPayload> {
     state
         .runtime
-        .define_tag(name, parent_id, color, allows_value, value_regex)
+        .define_tag(name, parent_id, color, value_type)
         .await
 }
 
