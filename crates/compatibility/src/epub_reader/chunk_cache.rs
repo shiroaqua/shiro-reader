@@ -393,36 +393,36 @@ mod tests {
         };
 
         // Zero-length boundary checks: offset <= total succeeds, offset > total fails.
-        assert!(cache.read_range_with(hash, total, total, 0, fetcher.clone()).await.unwrap().is_empty());
+        assert!(cache.read_range_with(hash, total, total, 0, fetcher).await.unwrap().is_empty());
         assert_eq!(
-            cache.read_range_with(hash, total, total + 1, 0, fetcher.clone()).await.unwrap_err(),
+            cache.read_range_with(hash, total, total + 1, 0, fetcher).await.unwrap_err(),
             ErrorCode::ReaderCorruptedEpub
         );
         assert_eq!(fetches.load(Ordering::SeqCst), 0);
 
         // Fetch chunk 0 and chunk 1 (cache full: 2 chunks).
-        let _ = cache.read_range_with(hash, total, 0, 16, fetcher.clone()).await.unwrap();
+        let _ = cache.read_range_with(hash, total, 0, 16, fetcher).await.unwrap();
         let _ = cache
-            .read_range_with(hash, total, EPUB_CHUNK_SIZE as u64, 16, fetcher.clone())
+            .read_range_with(hash, total, EPUB_CHUNK_SIZE as u64, 16, fetcher)
             .await
             .unwrap();
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
         assert_eq!(cache.stats().1, 2 * EPUB_CHUNK_SIZE);
 
         // Touch chunk 0 so chunk 1 becomes least recently used.
-        let _ = cache.read_range_with(hash, total, 32, 16, fetcher.clone()).await.unwrap();
+        let _ = cache.read_range_with(hash, total, 32, 16, fetcher).await.unwrap();
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
 
         // Fetch chunk 2 -> must evict chunk 1, keeping chunk 0 and chunk 2.
         let _ = cache
-            .read_range_with(hash, total, (2 * EPUB_CHUNK_SIZE) as u64, 16, fetcher.clone())
+            .read_range_with(hash, total, (2 * EPUB_CHUNK_SIZE) as u64, 16, fetcher)
             .await
             .unwrap();
         assert_eq!(fetches.load(Ordering::SeqCst), 3);
         assert_eq!(cache.stats().0, 2);
 
         // Chunk 0 is still cached; chunk 1 was evicted and requires re-fetch.
-        let _ = cache.read_range_with(hash, total, 64, 16, fetcher.clone()).await.unwrap();
+        let _ = cache.read_range_with(hash, total, 64, 16, fetcher).await.unwrap();
         assert_eq!(fetches.load(Ordering::SeqCst), 3);
         let _ = cache
             .read_range_with(hash, total, EPUB_CHUNK_SIZE as u64, 16, fetcher)

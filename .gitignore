@@ -190,3 +190,9 @@ apps/client/src-tauri/gen/android/app/src/main/assets/native/
 *.AppImage
 *.msi
 *.dmg
+
+
+# =========================
+# Docment
+# =========================
+*.md

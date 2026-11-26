@@ -1,7 +1,7 @@
-pub mod byte_source;
-pub mod chunk_cache;
-pub mod session;
-pub mod zip_index;
+pub(crate) mod byte_source;
+pub(crate) mod chunk_cache;
+pub(crate) mod session;
+pub(crate) mod zip_index;
 
 use std::{collections::BTreeMap, fmt};
 

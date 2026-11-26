@@ -30,6 +30,10 @@ impl ResolvedByteRange {
     pub const fn len(self) -> u64 {
         self.end_inclusive - self.start + 1
     }
+
+    pub const fn is_empty(self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +163,7 @@ mod tests {
             parse_single_byte_range("bytes=-999999999999999999999999", 1000),
             Ok(ResolvedByteRange::new_within(0, 999, 1000).unwrap())
         );
+        assert!(!ResolvedByteRange::new_within(0, 0, 1000).unwrap().is_empty());
     }
 
     #[test]
