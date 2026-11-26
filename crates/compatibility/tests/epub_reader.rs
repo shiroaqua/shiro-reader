@@ -698,3 +698,237 @@ async fn cloud_epub_reader_streams_ranges_reuses_chunk_cache_avoids_error_storms
         ErrorCode::ReaderSessionNotFound.code()
     );
 }
+
+fn build_unique_small_epub(label: &str) -> Vec<u8> {
+    let chapter = format!(
+        "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>{label}</p></body></html>"
+    )
+    .into_bytes();
+    let entries: [(&str, &[u8]); 2] = [
+        ("mimetype", b"application/epub+zip"),
+        ("OEBPS/chapter1.xhtml", &chapter),
+    ];
+
+    let mut out = Vec::new();
+    let mut cd = Vec::new();
+    for (name, raw) in entries {
+        let mut crc = Crc::new();
+        crc.update(raw);
+        let crc32 = crc.sum();
+        let lh_offset = out.len() as u32;
+
+        out.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+        out.extend_from_slice(&20u16.to_le_bytes());
+        out.extend_from_slice(&0x0800u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&crc32.to_le_bytes());
+        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(raw);
+
+        cd.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&20u16.to_le_bytes());
+        cd.extend_from_slice(&0x0800u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&crc32.to_le_bytes());
+        cd.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        cd.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&0u32.to_le_bytes());
+        cd.extend_from_slice(&lh_offset.to_le_bytes());
+        cd.extend_from_slice(name.as_bytes());
+    }
+
+    let cd_offset = out.len() as u32;
+    let cd_size = cd.len() as u32;
+    out.extend_from_slice(&cd);
+    out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+#[tokio::test]
+async fn open_epub_rejects_zombie_session_on_concurrent_delete_and_logout_but_allows_unrelated_delete()
+{
+    struct GateHandle {
+        entered: oneshot::Sender<()>,
+        release: oneshot::Receiver<()>,
+    }
+
+    let server_root = tempfile::tempdir().unwrap();
+    let state = build_real_v1_server_state(server_root.path()).await;
+    state
+        .user_service
+        .register(UserRegisterCommand {
+            name: "RaceReader".into(),
+            password: "password123".into(),
+        })
+        .await
+        .unwrap();
+
+    let gate: Arc<tokio::sync::Mutex<Option<GateHandle>>> = Arc::new(tokio::sync::Mutex::new(None));
+    let gate_mw = Arc::clone(&gate);
+    let router = build_router(state).layer(middleware::from_fn(move |req: Request, next: Next| {
+        let gate_mw = Arc::clone(&gate_mw);
+        async move {
+            let is_file_get = req.method() == Method::GET
+                && req.uri().path().starts_with("/api/v1/library/bookshelf/books/")
+                && req.uri().path().ends_with("/file");
+            let resp = next.run(req).await;
+            if is_file_get {
+                let active_gate = gate_mw.lock().await.take();
+                if let Some(handle) = active_gate {
+                    let _ = handle.entered.send(());
+                    let _ = handle.release.await;
+                }
+            }
+            resp
+        }
+    }));
+    let server = RunningHttpServer::start(router).await;
+
+    let app_root = tempfile::tempdir().unwrap();
+    let sink = Arc::new(RecordingSink::default());
+    let rt = Arc::new(
+        ClientRuntime::initialize(
+            &app_root.path().join("config"),
+            PlatformCapabilities::current_host(app_root.path().join("library")),
+            AppLocale::En,
+            None,
+            sink,
+        )
+        .await,
+    );
+    rt.complete_initial_setup(InitialSetupRequest {
+        mode: LaunchMode::Cloud,
+        locale: AppLocale::En,
+        local_library_root: None,
+        cloud_origin: Some(server.origin.clone()),
+    })
+    .await
+    .unwrap();
+    rt.cloud_login("RaceReader".into(), "password123".into())
+        .await
+        .unwrap();
+
+    let book_a = rt
+        .import_stream(
+            "r-1",
+            "BookA.epub",
+            Cursor::new(build_unique_small_epub("book-a")),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let book_b = rt
+        .import_stream(
+            "r-2",
+            "BookB.epub",
+            Cursor::new(build_unique_small_epub("book-b")),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let book_c = rt
+        .import_stream(
+            "r-3",
+            "BookC.epub",
+            Cursor::new(build_unique_small_epub("book-c")),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let book_d = rt
+        .import_stream(
+            "r-4",
+            "BookD.epub",
+            Cursor::new(build_unique_small_epub("book-d")),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // 1. Concurrent delete of the same book while ZipIndex::parse is mid-flight -> rejected, no zombie session.
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    *gate.lock().await = Some(GateHandle {
+        entered: entered_tx,
+        release: release_rx,
+    });
+    let open_a = {
+        let rt = Arc::clone(&rt);
+        let id = book_a.id.clone();
+        tokio::spawn(async move { rt.open_epub(id).await })
+    };
+    entered_rx.await.unwrap();
+    rt.delete_books(vec![book_a.id.clone()]).await.unwrap();
+    let _ = release_tx.send(());
+    let err_a = open_a.await.unwrap().unwrap_err();
+    assert_eq!(err_a.code, ErrorCode::BookAlreadyDeleted.code());
+
+    // 2. Concurrent delete of an unrelated book while ZipIndex::parse is mid-flight -> retries and succeeds.
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    *gate.lock().await = Some(GateHandle {
+        entered: entered_tx,
+        release: release_rx,
+    });
+    let open_b = {
+        let rt = Arc::clone(&rt);
+        let id = book_b.id.clone();
+        tokio::spawn(async move { rt.open_epub(id).await })
+    };
+    entered_rx.await.unwrap();
+    rt.delete_books(vec![book_c.id.clone()]).await.unwrap();
+    let _ = release_tx.send(());
+    let opened_b = open_b.await.unwrap().expect("unrelated delete must allow retry");
+    assert_eq!(
+        rt.read_epub_entry(opened_b.session_id, "mimetype")
+            .await
+            .unwrap()
+            .as_ref(),
+        b"application/epub+zip"
+    );
+
+    // 3. Concurrent cloud_logout while ZipIndex::parse is mid-flight -> rejected with CloudNotAuthenticated.
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = oneshot::channel();
+    *gate.lock().await = Some(GateHandle {
+        entered: entered_tx,
+        release: release_rx,
+    });
+    let open_d = {
+        let rt = Arc::clone(&rt);
+        let id = book_d.id.clone();
+        tokio::spawn(async move { rt.open_epub(id).await })
+    };
+    entered_rx.await.unwrap();
+    rt.cloud_logout().await.unwrap();
+    let _ = release_tx.send(());
+    let err_d = open_d.await.unwrap().unwrap_err();
+    assert_eq!(err_d.code, ErrorCode::CloudNotAuthenticated.code());
+    assert_eq!(
+        rt.read_epub_entry(opened_b.session_id, "mimetype")
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ReaderSessionNotFound.code()
+    );
+}
