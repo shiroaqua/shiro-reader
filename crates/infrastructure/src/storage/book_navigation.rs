@@ -391,11 +391,20 @@ fn scan_xhtml_text_metrics(html: &str) -> XhtmlMetrics {
                 continue;
             }
             if rest.starts_with(b"<![CDATA[") {
-                if let Some(end_rel) = find_subslice(rest, 9, b"]]>") {
-                    i += end_rel + 3;
+                let (cdata_text, next_i) = if let Some(end_rel) = find_subslice(rest, 9, b"]]>") {
+                    (&html[i + 9..i + end_rel], i + end_rel + 3)
                 } else {
-                    i = len;
+                    (&html[i + 9..], len)
+                };
+                if head_depth == 0 && script_depth == 0 && style_depth == 0 {
+                    count_visible_text(
+                        cdata_text,
+                        &mut visible_chars,
+                        &mut has_emitted_char,
+                        &mut pending_space,
+                    );
                 }
+                i = next_i;
                 continue;
             }
             if rest.starts_with(b"<?") {
@@ -407,11 +416,8 @@ fn scan_xhtml_text_metrics(html: &str) -> XhtmlMetrics {
                 continue;
             }
             if rest.starts_with(b"<!") {
-                if let Some(end_rel) = rest[2..].iter().position(|&b| b == b'>') {
-                    i += 2 + end_rel + 1;
-                } else {
-                    i = len;
-                }
+                let decl_end = find_declaration_end(bytes, i + 2);
+                i = if decl_end < len { decl_end + 1 } else { len };
                 continue;
             }
 
@@ -469,35 +475,67 @@ fn scan_xhtml_text_metrics(html: &str) -> XhtmlMetrics {
         if bytes[i] == b'&'
             && let Some(entity_len) = match_xml_entity(&bytes[i..])
         {
-            if pending_space {
-                visible_chars += 1;
-                pending_space = false;
-            }
-            visible_chars += 1;
-            has_emitted_char = true;
+            record_non_whitespace(
+                &mut visible_chars,
+                &mut has_emitted_char,
+                &mut pending_space,
+            );
             i += entity_len;
             continue;
         }
 
         let ch = html[i..].chars().next().expect("valid utf-8 boundary");
         i += ch.len_utf8();
-        if ch.is_whitespace() {
-            if has_emitted_char {
-                pending_space = true;
-            }
-        } else {
-            if pending_space {
-                visible_chars += 1;
-                pending_space = false;
-            }
-            visible_chars += 1;
-            has_emitted_char = true;
-        }
+        push_visible_char(
+            ch,
+            &mut visible_chars,
+            &mut has_emitted_char,
+            &mut pending_space,
+        );
     }
 
     XhtmlMetrics {
         text_chars: visible_chars,
         anchors,
+    }
+}
+
+fn record_non_whitespace(
+    visible_chars: &mut u64,
+    has_emitted_char: &mut bool,
+    pending_space: &mut bool,
+) {
+    if *pending_space {
+        *visible_chars += 1;
+        *pending_space = false;
+    }
+    *visible_chars += 1;
+    *has_emitted_char = true;
+}
+
+fn push_visible_char(
+    ch: char,
+    visible_chars: &mut u64,
+    has_emitted_char: &mut bool,
+    pending_space: &mut bool,
+) {
+    if ch.is_whitespace() {
+        if *has_emitted_char {
+            *pending_space = true;
+        }
+    } else {
+        record_non_whitespace(visible_chars, has_emitted_char, pending_space);
+    }
+}
+
+fn count_visible_text(
+    text: &str,
+    visible_chars: &mut u64,
+    has_emitted_char: &mut bool,
+    pending_space: &mut bool,
+) {
+    for ch in text.chars() {
+        push_visible_char(ch, visible_chars, has_emitted_char, pending_space);
     }
 }
 
@@ -509,6 +547,39 @@ fn find_subslice(haystack: &[u8], start: usize, needle: &[u8]) -> Option<usize> 
         .windows(needle.len())
         .position(|w| w == needle)
         .map(|pos| start + pos)
+}
+
+fn find_declaration_end(bytes: &[u8], mut i: usize) -> usize {
+    let mut quote: Option<u8> = None;
+    let mut bracket_depth = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) => {
+                if b == q {
+                    quote = None;
+                }
+            }
+            None => {
+                if bracket_depth > 0 && bytes[i..].starts_with(b"<!--") {
+                    if let Some(end_rel) = find_subslice(&bytes[i..], 4, b"-->") {
+                        i += end_rel + 3;
+                        continue;
+                    }
+                    return bytes.len();
+                }
+                match b {
+                    b'"' | b'\'' => quote = Some(b),
+                    b'[' => bracket_depth += 1,
+                    b']' => bracket_depth = bracket_depth.saturating_sub(1),
+                    b'>' if bracket_depth == 0 => return i,
+                    _ => {}
+                }
+            }
+        }
+        i += 1;
+    }
+    bytes.len()
 }
 
 fn find_tag_end(bytes: &[u8], mut i: usize) -> usize {
@@ -990,5 +1061,38 @@ mod tests {
         assert!(!is_external_href("dir/chapter:1.xhtml#x"));
         assert!(!is_external_href("Ch01:Intro.xhtml"));
         assert!(!is_external_href("Part1:Overview.xhtml#s1"));
+    }
+
+    #[test]
+    fn scan_xhtml_handles_doctype_internal_subset_without_leaking_text() {
+        let xhtml = r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd" [
+  <!ENTITY nbsp "&#160;">
+  <!-- ] > comment inside doctype -->
+  <!ENTITY gt ">">
+]>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Ignored Title</title></head>
+<body><h1 id="first">Hello</h1><p id="second">World</p></body>
+</html>"#;
+
+        let metrics = scan_xhtml_text_metrics(xhtml);
+        assert_eq!(metrics.text_chars, 10);
+        assert_eq!(metrics.anchors.get("first"), Some(&0));
+        assert_eq!(metrics.anchors.get("second"), Some(&5));
+    }
+
+    #[test]
+    fn scan_xhtml_counts_body_cdata_and_ignores_script_cdata() {
+        let xhtml = r#"<html xmlns="http://www.w3.org/1999/xhtml">
+<head><script><![CDATA[ignored script text]]></script></head>
+<body><p id="start"><![CDATA[a < b & c]]></p><p id="after">end</p></body>
+</html>"#;
+
+        let metrics = scan_xhtml_text_metrics(xhtml);
+        // "a < b & c" (9) + "end" (3) = 12
+        assert_eq!(metrics.text_chars, 12);
+        assert_eq!(metrics.anchors.get("start"), Some(&0));
+        assert_eq!(metrics.anchors.get("after"), Some(&9));
     }
 }
