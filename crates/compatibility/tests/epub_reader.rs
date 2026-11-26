@@ -399,11 +399,19 @@ async fn local_epub_reader_reads_entries_blocks_pdf_evicts_deleted_and_enforces_
         assert_eq!(got.as_ref(), expected.as_slice(), "mismatch for {path}");
     }
 
-    // 2. Non-EPUB (PDF) is rejected with ReaderUnsupportedFormat.
+    // 2. Non-EPUB (PDF) is rejected with ReaderUnsupportedFormat, and invalid BookId is rejected upfront.
     sink.clear_errors();
     let pdf_err = rt.open_epub(pdf_book.id.clone()).await.unwrap_err();
     assert_eq!(pdf_err.code, ErrorCode::ReaderUnsupportedFormat.code());
     assert_eq!(sink.error_count(), 1);
+    for invalid_id in ["", "not-a-uuid", "foo/bar", "../../../healthz?"] {
+        let id_err = rt.open_epub(invalid_id.to_owned()).await.unwrap_err();
+        assert_eq!(
+            id_err.code,
+            ErrorCode::BookInvalidId.code(),
+            "expected BookInvalidId for {invalid_id:?}"
+        );
+    }
 
     // 3. Missing entry error is command-only (no global error event emitted).
     sink.clear_errors();
@@ -585,9 +593,23 @@ async fn cloud_epub_reader_streams_ranges_reuses_chunk_cache_avoids_error_storms
         assert_eq!(got.as_ref(), expected.as_slice(), "cloud mismatch for {path}");
     }
 
-    // 3. PDF blocked with ReaderUnsupportedFormat.
+    // 3. PDF blocked with ReaderUnsupportedFormat, and invalid BookId is rejected before HTTP HEAD.
     let pdf_err = rt.open_epub(pdf_book.id.clone()).await.unwrap_err();
     assert_eq!(pdf_err.code, ErrorCode::ReaderUnsupportedFormat.code());
+    let heads_before_invalid = file_head_count.load(Ordering::SeqCst);
+    for invalid_id in ["", "not-a-uuid", "foo/bar", "../../../healthz?"] {
+        let id_err = rt.open_epub(invalid_id.to_owned()).await.unwrap_err();
+        assert_eq!(
+            id_err.code,
+            ErrorCode::BookInvalidId.code(),
+            "expected BookInvalidId for {invalid_id:?}"
+        );
+    }
+    assert_eq!(
+        file_head_count.load(Ordering::SeqCst),
+        heads_before_invalid,
+        "invalid BookId must fail locally without issuing HTTP requests"
+    );
 
     // 4. Missing entry in read_epub_entry -> CommandErrorPayload with ZERO global ErrorSink events.
     sink.clear_errors();

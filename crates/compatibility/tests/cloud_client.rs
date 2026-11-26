@@ -1191,6 +1191,12 @@ async fn cloud_client_head_and_range_verify_headers_refresh_redirects_and_tamper
                         vec![1u8; 5],
                     )
                         .into_response(),
+                    "missing_hash_headers" => (
+                        StatusCode::PARTIAL_CONTENT,
+                        [(header::CONTENT_RANGE, "bytes 0-9/100".to_owned())],
+                        vec![1u8; 10],
+                    )
+                        .into_response(),
                     _ => unreachable!(),
                 }
             }
@@ -1229,6 +1235,7 @@ async fn cloud_client_head_and_range_verify_headers_refresh_redirects_and_tamper
         "bad_x_hash",
         "bad_content_range",
         "bad_body_len",
+        "missing_hash_headers",
     ] {
         *mode.lock().unwrap() = bad_mode;
         assert_eq!(

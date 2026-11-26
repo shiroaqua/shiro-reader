@@ -23,7 +23,7 @@ use shiro_application::library::{
         dto::BookTagOutput,
     },
 };
-use shiro_domain::library::book::file::entity::BookFileType;
+use shiro_domain::library::book::{file::entity::BookFileType, value_objects::BookId};
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode, PairedClientError};
 use shiro_http_contract::ServerMetaResponse;
 use shiro_infrastructure::{db::pool::checkpoint_library_wal, library_runtime::LocalLibrary};
@@ -1620,6 +1620,8 @@ impl ClientRuntime {
         const MAX_EVICTION_RETRIES: usize = 2;
 
         let (backend, mut session_token) = self.require_ready_backend_with_session_token()?;
+        let _ = BookId::parse(&book_id)
+            .map_err(|_| self.error_dispatcher.dispatch_operation(ErrorCode::BookInvalidId))?;
         let (mut source, mut hash, mut file_size) =
             self.resolve_epub_byte_source(&backend, &book_id).await?;
         let mut index = Arc::new(

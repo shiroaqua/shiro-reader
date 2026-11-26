@@ -568,6 +568,7 @@ impl CloudClient {
             return Err(ErrorCode::CloudInvalidResponse);
         }
 
+        let mut hash_verified = false;
         if let Some(raw_etag) = resp.headers().get(reqwest::header::ETAG) {
             let etag_str = raw_etag
                 .to_str()
@@ -582,6 +583,7 @@ impl CloudClient {
             if parsed != *expected_hash {
                 return Err(ErrorCode::CloudInvalidResponse);
             }
+            hash_verified = true;
         }
 
         if let Some(raw_hash) = resp.headers().get("x-book-hash") {
@@ -594,6 +596,11 @@ impl CloudClient {
             if parsed != *expected_hash {
                 return Err(ErrorCode::CloudInvalidResponse);
             }
+            hash_verified = true;
+        }
+
+        if !hash_verified {
+            return Err(ErrorCode::CloudInvalidResponse);
         }
 
         let content_range = resp
