@@ -422,6 +422,18 @@ fn book_navigation_validates_value_objects_and_unit_bounds() {
         EpubHref::normalize("").unwrap_err(),
         BookNavigationError::InvalidEpubHref
     );
+    assert_eq!(
+        EpubHref::normalize("/").unwrap_err(),
+        BookNavigationError::InvalidEpubHref
+    );
+    assert_eq!(
+        EpubHref::normalize("OEBPS/dir/").unwrap_err(),
+        BookNavigationError::InvalidEpubHref
+    );
+    assert_eq!(
+        EpubHref::normalize("/OEBPS/C%23_Ch1.xhtml").unwrap().as_str(),
+        "OEBPS/C%23_Ch1.xhtml"
+    );
 
     assert_eq!(
         PdfDest::xyz(Some(f32::NAN), None, None, None).unwrap_err(),

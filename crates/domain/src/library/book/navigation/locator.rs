@@ -123,7 +123,7 @@ impl EpubHref {
 
     pub fn normalize(raw: impl AsRef<str>) -> Result<Self, BookNavigationError> {
         let s = raw.as_ref();
-        if s.chars().any(|c| matches!(c, '\\' | '#' | '?' | '\0')) {
+        if s.ends_with('/') || s.chars().any(|c| matches!(c, '\\' | '#' | '?' | '\0')) {
             return Err(BookNavigationError::InvalidEpubHref);
         }
         let mut segments = Vec::new();

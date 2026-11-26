@@ -1097,4 +1097,101 @@ mod tests {
             );
         });
     }
+
+    #[test]
+    fn extract_epub_navigation_preserves_percent_encoded_hash_and_question_mark_filenames() {
+        let capture = LogCapture::default();
+        let epub = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#,
+            ),
+            (
+                "EPUB/package.opf",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:33333333-3333-3333-3333-333333333333</dc:identifier>
+    <dc:title>Encoded Href</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="C%23_Ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="What%3F.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1" linear="yes"/>
+    <itemref idref="ch2" linear="yes"/>
+  </spine>
+</package>"#,
+            ),
+            (
+                "EPUB/nav.xhtml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc" id="toc"><ol>
+  <li><a href="C%23_Ch1.xhtml#sec-1">C# Intro</a></li>
+  <li><a href="What%3F.xhtml">FAQ</a></li>
+</ol></nav></body>
+</html>"#,
+            ),
+            (
+                "EPUB/C#_Ch1.xhtml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Lead text before section.</p><h2 id="sec-1">Section One</h2></body></html>"#,
+            ),
+            (
+                "EPUB/What?.xhtml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Frequently asked questions.</p></body></html>"#,
+            ),
+        ]);
+
+        let mut tmp = tempfile::tempfile().unwrap();
+        tmp.write_all(&epub).unwrap();
+        let reader = BookFileContentReader::new(tmp, 0, epub.len() as u64).unwrap();
+
+        let nav = tracing::subscriber::with_default(capture.clone(), || {
+            book_navigation::extract_epub_navigation(reader, "encoded-hash").unwrap()
+        });
+
+        assert_eq!(nav.toc().len(), 2);
+        assert_eq!(nav.toc()[0].unit_index(), Some(0));
+        assert!(nav.toc()[0].unit_offset().value() > 0.0);
+        assert!(matches!(
+            nav.toc()[0].locator(),
+            Some(shiro_domain::library::book::navigation::BookLocator::Epub {
+                spine_index: Some(0),
+                href,
+                fragment: Some(frag),
+                cfi: None,
+            }) if href.as_str() == "EPUB/C%23_Ch1.xhtml" && frag == "sec-1"
+        ));
+        assert!(matches!(
+            nav.toc()[1].locator(),
+            Some(shiro_domain::library::book::navigation::BookLocator::Epub {
+                spine_index: Some(1),
+                href,
+                fragment: None,
+                cfi: None,
+            }) if href.as_str() == "EPUB/What%3F.xhtml"
+        ));
+
+        let warn_or_error: Vec<_> = capture
+            .take_entries()
+            .into_iter()
+            .filter(|(level, _)| *level <= Level::WARN)
+            .collect();
+        assert!(
+            warn_or_error.is_empty(),
+            "expected 0 warnings, got {warn_or_error:?}"
+        );
+    }
 }

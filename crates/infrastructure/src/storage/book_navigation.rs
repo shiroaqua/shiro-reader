@@ -31,7 +31,9 @@ pub(super) fn extract_epub_navigation(
     let spine_len = epub.spine().len();
     let mut unit_specs = Vec::with_capacity(spine_len);
     let mut spine_metrics = Vec::with_capacity(spine_len);
+    let mut id_to_spine: HashMap<String, u32> = HashMap::with_capacity(spine_len);
     let mut href_to_spine: HashMap<String, u32> = HashMap::with_capacity(spine_len);
+    let mut decoded_href_to_spine: HashMap<String, u32> = HashMap::with_capacity(spine_len);
 
     for (idx, entry) in epub.spine().iter().enumerate() {
         let spine_idx =
@@ -39,8 +41,12 @@ pub(super) fn extract_epub_navigation(
         let is_linear = entry.is_linear();
 
         if let Some(manifest_entry) = entry.manifest_entry() {
-            let decoded_path = manifest_entry.href().path().decode();
-            let normalized_href = match EpubHref::normalize(decoded_path.as_ref()) {
+            id_to_spine
+                .entry(entry.idref().to_owned())
+                .or_insert(spine_idx);
+
+            let raw_path = manifest_entry.href().path().as_str();
+            let normalized_href = match EpubHref::normalize(raw_path) {
                 Ok(href) => {
                     href_to_spine
                         .entry(href.as_str().to_owned())
@@ -51,13 +57,20 @@ pub(super) fn extract_epub_navigation(
                     tracing::warn!(
                         hash = hash_hex,
                         spine_index = spine_idx,
-                        href = %decoded_path,
+                        href = %raw_path,
                         error = %err,
                         "failed to normalize EPUB spine href"
                     );
                     None
                 }
             };
+
+            let decoded_path = manifest_entry.href().path().decode();
+            if let Some(decoded_key) = canonical_decoded_key(decoded_path.as_ref()) {
+                decoded_href_to_spine
+                    .entry(decoded_key)
+                    .or_insert(spine_idx);
+            }
 
             let media_type = manifest_entry.media_type();
             let is_markup = media_type.contains("html")
@@ -81,7 +94,7 @@ pub(super) fn extract_epub_navigation(
                         tracing::warn!(
                             hash = hash_hex,
                             spine_index = spine_idx,
-                            href = %decoded_path,
+                            href = %raw_path,
                             error = %err,
                             "failed to read EPUB spine markup entry"
                         );
@@ -94,7 +107,7 @@ pub(super) fn extract_epub_navigation(
                         tracing::warn!(
                             hash = hash_hex,
                             spine_index = spine_idx,
-                            href = %decoded_path,
+                            href = %raw_path,
                             error = %err,
                             "failed to read EPUB spine resource entry"
                         );
@@ -134,7 +147,9 @@ pub(super) fn extract_epub_navigation(
             &mut node_count,
             &mut truncated_warned,
             hash_hex,
+            &id_to_spine,
             &href_to_spine,
+            &decoded_href_to_spine,
             &spine_metrics,
         )
     } else {
@@ -144,13 +159,16 @@ pub(super) fn extract_epub_navigation(
     BookNavigation::build(toc_roots, unit_specs).context("failed to build EPUB navigation index")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_epub_toc_entries(
     parent: &EpubTocEntry<'_>,
     depth: usize,
     node_count: &mut usize,
     truncated_warned: &mut bool,
     hash_hex: &str,
+    id_to_spine: &HashMap<String, u32>,
     href_to_spine: &HashMap<String, u32>,
+    decoded_href_to_spine: &HashMap<String, u32>,
     spine_metrics: &[Option<XhtmlMetrics>],
 ) -> Vec<TocEntrySpec> {
     let mut nodes = Vec::new();
@@ -175,7 +193,9 @@ fn collect_epub_toc_entries(
                 node_count,
                 truncated_warned,
                 hash_hex,
+                id_to_spine,
                 href_to_spine,
+                decoded_href_to_spine,
                 spine_metrics,
             )
         } else {
@@ -200,10 +220,18 @@ fn collect_epub_toc_entries(
         let (flags, locator, unit_offset) = if is_external {
             (TocNodeFlags::EXTERNAL_LINK, None, NormalizedOffset::ZERO)
         } else if let Some(href) = entry.href() {
-            let decoded_path = href.path().decode();
-            match EpubHref::normalize(decoded_path.as_ref()) {
+            let raw_path = href.path().as_str();
+            match EpubHref::normalize(raw_path) {
                 Ok(normalized_href) => {
-                    let spine_index = href_to_spine.get(normalized_href.as_str()).copied();
+                    let spine_index = entry
+                        .manifest_entry()
+                        .and_then(|m| id_to_spine.get(m.id()).copied())
+                        .or_else(|| href_to_spine.get(normalized_href.as_str()).copied())
+                        .or_else(|| {
+                            let decoded = href.path().decode();
+                            canonical_decoded_key(decoded.as_ref())
+                                .and_then(|key| decoded_href_to_spine.get(&key).copied())
+                        });
                     let fragment = href
                         .fragment()
                         .map(percent_decode_str)
@@ -261,6 +289,23 @@ fn collect_epub_toc_entries(
         });
     }
     nodes
+}
+
+fn canonical_decoded_key(raw: &str) -> Option<String> {
+    if raw.ends_with('/') || raw.chars().any(|c| matches!(c, '\\' | '\0')) {
+        return None;
+    }
+    let mut segments = Vec::new();
+    for seg in raw.trim_start_matches('/').split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            _ => segments.push(seg),
+        }
+    }
+    (!segments.is_empty()).then(|| segments.join("/"))
 }
 
 fn is_external_href(raw: &str) -> bool {
