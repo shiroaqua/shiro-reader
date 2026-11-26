@@ -224,6 +224,89 @@ describe("Bookshelf, Trash, and Upload integration", () => {
         screen.queryByRole("button", { name: "Rename" })
       ).not.toBeInTheDocument()
     })
+
+    it("defaults to Date modified descending and switches between created_at and updated_at sorting", async () => {
+      const bookA = makeBook({
+        id: "b1",
+        title: "Book A",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-30T00:00:00.000Z",
+      })
+      const bookB = makeBook({
+        id: "b2",
+        title: "Book B",
+        created_at: "2026-01-02T00:00:00.000Z",
+        updated_at: "2026-01-20T00:00:00.000Z",
+      })
+      const bookC = makeBook({
+        id: "b3",
+        title: "Book C",
+        created_at: "2026-01-03T00:00:00.000Z",
+        updated_at: "2026-01-10T00:00:00.000Z",
+      })
+
+      const library = new FakeLibrary().seedBooks([bookC, bookA, bookB])
+      tauriTestHost.attachLibrary(library)
+
+      const { user } = renderWithProviders(<BookshelfHarness />)
+
+      const bookList = await screen.findByRole("list", { name: "Books" })
+      const getBookOrder = () =>
+        within(bookList)
+          .getAllByRole("heading")
+          .map((heading) => heading.textContent)
+
+      expect(getBookOrder()).toEqual(["Book A", "Book B", "Book C"])
+
+      const sortTrigger = screen.getByRole("button", { name: "Date modified" })
+      await user.click(sortTrigger)
+
+      const menu = await screen.findByRole("menu", { name: "Sort" })
+      expect(
+        within(menu).getByRole("menuitemradio", { name: "Name" })
+      ).toBeInTheDocument()
+      expect(
+        within(menu).getByRole("menuitemradio", { name: "Date created" })
+      ).toBeInTheDocument()
+      expect(
+        within(menu).getByRole("menuitemradio", { name: "Date modified" })
+      ).toBeInTheDocument()
+      expect(
+        within(menu).queryByRole("menuitemradio", { name: "Date" })
+      ).not.toBeInTheDocument()
+
+      await user.click(
+        within(menu).getByRole("menuitemradio", { name: "Date created" })
+      )
+
+      await waitFor(() => {
+        expect(getBookOrder()).toEqual(["Book C", "Book B", "Book A"])
+      })
+      expect(localStorage.getItem("shiro-reader.book-sort")).toBe(
+        "created_at:desc"
+      )
+      expect(
+        screen.getByRole("button", { name: "Date created" })
+      ).toBeInTheDocument()
+
+      await user.click(
+        within(menu).getByRole("menuitemradio", { name: "Ascending" })
+      )
+
+      await waitFor(() => {
+        expect(getBookOrder()).toEqual(["Book A", "Book B", "Book C"])
+      })
+      expect(localStorage.getItem("shiro-reader.book-sort")).toBe(
+        "created_at:asc"
+      )
+
+      await user.keyboard("{Escape}")
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("menu", { name: "Sort" })
+        ).not.toBeInTheDocument()
+      })
+    })
   })
 
   describe("TrashList", () => {

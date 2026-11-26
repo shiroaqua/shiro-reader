@@ -1,31 +1,38 @@
 import type { Book } from "@shiro/ui-shared/lib/types"
 
-export type BookSortField = "title" | "date"
+export type BookSortField = "title" | "created_at" | "updated_at"
 export type BookSortOrder = "asc" | "desc"
 export type BookSort = { field: BookSortField; order: BookSortOrder }
 
-export const DEFAULT_BOOK_SORT: BookSort = { field: "date", order: "desc" }
+export const DEFAULT_BOOK_SORT: BookSort = { field: "updated_at", order: "desc" }
 
 const STORAGE_KEY = "shiro-reader.book-sort"
 
-const compareDate = (a: Book, b: Book) =>
-  (Date.parse(a.updated_at) || 0) - (Date.parse(b.updated_at) || 0)
+const compareTimestamp = (a: string, b: string) =>
+  (Date.parse(a) || 0) - (Date.parse(b) || 0)
 
-// Returns a sorted copy; "date" uses the update time shown on each card.
+// Returns a sorted copy using natural numeric collation for titles and epoch-zero fallback for invalid timestamps.
 export function sortBooks(books: readonly Book[], { field, order }: BookSort, locale?: string) {
   const collator = new Intl.Collator(locale, { numeric: true, sensitivity: "base" })
   const direction = order === "asc" ? 1 : -1
   const compare =
     field === "title"
-      ? (a: Book, b: Book) => direction * collator.compare(a.title, b.title) || compareDate(b, a)
-      : (a: Book, b: Book) => direction * compareDate(a, b) || collator.compare(a.title, b.title)
+      ? (a: Book, b: Book) =>
+          direction * collator.compare(a.title, b.title) ||
+          compareTimestamp(b.updated_at, a.updated_at)
+      : (a: Book, b: Book) =>
+          direction * compareTimestamp(a[field], b[field]) ||
+          collator.compare(a.title, b.title)
   return [...books].sort(compare)
 }
 
 export function parseBookSort(value: string | null): BookSort {
   if (value) {
     const [field, order] = value.split(":")
-    if ((field === "title" || field === "date") && (order === "asc" || order === "desc"))
+    if (
+      (field === "title" || field === "created_at" || field === "updated_at") &&
+      (order === "asc" || order === "desc")
+    )
       return { field, order }
   }
   return DEFAULT_BOOK_SORT

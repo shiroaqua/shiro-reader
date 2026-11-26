@@ -342,7 +342,8 @@ export function BookshelfBooks({
             <SortMenu
               fields={[
                 { value: "title", label: t("local.book.sort.title") },
-                { value: "date", label: t("local.book.sort.date") },
+                { value: "created_at", label: t("local.book.sort.created_at") },
+                { value: "updated_at", label: t("local.book.sort.updated_at") },
               ]}
               sort={sort}
               onChange={changeSort}
