@@ -210,12 +210,14 @@ fn collect_epub_toc_entries(
             Vec::new()
         };
 
-        let is_external = entry
-            .href_raw()
-            .is_some_and(|href| is_external_href(href.as_str()))
-            || entry
-                .href()
-                .is_some_and(|href| is_external_href(href.as_str()));
+        let matched_manifest = entry.manifest_entry();
+        let is_external = matched_manifest.is_none()
+            && (entry
+                .href_raw()
+                .is_some_and(|href| is_external_href(href.as_str()))
+                || entry
+                    .href()
+                    .is_some_and(|href| is_external_href(href.as_str())));
 
         let (flags, locator, unit_offset) = if is_external {
             (TocNodeFlags::EXTERNAL_LINK, None, NormalizedOffset::ZERO)
@@ -223,8 +225,7 @@ fn collect_epub_toc_entries(
             let raw_path = href.path().as_str();
             match EpubHref::normalize(raw_path) {
                 Ok(normalized_href) => {
-                    let spine_index = entry
-                        .manifest_entry()
+                    let spine_index = matched_manifest
                         .and_then(|m| id_to_spine.get(m.id()).copied())
                         .or_else(|| href_to_spine.get(normalized_href.as_str()).copied())
                         .or_else(|| {
@@ -309,20 +310,32 @@ fn canonical_decoded_key(raw: &str) -> Option<String> {
 }
 
 fn is_external_href(raw: &str) -> bool {
+    const KNOWN_NON_HIERARCHICAL_SCHEMES: &[&str] = &[
+        "mailto",
+        "tel",
+        "sms",
+        "data",
+        "javascript",
+        "about",
+        "urn",
+        "blob",
+        "geo",
+    ];
+
     let trimmed = raw.trim();
-    if trimmed.is_empty() || trimmed.contains("://") {
-        return trimmed.contains("://");
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.contains("://") {
+        return true;
     }
     let before_delim = trimmed.split(['/', '?', '#']).next().unwrap_or("");
     let Some((scheme, _)) = before_delim.split_once(':') else {
         return false;
     };
-    let mut bytes = scheme.bytes();
-    let Some(first) = bytes.next() else {
-        return false;
-    };
-    first.is_ascii_alphabetic()
-        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+    KNOWN_NON_HIERARCHICAL_SCHEMES
+        .iter()
+        .any(|known| scheme.eq_ignore_ascii_case(known))
 }
 
 fn percent_decode_str(input: &str) -> String {
@@ -968,10 +981,14 @@ mod tests {
         assert!(is_external_href("https://example.com/page"));
         assert!(is_external_href("http://example.com"));
         assert!(is_external_href("mailto:test@example.com"));
+        assert!(is_external_href("TEL:+123456789"));
+        assert!(is_external_href("javascript:void(0)"));
         assert!(is_external_href("ftp://files.example.com/a.zip"));
         assert!(is_external_href("/EPUB/https://example.com"));
         assert!(!is_external_href("OEBPS/Text/ch01.xhtml#sec1"));
         assert!(!is_external_href("../chapter2.xhtml"));
         assert!(!is_external_href("dir/chapter:1.xhtml#x"));
+        assert!(!is_external_href("Ch01:Intro.xhtml"));
+        assert!(!is_external_href("Part1:Overview.xhtml#s1"));
     }
 }

@@ -1194,4 +1194,88 @@ mod tests {
             "expected 0 warnings, got {warn_or_error:?}"
         );
     }
+
+    #[test]
+    fn extract_epub_navigation_handles_colon_filenames_as_internal_and_uris_as_external() {
+        use shiro_domain::library::book::navigation::{BookLocator, TocNodeFlags};
+
+        let capture = LogCapture::default();
+        let epub = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="package.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#,
+            ),
+            (
+                "package.opf",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:44444444-4444-4444-4444-444444444444</dc:identifier>
+    <dc:title>Colon Href</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="Ch01:Intro.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1" linear="yes"/>
+  </spine>
+</package>"#,
+            ),
+            (
+                "nav.xhtml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc" id="toc"><ol>
+  <li><a href="Ch01:Intro.xhtml">Chapter One</a></li>
+  <li><a href="https://example.com/docs">External Docs</a></li>
+</ol></nav></body>
+</html>"#,
+            ),
+            (
+                "Ch01:Intro.xhtml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Colon filename chapter text.</p></body></html>"#,
+            ),
+        ]);
+
+        let mut tmp = tempfile::tempfile().unwrap();
+        tmp.write_all(&epub).unwrap();
+        let reader = BookFileContentReader::new(tmp, 0, epub.len() as u64).unwrap();
+
+        let nav = tracing::subscriber::with_default(capture.clone(), || {
+            book_navigation::extract_epub_navigation(reader, "colon-hash").unwrap()
+        });
+
+        assert_eq!(nav.toc().len(), 2);
+        assert_eq!(nav.toc()[0].flags(), TocNodeFlags::empty());
+        assert!(matches!(
+            nav.toc()[0].locator(),
+            Some(BookLocator::Epub {
+                spine_index: Some(0),
+                href,
+                fragment: None,
+                cfi: None,
+            }) if href.as_str() == "Ch01:Intro.xhtml"
+        ));
+        assert_eq!(nav.toc()[1].flags(), TocNodeFlags::EXTERNAL_LINK);
+        assert_eq!(nav.toc()[1].locator(), None);
+
+        let warn_or_error: Vec<_> = capture
+            .take_entries()
+            .into_iter()
+            .filter(|(level, _)| *level <= Level::WARN)
+            .collect();
+        assert!(
+            warn_or_error.is_empty(),
+            "expected 0 warnings, got {warn_or_error:?}"
+        );
+    }
 }
