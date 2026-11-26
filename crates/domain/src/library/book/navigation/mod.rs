@@ -291,14 +291,32 @@ impl BookNavigation {
         unit_index: u32,
         unit_offset: NormalizedOffset,
     ) -> Option<usize> {
-        self.toc
-            .iter()
-            .enumerate()
-            .rfind(|(_, node)| {
-                node.unit_index
-                    .is_some_and(|node_unit| (node_unit, node.unit_offset) <= (unit_index, unit_offset))
-            })
-            .map(|(index, _)| index)
+        let current_unit = self.linear_units.get(unit_index as usize)?;
+        let target = (unit_index, unit_offset);
+        let mut best: Option<(usize, (u32, NormalizedOffset))> = None;
+
+        for (index, node) in self.toc.iter().enumerate() {
+            let Some(node_unit) = node.unit_index else {
+                continue;
+            };
+            let Some(unit) = self.linear_units.get(node_unit as usize) else {
+                continue;
+            };
+            if current_unit.is_linear {
+                if !unit.is_linear {
+                    continue;
+                }
+            } else if node_unit != unit_index {
+                continue;
+            }
+
+            let pos = (node_unit, node.unit_offset);
+            if pos <= target && best.is_none_or(|(_, best_pos)| pos >= best_pos) {
+                best = Some((index, pos));
+            }
+        }
+
+        best.map(|(index, _)| index)
     }
 }
 

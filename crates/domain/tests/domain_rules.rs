@@ -477,3 +477,127 @@ fn book_navigation_validates_value_objects_and_unit_bounds() {
         }
     );
 }
+
+#[test]
+fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
+    let nav = BookNavigation::build(
+        vec![
+            TocEntrySpec {
+                title: "Cover".to_owned(),
+                locator: Some(
+                    BookLocator::epub(
+                        Some(0),
+                        EpubHref::parse("EPUB/cover.xhtml").unwrap(),
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+                unit_offset: NormalizedOffset::ZERO,
+                flags: TocNodeFlags::empty(),
+                children: vec![],
+            },
+            TocEntrySpec {
+                title: "Chapter 1".to_owned(),
+                locator: Some(
+                    BookLocator::epub(
+                        Some(2),
+                        EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+                unit_offset: NormalizedOffset::ZERO,
+                flags: TocNodeFlags::empty(),
+                children: vec![TocEntrySpec {
+                    title: "Section 1.0".to_owned(),
+                    locator: Some(
+                        BookLocator::epub(
+                            Some(2),
+                            EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                            Some("top".to_owned()),
+                            None,
+                        )
+                        .unwrap(),
+                    ),
+                    unit_offset: NormalizedOffset::ZERO,
+                    flags: TocNodeFlags::empty(),
+                    children: vec![],
+                }],
+            },
+            TocEntrySpec {
+                title: "Chapter 2".to_owned(),
+                locator: Some(
+                    BookLocator::epub(
+                        Some(3),
+                        EpubHref::parse("EPUB/ch2.xhtml").unwrap(),
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+                unit_offset: NormalizedOffset::ZERO,
+                flags: TocNodeFlags::empty(),
+                children: vec![],
+            },
+            TocEntrySpec {
+                title: "Frontmatter Note".to_owned(),
+                locator: Some(
+                    BookLocator::epub(
+                        Some(1),
+                        EpubHref::parse("EPUB/front.xhtml").unwrap(),
+                        None,
+                        None,
+                    )
+                    .unwrap(),
+                ),
+                unit_offset: NormalizedOffset::ZERO,
+                flags: TocNodeFlags::empty(),
+                children: vec![],
+            },
+        ],
+        vec![
+            LinearUnitSpec {
+                is_linear: false,
+                weight: 10,
+                display_label: Some("EPUB/cover.xhtml".to_owned()),
+            },
+            LinearUnitSpec {
+                is_linear: true,
+                weight: 100,
+                display_label: Some("EPUB/front.xhtml".to_owned()),
+            },
+            LinearUnitSpec {
+                is_linear: true,
+                weight: 100,
+                display_label: Some("EPUB/ch1.xhtml".to_owned()),
+            },
+            LinearUnitSpec {
+                is_linear: true,
+                weight: 100,
+                display_label: Some("EPUB/ch2.xhtml".to_owned()),
+            },
+            LinearUnitSpec {
+                is_linear: true,
+                weight: 100,
+                display_label: Some("EPUB/ch3.xhtml".to_owned()),
+            },
+        ],
+    )
+    .unwrap();
+
+    // Non-monotonic trailing frontmatter node (unit 1) must not shadow Chapter 2 (unit 3).
+    assert_eq!(nav.active_toc_index(4, NormalizedOffset::ZERO), Some(3));
+    // Querying unit 1 matches the frontmatter note despite appearing last in TOC.
+    assert_eq!(
+        nav.active_toc_index(1, NormalizedOffset::new(0.5).unwrap()),
+        Some(4)
+    );
+    // Identical position (2, 0.0) selects deeper/later pre-order node (Section 1.0).
+    assert_eq!(nav.active_toc_index(2, NormalizedOffset::ZERO), Some(2));
+    // Non-linear cover matches only when directly on unit 0.
+    assert_eq!(nav.active_toc_index(0, NormalizedOffset::ZERO), Some(0));
+    // Out-of-bounds unit index returns None.
+    assert_eq!(nav.active_toc_index(99, NormalizedOffset::ZERO), None);
+}
