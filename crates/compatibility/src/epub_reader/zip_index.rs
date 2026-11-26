@@ -324,6 +324,7 @@ fn parse_central_directory(
         let need_lh = raw_lh_offset == 0xFFFF_FFFF;
         let need_disk = raw_disk_start == 0xFFFF;
 
+        let mut disk_start = u32::from(raw_disk_start);
         if need_uncomp || need_comp || need_lh || need_disk {
             let z64_extra = find_zip64_extra_field(extra_bytes)
                 .ok_or(ErrorCode::ReaderCorruptedEpub)?;
@@ -338,12 +339,10 @@ fn parse_central_directory(
                 local_header_offset = take_u64_le(z64_extra, &mut pos)?;
             }
             if need_disk {
-                let disk_start = take_u32_le(z64_extra, &mut pos)?;
-                if disk_start != 0 {
-                    return Err(ErrorCode::ReaderCorruptedEpub);
-                }
+                disk_start = take_u32_le(z64_extra, &mut pos)?;
             }
-        } else if raw_disk_start != 0 {
+        }
+        if disk_start != 0 {
             return Err(ErrorCode::ReaderCorruptedEpub);
         }
 
@@ -563,6 +562,7 @@ mod tests {
         lfh_zero_sizes: bool,
         lfh_extra: &'a [u8],
         cd_extra: &'a [u8],
+        cd_disk_number_start: u16,
         force_zip64_lh_offset: bool,
     }
 
@@ -582,6 +582,7 @@ mod tests {
                 lfh_zero_sizes: false,
                 lfh_extra: b"",
                 cd_extra: b"",
+                cd_disk_number_start: 0,
                 force_zip64_lh_offset: false,
             }
         }
@@ -603,6 +604,7 @@ mod tests {
                 lfh_zero_sizes: false,
                 lfh_extra: b"",
                 cd_extra: b"",
+                cd_disk_number_start: 0,
                 force_zip64_lh_offset: false,
             }
         }
@@ -671,7 +673,7 @@ mod tests {
             cd.extend_from_slice(&(spec.name.len() as u16).to_le_bytes());
             cd.extend_from_slice(&(cd_extra.len() as u16).to_le_bytes());
             cd.extend_from_slice(&0u16.to_le_bytes());
-            cd.extend_from_slice(&0u16.to_le_bytes());
+            cd.extend_from_slice(&spec.cd_disk_number_start.to_le_bytes());
             cd.extend_from_slice(&0u16.to_le_bytes());
             cd.extend_from_slice(&0u32.to_le_bytes());
             cd.extend_from_slice(&raw_lh_offset.to_le_bytes());
@@ -912,6 +914,18 @@ mod tests {
         assert_eq!(
             ZipIndex::parse(&big_cd_src).await.unwrap_err(),
             ErrorCode::ReaderEntryTooLarge
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_non_zero_disk_number_start_even_with_other_zip64_sentinels() {
+        let mut multi_disk_z64 = RawZipEntrySpec::stored(b"chapter.xhtml", b"data");
+        multi_disk_z64.force_zip64_lh_offset = true;
+        multi_disk_z64.cd_disk_number_start = 1;
+        let src = BookByteSource::Memory(Bytes::from(build_raw_zip(&[multi_disk_z64], true)));
+        assert_eq!(
+            ZipIndex::parse(&src).await.unwrap_err(),
+            ErrorCode::ReaderCorruptedEpub
         );
     }
 }
