@@ -10,6 +10,22 @@ export interface Book {
     updated_at: string;
   }
 
+export interface BookMetadata {
+  book_id: UUID;
+  subtitle: string | null;
+  authors: string[];
+  publisher: string | null;
+  published_date: string | null;
+  language: string | null;
+  description: string | null;
+  identifier: string | null;
+  type: string;
+  size: number;
+  page_count: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TrashedBook extends Book {
   deleted_at: string;
 }

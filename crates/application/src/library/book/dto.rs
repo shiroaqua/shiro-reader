@@ -1,16 +1,12 @@
 use blake3::Hash;
 use serde::{Deserialize, Serialize};
 use shiro_domain::library::book::{
-    entity::Book,
-    errors::BookDomainError,
-    file::entity::*,
-    locator::{
-        BookAnchor, EpubNavTarget, EpubPointCfi, EpubPointTarget, EpubRangeCfi,
-        EpubResourcePath, EpubFragment, NormalizedRect, PdfDestination, PdfPageRects,
-        PdfSelectionTarget, ReadingUnitOffset, ValidateEpubTarget, ValidatePdfTarget,
-    },
-    navigation::{BookNavigation, ReadingUnit, TocEntry},
+    entity::{Book, BookMetadata}, errors::BookDomainError, locator::{
+        BookAnchor, EpubFragment, EpubNavTarget, EpubPointCfi, EpubPointTarget, EpubRangeCfi, EpubResourcePath, NormalizedRect, PdfDestination, PdfPageRects, PdfSelectionTarget, ReadingUnitOffset, ValidateEpubTarget, ValidatePdfTarget,
+    }, navigation::{BookNavigation, ReadingUnit, TocEntry}, value_objects::BookFileType,
 };
+
+use crate::library::ports::BookFileMetadata;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +86,52 @@ pub struct BookFileDescriptor {
     pub hash: Hash,
     pub file_type: BookFileType,
     pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BookMetadataOutput {
+    pub book_id: String,
+    pub subtitle: Option<String>,
+    pub authors: Vec<String>,
+    pub publisher: Option<String>,
+    pub published_date: Option<String>,
+    pub language: Option<String>,
+    pub description: Option<String>,
+    pub identifier: Option<String>,
+    #[serde(rename = "type")]
+    pub file_type: String,
+    pub size: u64,
+    pub page_count: Option<u32>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<(Book, BookMetadata, BookFileMetadata)> for BookMetadataOutput {
+    fn from((book, metadata, file_meta): (Book, BookMetadata, BookFileMetadata)) -> Self {
+        let updated_at = if book.updated_at() > metadata.updated_at() {
+            book.updated_at()
+        } else {
+            metadata.updated_at()
+        };
+        let created_at = book.created_at();
+        let metadata = metadata.into_inner();
+        Self {
+            book_id: book.id().to_string(),
+            subtitle: metadata.subtitle.map(Into::into),
+            authors: metadata.authors.into_iter().map(Into::into).collect(),
+            publisher: metadata.publisher.map(Into::into),
+            published_date: metadata.published_date.map(|date| date.to_string()),
+            language: metadata.language.map(Into::into),
+            description: metadata.description.map(Into::into),
+            identifier: metadata.identifier.map(Into::into),
+            file_type: file_meta.file_type.to_string(),
+            size: file_meta.size,
+            page_count: file_meta.page_count,
+            created_at: created_at.to_string(),
+            updated_at: updated_at.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

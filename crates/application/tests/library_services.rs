@@ -12,40 +12,50 @@ use bytes::Bytes;
 use shiro_application::library::{
     book::{
         commands::{
-            GetBookFileMetaCommand, OpenBookFileRangeCommand, RestoreBookIdCommand,
+            ChangeBookAuthorsCommand, ChangeBookDescriptionCommand, ChangeBookIdentifierCommand,
+            ChangeBookLanguageCommand, ChangeBookPublishedDateCommand, ChangeBookPublisherCommand,
+            ChangeBookSubtitleCommand, ClearBookAuthorsCommand, ClearBookDescriptionCommand,
+            ClearBookIdentifierCommand, ClearBookLanguageCommand, ClearBookPublishedDateCommand,
+            ClearBookPublisherCommand, ClearBookSubtitleCommand, CreateBookCommand,
+            DeleteBookCommand, GetBookFileMetaCommand, OpenBookFileRangeCommand,
+            RestoreBookIdCommand,
         },
         dto::{
-            BookFileDescriptor, BookNavigationOutput, BookmarkLocatorDto, EpubNavTargetDto,
-            EpubPointTargetDto, EpubRangeTargetDto, HighlightLocatorDto, NavigationLocatorDto,
-            NormalizedRectDto, PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto,
+            BookFileDescriptor, BookMetadataOutput, BookNavigationOutput, BookmarkLocatorDto,
+            EpubNavTargetDto, EpubPointTargetDto, EpubRangeTargetDto, HighlightLocatorDto,
+            NavigationLocatorDto, NormalizedRectDto, PdfDestDto, PdfPageRectsDto,
+            PdfSelectionTargetDto,
         },
         errors::BookApplicationError,
         file::{
             errors::BookFileApplicationError,
             service::{BookFileService, UploadTimeoutPolicy},
         },
-        queries::GetBooksQuery,
+        queries::{GetBookMetadataQuery, GetBooksQuery},
         service::BookService,
     },
     errors::LibraryApplicationError,
     ports::{
         BookFileMetadata, BookFileStorageError, BookFileStore, BookRepository,
-        BookRepositoryError, BookTransaction, CoverByteStream, OpenedBookFile, TagRepository,
-        TagRepositoryError, TagTransaction,
+        BookRepositoryError, BookTransaction, CoverByteStream, ExtractedBookMetadata,
+        OpenedBookFile, TagRepository, TagRepositoryError, TagTransaction,
     },
     tag::service::TagService,
 };
 use shiro_domain::library::{
     book::{
-        entity::{Book, BookChange},
+        entity::{Book, BookChange, BookMetadata, BookMetadataChange},
         errors::BookDomainError,
-        file::entity::BookFileType,
         locator::{
             BookAnchor, EpubAnchor, EpubFragment, EpubNavTarget, EpubPointTarget,
             EpubResourcePath, NavigationLocator, ReadingUnitOffset,
         },
         navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{BookHash, BookId, BookTitle, TocEntryFlags},
+        value_objects::{
+            BookAuthor, BookDescription, BookFileType, BookHash, BookId, BookIdentifier,
+            BookLanguage, BookPublishedDate, BookPublisher, BookStatus, BookSubtitle, BookTitle,
+            TocEntryFlags,
+        },
     },
     tag::{
         entity::{BookTag, BookTagChange, TagDefinition, TagDefinitionChange},
@@ -67,6 +77,7 @@ struct SaveGate {
 struct MockBookFileStore {
     files: Mutex<HashMap<Hash, (BookFileMetadata, Bytes)>>,
     navigations: Mutex<HashMap<Hash, BookNavigation>>,
+    extracted_metadata: Mutex<HashMap<Hash, ExtractedBookMetadata>>,
     save_error: Mutex<Option<BookFileStorageError>>,
     open_error: Mutex<Option<BookFileStorageError>>,
     gate: Mutex<Option<Arc<SaveGate>>>,
@@ -87,6 +98,13 @@ impl MockBookFileStore {
         self.navigations.lock().unwrap().insert(hash, navigation);
     }
 
+    fn set_extracted_metadata(&self, hash: Hash, metadata: ExtractedBookMetadata) {
+        self.extracted_metadata
+            .lock()
+            .unwrap()
+            .insert(hash, metadata);
+    }
+
     fn insert_existing(&self, hash: Hash, file_type: Option<BookFileType>) {
         if let Some(ft) = file_type {
             self.files.lock().unwrap().insert(
@@ -95,6 +113,7 @@ impl MockBookFileStore {
                     BookFileMetadata {
                         file_type: ft,
                         size: 0,
+                        page_count: None,
                     },
                     Bytes::new(),
                 ),
@@ -103,9 +122,20 @@ impl MockBookFileStore {
     }
 
     fn insert_book_file(&self, hash: Hash, file_type: BookFileType, data: Bytes) {
+        self.insert_book_file_with_pages(hash, file_type, data, None);
+    }
+
+    fn insert_book_file_with_pages(
+        &self,
+        hash: Hash,
+        file_type: BookFileType,
+        data: Bytes,
+        page_count: Option<u32>,
+    ) {
         let meta = BookFileMetadata {
             file_type,
             size: data.len() as u64,
+            page_count,
         };
         self.files.lock().unwrap().insert(hash, (meta, data));
     }
@@ -184,6 +214,7 @@ impl BookFileStore for MockBookFileStore {
                 BookFileMetadata {
                     file_type: BookFileType::EPUB,
                     size: data.len() as u64,
+                    page_count: None,
                 },
                 data,
             ),
@@ -289,21 +320,46 @@ impl BookFileStore for MockBookFileStore {
             .cloned()
             .unwrap_or_else(BookNavigation::empty)
     }
+
+    async fn extract_metadata(&self, hash: &Hash) -> ExtractedBookMetadata {
+        self.extracted_metadata
+            .lock()
+            .unwrap()
+            .get(hash)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Default)]
 struct MockBookRepository {
     books: Arc<Mutex<Vec<Book>>>,
+    metadata: Arc<Mutex<HashMap<BookId, BookMetadata>>>,
     occupied_titles: Arc<Mutex<HashSet<String>>>,
+}
+
+impl MockBookRepository {
+    fn with_books(books: Vec<Book>, occupied_titles: HashSet<String>) -> Self {
+        let metadata = books
+            .iter()
+            .map(|book| {
+                let mut meta = BookMetadata::empty(book.id().clone());
+                if book.status() != BookStatus::Active {
+                    let _ = meta.mark_deleted();
+                }
+                (book.id().clone(), meta)
+            })
+            .collect();
+        Self {
+            books: Arc::new(Mutex::new(books)),
+            metadata: Arc::new(Mutex::new(metadata)),
+            occupied_titles: Arc::new(Mutex::new(occupied_titles)),
+        }
+    }
 }
 
 impl BookRepository for MockBookRepository {
     type Tx<'a> = MockBookTransaction;
-
-    async fn create(&mut self, book: Book) -> Result<Book, BookRepositoryError> {
-        self.books.lock().unwrap().push(book.clone());
-        Ok(book)
-    }
 
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
         self.books
@@ -311,6 +367,18 @@ impl BookRepository for MockBookRepository {
             .unwrap()
             .iter()
             .find(|book| book.id() == id)
+            .cloned()
+            .ok_or(BookRepositoryError::NotFound)
+    }
+
+    async fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        self.metadata
+            .lock()
+            .unwrap()
+            .get(book_id)
             .cloned()
             .ok_or(BookRepositoryError::NotFound)
     }
@@ -326,22 +394,40 @@ impl BookRepository for MockBookRepository {
     async fn begin_transaction(&mut self) -> Result<Self::Tx<'_>, BookRepositoryError> {
         Ok(MockBookTransaction {
             books: Arc::clone(&self.books),
+            metadata: Arc::clone(&self.metadata),
             occupied_titles: Arc::clone(&self.occupied_titles),
             pending_books: Vec::new(),
+            updated_books: Vec::new(),
+            pending_metadata: Vec::new(),
+            updated_metadata: Vec::new(),
+            deleted_book_ids: Vec::new(),
         })
     }
 }
 
 struct MockBookTransaction {
     books: Arc<Mutex<Vec<Book>>>,
+    metadata: Arc<Mutex<HashMap<BookId, BookMetadata>>>,
     occupied_titles: Arc<Mutex<HashSet<String>>>,
     pending_books: Vec<Book>,
+    updated_books: Vec<Book>,
+    pending_metadata: Vec<BookMetadata>,
+    updated_metadata: Vec<BookMetadata>,
+    deleted_book_ids: Vec<BookId>,
 }
 
 impl BookTransaction for MockBookTransaction {
     async fn create_book(&mut self, book: Book) -> Result<Book, BookRepositoryError> {
         self.pending_books.push(book.clone());
         Ok(book)
+    }
+
+    async fn create_metadata(
+        &mut self,
+        metadata: BookMetadata,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        self.pending_metadata.push(metadata.clone());
+        Ok(metadata)
     }
 
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
@@ -354,19 +440,65 @@ impl BookTransaction for MockBookTransaction {
             .ok_or(BookRepositoryError::NotFound)
     }
 
-    async fn find_by_ids(&mut self, _ids: &[BookId]) -> Result<Vec<Book>, BookRepositoryError> {
-        Ok(Vec::new())
+    async fn find_by_ids(&mut self, ids: &[BookId]) -> Result<Vec<Book>, BookRepositoryError> {
+        let id_set: HashSet<&BookId> = ids.iter().collect();
+        Ok(self
+            .books
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|book| id_set.contains(book.id()))
+            .cloned()
+            .collect())
+    }
+
+    async fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        self.metadata
+            .lock()
+            .unwrap()
+            .get(book_id)
+            .cloned()
+            .ok_or(BookRepositoryError::NotFound)
+    }
+
+    async fn find_metadata_by_book_ids(
+        &mut self,
+        book_ids: &[BookId],
+    ) -> Result<Vec<BookMetadata>, BookRepositoryError> {
+        let metadata = self.metadata.lock().unwrap();
+        Ok(book_ids
+            .iter()
+            .filter_map(|id| metadata.get(id).cloned())
+            .collect())
     }
 
     async fn list_active_titles(&mut self) -> Result<HashSet<String>, BookRepositoryError> {
         Ok(self.occupied_titles.lock().unwrap().clone())
     }
 
-    async fn apply_book_change(&mut self, _change: BookChange<'_>) -> Result<(), BookRepositoryError> {
+    async fn apply_book_change(&mut self, change: BookChange<'_>) -> Result<(), BookRepositoryError> {
+        if !change.fields().is_empty() {
+            self.updated_books.push(change.entity().clone());
+        }
         Ok(())
     }
 
-    async fn delete_books(&mut self, _books: Vec<Book>) -> Result<(), BookRepositoryError> {
+    async fn apply_metadata_change(
+        &mut self,
+        change: BookMetadataChange<'_>,
+    ) -> Result<(), BookRepositoryError> {
+        if !change.fields().is_empty() {
+            self.updated_metadata.push(change.entity().clone());
+        }
+        Ok(())
+    }
+
+    async fn delete_books(&mut self, books: Vec<Book>) -> Result<(), BookRepositoryError> {
+        self.deleted_book_ids
+            .extend(books.into_iter().map(|book| book.id().clone()));
         Ok(())
     }
 
@@ -385,7 +517,26 @@ impl BookTransaction for MockBookTransaction {
     }
 
     async fn commit(self) -> Result<(), BookRepositoryError> {
-        self.books.lock().unwrap().extend(self.pending_books);
+        let mut books = self.books.lock().unwrap();
+        books.extend(self.pending_books);
+        for updated in self.updated_books {
+            if let Some(existing) = books.iter_mut().find(|book| book.id() == updated.id()) {
+                *existing = updated;
+            }
+        }
+        if !self.deleted_book_ids.is_empty() {
+            books.retain(|b| !self.deleted_book_ids.contains(b.id()));
+        }
+        let mut metadata = self.metadata.lock().unwrap();
+        for item in self.pending_metadata {
+            metadata.insert(item.book_id().clone(), item);
+        }
+        for item in self.updated_metadata {
+            metadata.insert(item.book_id().clone(), item);
+        }
+        for id in self.deleted_book_ids {
+            metadata.remove(&id);
+        }
         Ok(())
     }
 }
@@ -680,10 +831,7 @@ async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_exi
     );
     let orphan_id = orphan_book.id().to_string();
 
-    let repo = MockBookRepository {
-        books: Arc::new(Mutex::new(vec![active, trashed, orphan_book])),
-        occupied_titles: Arc::new(Mutex::new(HashSet::new())),
-    };
+    let repo = MockBookRepository::with_books(vec![active, trashed, orphan_book], HashSet::new());
     let store = MockBookFileStore::default();
     store.insert_book_file(hash, BookFileType::EPUB, payload.clone());
 
@@ -786,10 +934,7 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
         occupied.insert(format!("Title ({suffix})"));
     }
 
-    let repo = MockBookRepository {
-        books: Arc::new(Mutex::new(vec![trashed.clone()])),
-        occupied_titles: Arc::new(Mutex::new(occupied)),
-    };
+    let repo = MockBookRepository::with_books(vec![trashed.clone()], occupied);
     let store = MockBookFileStore::default();
     // Intentionally leave file type missing for hash -> get_trash and get_books reflect Unsupported.
     store.insert_existing(hash, None);
@@ -815,10 +960,7 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
         BookTitle::parse("ActiveNoType").unwrap(),
         BookHash::new(hash),
     );
-    let active_repo = MockBookRepository {
-        books: Arc::new(Mutex::new(vec![active])),
-        occupied_titles: Arc::new(Mutex::new(HashSet::new())),
-    };
+    let active_repo = MockBookRepository::with_books(vec![active], HashSet::new());
     let mut active_service = BookService::new(
         active_repo,
         Arc::new(BookFileService::new(MockBookFileStore::default())),
@@ -1248,10 +1390,7 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
     )
     .unwrap();
 
-    let repo = MockBookRepository {
-        books: Arc::new(Mutex::new(vec![active, trashed, orphan_book])),
-        occupied_titles: Arc::new(Mutex::new(HashSet::new())),
-    };
+    let repo = MockBookRepository::with_books(vec![active, trashed, orphan_book], HashSet::new());
     let store = MockBookFileStore::default();
     store.insert_book_file(hash, BookFileType::EPUB, payload);
     store.set_navigation(hash, nav);
@@ -1551,4 +1690,657 @@ fn book_navigation_output_conversion_is_zero_copy() {
         }
         other => panic!("unexpected locator dto: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn book_service_create_populates_extracted_metadata_and_converges_output() {
+    let payload = Bytes::from_static(b"%PDF-1.4-mock");
+    let hash = blake3::hash(&payload);
+    let hash_hex = hash.to_hex().to_string();
+
+    let store = MockBookFileStore::default();
+    store.insert_book_file_with_pages(hash, BookFileType::PDF, payload.clone(), Some(128));
+    store.set_extracted_metadata(
+        hash,
+        ExtractedBookMetadata {
+            subtitle: Some(BookSubtitle::parse("Second Edition").unwrap()),
+            authors: vec![
+                BookAuthor::parse("Ada Lovelace").unwrap(),
+                BookAuthor::parse("Grace Hopper").unwrap(),
+            ],
+            publisher: Some(BookPublisher::parse("MIT Press").unwrap()),
+            published_date: Some(BookPublishedDate::parse("2024-03").unwrap()),
+            language: Some(BookLanguage::parse("en-us").unwrap()),
+            description: Some(BookDescription::parse("Mock PDF book").unwrap()),
+            identifier: Some(BookIdentifier::parse("978-0-306-40615-7").unwrap()),
+        },
+    );
+
+    let repo = MockBookRepository::default();
+    let mut service = BookService::new(repo.clone(), Arc::new(BookFileService::new(store)));
+
+    let created = service
+        .create_book(CreateBookCommand {
+            title: "PDF With Metadata".into(),
+            hash: hash_hex,
+        })
+        .await
+        .expect("create book");
+
+    let output: BookMetadataOutput = service
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("get converged book metadata");
+
+    let expected_updated_at = {
+        let book_id = BookId::parse(&created.id).unwrap();
+        let stored_book = repo
+            .books
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|book| book.id() == &book_id)
+            .cloned()
+            .unwrap();
+        let stored_meta = repo.metadata.lock().unwrap().get(&book_id).cloned().unwrap();
+        stored_book
+            .updated_at()
+            .max(stored_meta.updated_at())
+            .to_string()
+    };
+
+    assert_eq!(output.book_id, created.id);
+    assert_eq!(output.subtitle.as_deref(), Some("Second Edition"));
+    assert_eq!(output.authors, vec!["Ada Lovelace", "Grace Hopper"]);
+    assert_eq!(output.publisher.as_deref(), Some("MIT Press"));
+    assert_eq!(output.published_date.as_deref(), Some("2024-03"));
+    assert_eq!(output.language.as_deref(), Some("en-US"));
+    assert_eq!(output.description.as_deref(), Some("Mock PDF book"));
+    assert_eq!(output.identifier.as_deref(), Some("9780306406157"));
+    assert_eq!(output.file_type, "PDF");
+    assert_eq!(output.size, payload.len() as u64);
+    assert_eq!(output.page_count, Some(128));
+    assert_eq!(output.created_at, created.created_at);
+    assert_eq!(output.updated_at, expected_updated_at);
+}
+
+#[tokio::test]
+async fn book_service_metadata_changes_enforce_validation_active_state_and_existence() {
+    let payload = Bytes::from_static(b"epub-bytes");
+    let hash = blake3::hash(&payload);
+    let hash_hex = hash.to_hex().to_string();
+
+    let store = MockBookFileStore::default();
+    store.insert_book_file(hash, BookFileType::EPUB, payload);
+    let repo = MockBookRepository::default();
+    let mut service = BookService::new(repo.clone(), Arc::new(BookFileService::new(store)));
+
+    let created = service
+        .create_book(CreateBookCommand {
+            title: "Editable Metadata Book".into(),
+            hash: hash_hex,
+        })
+        .await
+        .expect("create book");
+
+    // Initial empty fields reject clearing.
+    assert!(matches!(
+        service
+            .clear_book_subtitle(ClearBookSubtitleCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::SubtitleUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_authors(ClearBookAuthorsCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AuthorsUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_publisher(ClearBookPublisherCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::PublisherUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_published_date(ClearBookPublishedDateCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::PublishedDateUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_language(ClearBookLanguageCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::LanguageUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_description(ClearBookDescriptionCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::DescriptionUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_identifier(ClearBookIdentifierCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::IdentifierUnchanged
+        ))
+    ));
+
+    // Invalid inputs are rejected before mutating state.
+    assert!(matches!(
+        service
+            .change_book_subtitle(ChangeBookSubtitleCommand {
+                id: created.id.clone(),
+                subtitle: " Leading".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidSubtitle
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_authors(ChangeBookAuthorsCommand {
+                id: created.id.clone(),
+                authors: vec![],
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidAuthor
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_authors(ChangeBookAuthorsCommand {
+                id: created.id.clone(),
+                authors: vec!["Alice".into(), "Alice".into()],
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidAuthor
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_published_date(ChangeBookPublishedDateCommand {
+                id: created.id.clone(),
+                published_date: "2023-02-29".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidPublishedDate
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_language(ChangeBookLanguageCommand {
+                id: created.id.clone(),
+                language: "english".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidLanguage
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_description(ChangeBookDescriptionCommand {
+                id: created.id.clone(),
+                description: "   ".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidDescription
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_identifier(ChangeBookIdentifierCommand {
+                id: created.id.clone(),
+                identifier: "978-0-306-40615-8".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::InvalidIdentifier
+        ))
+    ));
+
+    // All 7 mutations succeed and canonicalize cleanly.
+    service
+        .change_book_subtitle(ChangeBookSubtitleCommand {
+            id: created.id.clone(),
+            subtitle: "Vol. 1".into(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_authors(ChangeBookAuthorsCommand {
+            id: created.id.clone(),
+            authors: vec!["Alice".into(), "Bob".into()],
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        service
+            .change_book_authors(ChangeBookAuthorsCommand {
+                id: created.id.clone(),
+                authors: vec!["Alice".into(), "Bob".into()],
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AuthorsUnchanged
+        ))
+    ));
+    service
+        .change_book_publisher(ChangeBookPublisherCommand {
+            id: created.id.clone(),
+            publisher: "Shiro".into(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_published_date(ChangeBookPublishedDateCommand {
+            id: created.id.clone(),
+            published_date: "2025".into(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_language(ChangeBookLanguageCommand {
+            id: created.id.clone(),
+            language: "ja-jp".into(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_description(ChangeBookDescriptionCommand {
+            id: created.id.clone(),
+            description: "Synopsis".into(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_identifier(ChangeBookIdentifierCommand {
+            id: created.id.clone(),
+            identifier: "ISBN-10:0-8044-2957-x".into(),
+        })
+        .await
+        .unwrap();
+
+    let updated = service
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.subtitle.as_deref(), Some("Vol. 1"));
+    assert_eq!(updated.authors, vec!["Alice", "Bob"]);
+    assert_eq!(updated.publisher.as_deref(), Some("Shiro"));
+    assert_eq!(updated.published_date.as_deref(), Some("2025"));
+    assert_eq!(updated.language.as_deref(), Some("ja-JP"));
+    assert_eq!(updated.description.as_deref(), Some("Synopsis"));
+    assert_eq!(updated.identifier.as_deref(), Some("080442957X"));
+    assert_eq!(updated.page_count, None);
+    let expected_updated_at = {
+        let book_id = BookId::parse(&created.id).unwrap();
+        let stored_book = repo
+            .books
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|book| book.id() == &book_id)
+            .cloned()
+            .unwrap();
+        let stored_meta = repo.metadata.lock().unwrap().get(&book_id).cloned().unwrap();
+        stored_book
+            .updated_at()
+            .max(stored_meta.updated_at())
+            .to_string()
+    };
+    assert_eq!(updated.created_at, created.created_at);
+    assert_eq!(updated.updated_at, expected_updated_at);
+
+    // Clearing all 7 populated fields resets them to None/empty and rejects repeated clear.
+    service
+        .clear_book_subtitle(ClearBookSubtitleCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_authors(ClearBookAuthorsCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_publisher(ClearBookPublisherCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_published_date(ClearBookPublishedDateCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_language(ClearBookLanguageCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_description(ClearBookDescriptionCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .clear_book_identifier(ClearBookIdentifierCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+
+    let cleared = service
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(cleared.subtitle, None);
+    assert!(cleared.authors.is_empty());
+    assert_eq!(cleared.publisher, None);
+    assert_eq!(cleared.published_date, None);
+    assert_eq!(cleared.language, None);
+    assert_eq!(cleared.description, None);
+    assert_eq!(cleared.identifier, None);
+
+    assert!(matches!(
+        service
+            .clear_book_subtitle(ClearBookSubtitleCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::SubtitleUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_authors(ClearBookAuthorsCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AuthorsUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_publisher(ClearBookPublisherCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::PublisherUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_published_date(ClearBookPublishedDateCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::PublishedDateUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_language(ClearBookLanguageCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::LanguageUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_description(ClearBookDescriptionCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::DescriptionUnchanged
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_identifier(ClearBookIdentifierCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::IdentifierUnchanged
+        ))
+    ));
+
+    // Distinct timestamps on Book vs BookMetadata verify get_book_metadata picks the newer updated_at
+    // while keeping created_at from Book.
+    let distinct_id = BookId::new();
+    let distinct_book = Book::reconstruct(
+        distinct_id.clone(),
+        BookTitle::parse("Distinct Timestamps").unwrap(),
+        BookHash::new(hash),
+        "2025-01-01T00:00:00Z".parse().unwrap(),
+        "2025-01-02T00:00:00Z".parse().unwrap(),
+        None,
+    );
+    let distinct_meta = BookMetadata::reconstruct(
+        distinct_id.clone(),
+        None,
+        Vec::new(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        "2026-06-01T00:00:00Z".parse().unwrap(),
+        "2026-06-02T00:00:00Z".parse().unwrap(),
+        None,
+    );
+    repo.books.lock().unwrap().push(distinct_book);
+    repo.metadata
+        .lock()
+        .unwrap()
+        .insert(distinct_id.clone(), distinct_meta);
+    let distinct_output = service
+        .get_book_metadata(GetBookMetadataQuery {
+            id: distinct_id.to_string(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(distinct_output.created_at, "2025-01-01T00:00:00Z");
+    assert_eq!(distinct_output.updated_at, "2026-06-02T00:00:00Z");
+
+    let book_newer_id = BookId::new();
+    let book_newer = Book::reconstruct(
+        book_newer_id.clone(),
+        BookTitle::parse("Book Newer Timestamp").unwrap(),
+        BookHash::new(hash),
+        "2025-01-01T00:00:00Z".parse().unwrap(),
+        "2026-08-02T00:00:00Z".parse().unwrap(),
+        None,
+    );
+    let meta_older = BookMetadata::reconstruct(
+        book_newer_id.clone(),
+        None,
+        Vec::new(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        "2026-06-01T00:00:00Z".parse().unwrap(),
+        "2026-06-02T00:00:00Z".parse().unwrap(),
+        None,
+    );
+    repo.books.lock().unwrap().push(book_newer);
+    repo.metadata
+        .lock()
+        .unwrap()
+        .insert(book_newer_id.clone(), meta_older);
+    let book_newer_output = service
+        .get_book_metadata(GetBookMetadataQuery {
+            id: book_newer_id.to_string(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(book_newer_output.created_at, "2025-01-01T00:00:00Z");
+    assert_eq!(book_newer_output.updated_at, "2026-08-02T00:00:00Z");
+
+    // Trashed book and trashed metadata reject reads, changes, and clears with AlreadyDeleted.
+    let mut trashed = Book::new(
+        BookId::new(),
+        BookTitle::parse("Trashed").unwrap(),
+        BookHash::new(hash),
+    );
+    let trashed_book_id = trashed.id().clone();
+    let trashed_id = trashed_book_id.to_string();
+    let _ = trashed.mark_deleted().unwrap();
+    let mut trashed_meta = BookMetadata::empty(trashed_book_id.clone());
+    let _ = trashed_meta.mark_deleted().unwrap();
+    repo.books.lock().unwrap().push(trashed);
+    repo.metadata
+        .lock()
+        .unwrap()
+        .insert(trashed_book_id, trashed_meta);
+
+    assert!(matches!(
+        service
+            .get_book_metadata(GetBookMetadataQuery {
+                id: trashed_id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_authors(ChangeBookAuthorsCommand {
+                id: trashed_id.clone(),
+                authors: vec!["X".into()],
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_subtitle(ClearBookSubtitleCommand {
+                id: trashed_id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .change_book_publisher(ChangeBookPublisherCommand {
+                id: trashed_id.clone(),
+                publisher: "X".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_publisher(ClearBookPublisherCommand { id: trashed_id })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+
+    // Soft-deleting and restoring a book cascades deleted_at to BookMetadata.
+    service
+        .delete_book(DeleteBookCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    assert!(matches!(
+        service
+            .change_book_publisher(ChangeBookPublisherCommand {
+                id: created.id.clone(),
+                publisher: "Blocked".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        service
+            .clear_book_language(ClearBookLanguageCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    service
+        .restore_book(RestoreBookIdCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .unwrap();
+    service
+        .change_book_publisher(ChangeBookPublisherCommand {
+            id: created.id,
+            publisher: "Restored Press".into(),
+        })
+        .await
+        .unwrap();
 }

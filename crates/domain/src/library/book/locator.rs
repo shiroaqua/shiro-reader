@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use derive_more::{AsRef, Display, Into};
 
-use super::{errors::BookDomainError, file::entity::BookFileType};
+use crate::library::book::value_objects::BookFileType;
+
+use super::{errors::BookDomainError};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct ReadingUnitOffset(f32);

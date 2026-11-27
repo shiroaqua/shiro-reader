@@ -173,6 +173,10 @@ export function MobileDashboardScreen() {
             headerOverlay={headerOverlay}
             search={bookSearch}
             onSearchChange={setBookSearch}
+            onSearchTag={(query) => {
+              setBookSearch(query)
+              setSearchOpen(true)
+            }}
             onOpenBook={(book) => {
               mobileReaderStore.openBook(book)
             }}

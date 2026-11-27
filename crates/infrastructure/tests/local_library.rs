@@ -7,17 +7,25 @@ use std::{
 use futures_util::TryStreamExt;
 use shiro_application::library::{
     book::{
-        commands::{CreateBookCommand, GetBookCoverCommand},
+        commands::{
+            ChangeBookAuthorsCommand, ChangeBookDescriptionCommand, ChangeBookIdentifierCommand,
+            ChangeBookLanguageCommand, ChangeBookPublishedDateCommand, ChangeBookPublisherCommand,
+            ChangeBookSubtitleCommand, ClearBookAuthorsCommand, ClearBookLanguageCommand,
+            ClearBookPublisherCommand, ClearBookSubtitleCommand, CreateBookCommand,
+            DeleteBookCommand, GetBookCoverCommand, PermanentlyDeleteBooksCommand,
+            RestoreBookIdCommand,
+        },
+        errors::BookApplicationError,
         file::errors::BookFileApplicationError,
-        queries::GetBooksQuery,
+        queries::{GetBookMetadataQuery, GetBooksQuery},
     },
     errors::LibraryApplicationError,
     tag::commands::{BindBookTagCommand, CreateTagDefinitionCommand, UndefineTagCommand},
 };
 use shiro_domain::library::{
     book::{
-        file::entity::BookFileType,
         locator::NavigationLocator,
+        value_objects::BookFileType,
     },
     tag::value_objects::TagDeleteStrategy,
 };
@@ -547,6 +555,289 @@ async fn local_library_extract_navigation_handles_valid_epub_and_returns_empty_o
         .extract_book_navigation(&broken_pdf_hash)
         .await;
     assert!(pdf_nav.is_empty());
+}
+
+#[tokio::test]
+async fn local_library_book_metadata_extracts_persists_updates_and_cascades_on_permanent_delete() {
+    let dir = tempfile::tempdir().unwrap();
+    let epub_bytes = fs::read(workspace_root().join("apps/server/tests/samples/sample_document.epub"))
+        .expect("sample_document.epub fixture");
+
+    let library = LocalLibrary::open(dir.path(), None)
+        .await
+        .expect("open local library");
+
+    let hash = upload_bytes(&library, &epub_bytes).await;
+    let created = library
+        .book_service()
+        .create_book(CreateBookCommand {
+            title: "Sample Metadata Book".into(),
+            hash,
+        })
+        .await
+        .expect("create book");
+
+    let initial_meta = library
+        .book_service()
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("get initial metadata");
+    assert_eq!(initial_meta.book_id, created.id);
+    assert_eq!(initial_meta.file_type, "EPUB");
+    assert_eq!(initial_meta.size, epub_bytes.len() as u64);
+    assert_eq!(initial_meta.page_count, None);
+    assert_eq!(initial_meta.created_at, created.created_at);
+    let initial_updated_at: jiff::Timestamp = initial_meta.updated_at.parse().unwrap();
+    let created_updated_at: jiff::Timestamp = created.updated_at.parse().unwrap();
+    assert!(initial_updated_at >= created_updated_at);
+
+    // Update all 7 metadata fields.
+    library
+        .book_service()
+        .change_book_subtitle(ChangeBookSubtitleCommand {
+            id: created.id.clone(),
+            subtitle: "Second Edition".into(),
+        })
+        .await
+        .expect("update subtitle");
+    library
+        .book_service()
+        .change_book_authors(ChangeBookAuthorsCommand {
+            id: created.id.clone(),
+            authors: vec!["Ada Lovelace".into(), "Grace Hopper".into()],
+        })
+        .await
+        .expect("update authors");
+    library
+        .book_service()
+        .change_book_publisher(ChangeBookPublisherCommand {
+            id: created.id.clone(),
+            publisher: "Shiro Press".into(),
+        })
+        .await
+        .expect("update publisher");
+    library
+        .book_service()
+        .change_book_published_date(ChangeBookPublishedDateCommand {
+            id: created.id.clone(),
+            published_date: "2025-08".into(),
+        })
+        .await
+        .expect("update published_date");
+    library
+        .book_service()
+        .change_book_language(ChangeBookLanguageCommand {
+            id: created.id.clone(),
+            language: "zh-hans-cn".into(),
+        })
+        .await
+        .expect("update language");
+    library
+        .book_service()
+        .change_book_description(ChangeBookDescriptionCommand {
+            id: created.id.clone(),
+            description: "First paragraph.\nSecond paragraph.".into(),
+        })
+        .await
+        .expect("update description");
+    library
+        .book_service()
+        .change_book_identifier(ChangeBookIdentifierCommand {
+            id: created.id.clone(),
+            identifier: "CN 11-0106".into(),
+        })
+        .await
+        .expect("update identifier");
+
+    // Restart library and verify persisted values & canonicalization.
+    drop(library);
+    let reopened = LocalLibrary::open(dir.path(), None)
+        .await
+        .expect("reopen local library");
+
+    let persisted = reopened
+        .book_service()
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("get persisted metadata");
+    assert_eq!(persisted.subtitle.as_deref(), Some("Second Edition"));
+    assert_eq!(persisted.authors, vec!["Ada Lovelace", "Grace Hopper"]);
+    assert_eq!(persisted.publisher.as_deref(), Some("Shiro Press"));
+    assert_eq!(persisted.published_date.as_deref(), Some("2025-08"));
+    assert_eq!(persisted.language.as_deref(), Some("zh-Hans-CN"));
+    assert_eq!(
+        persisted.description.as_deref(),
+        Some("First paragraph.\nSecond paragraph.")
+    );
+    assert_eq!(persisted.identifier.as_deref(), Some("CN:11-0106"));
+    assert_eq!(persisted.page_count, None);
+    assert_eq!(persisted.size, epub_bytes.len() as u64);
+    assert_eq!(persisted.created_at, created.created_at);
+    let persisted_updated_at: jiff::Timestamp = persisted.updated_at.parse().unwrap();
+    assert!(persisted_updated_at >= initial_updated_at);
+    assert!(persisted_updated_at > created_updated_at);
+
+    // Clearing fields to None/empty works and persists; clearing again is rejected.
+    reopened
+        .book_service()
+        .clear_book_subtitle(ClearBookSubtitleCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("clear subtitle");
+    reopened
+        .book_service()
+        .clear_book_authors(ClearBookAuthorsCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("clear authors");
+    reopened
+        .book_service()
+        .clear_book_publisher(ClearBookPublisherCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("clear publisher");
+    let after_clear = reopened
+        .book_service()
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("get metadata after clear");
+    assert_eq!(after_clear.subtitle, None);
+    assert!(after_clear.authors.is_empty());
+    assert_eq!(after_clear.publisher, None);
+    assert!(matches!(
+        reopened
+            .book_service()
+            .clear_book_subtitle(ClearBookSubtitleCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::SubtitleUnchanged
+        ))
+    ));
+    assert!(matches!(
+        reopened
+            .book_service()
+            .clear_book_authors(ClearBookAuthorsCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AuthorsUnchanged
+        ))
+    ));
+    assert!(matches!(
+        reopened
+            .book_service()
+            .clear_book_publisher(ClearBookPublisherCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::PublisherUnchanged
+        ))
+    ));
+
+    // Soft-deleting blocks metadata access; restoring brings it back intact.
+    reopened
+        .book_service()
+        .delete_book(DeleteBookCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("soft delete book");
+    assert!(matches!(
+        reopened
+            .book_service()
+            .get_book_metadata(GetBookMetadataQuery {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        reopened
+            .book_service()
+            .change_book_language(ChangeBookLanguageCommand {
+                id: created.id.clone(),
+                language: "en".into(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+    assert!(matches!(
+        reopened
+            .book_service()
+            .clear_book_language(ClearBookLanguageCommand {
+                id: created.id.clone(),
+            })
+            .await,
+        Err(LibraryApplicationError::Book(
+            BookApplicationError::AlreadyDeleted
+        ))
+    ));
+
+    reopened
+        .book_service()
+        .restore_book(RestoreBookIdCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("restore book");
+    let after_restore = reopened
+        .book_service()
+        .get_book_metadata(GetBookMetadataQuery {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("metadata preserved after restore");
+    assert_eq!(after_restore.identifier.as_deref(), Some("CN:11-0106"));
+
+    reopened
+        .book_service()
+        .change_book_language(ChangeBookLanguageCommand {
+            id: created.id.clone(),
+            language: "en".into(),
+        })
+        .await
+        .expect("metadata change succeeds again after restore");
+
+    // Permanent delete cascades removal of book_metadata row.
+    reopened
+        .book_service()
+        .delete_book(DeleteBookCommand {
+            id: created.id.clone(),
+        })
+        .await
+        .expect("soft delete before permanent delete");
+    reopened
+        .book_service()
+        .permanently_delete_books(PermanentlyDeleteBooksCommand {
+            ids: vec![created.id.clone()],
+        })
+        .await
+        .expect("permanently delete book");
+
+    assert!(matches!(
+        reopened
+            .book_service()
+            .get_book_metadata(GetBookMetadataQuery { id: created.id })
+            .await,
+        Err(LibraryApplicationError::Book(BookApplicationError::NotFound))
+    ));
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) {

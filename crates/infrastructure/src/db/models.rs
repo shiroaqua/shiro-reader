@@ -1,7 +1,10 @@
 use shiro_domain::library::{
     book::{
-        entity::Book,
-        value_objects::{BookId, BookTitle},
+        entity::{Book, BookMetadata},
+        value_objects::{
+            BookDescription, BookId, BookIdentifier, BookLanguage, BookPublishedDate,
+            BookPublisher, BookSubtitle, BookTitle,
+        },
     },
     tag::{
         entity::{BookTag, TagDefinition},
@@ -19,7 +22,7 @@ use shiro_domain::identity::{
     },
 };
 
-use super::scalars::{DbBookHash, DbTagValueRule, DbTimestamp};
+use super::scalars::{DbBookAuthors, DbBookHash, DbTagValueRule, DbTimestamp};
 
 #[derive(Debug, Clone, toasty::Model)]
 #[table = "books"]
@@ -69,6 +72,91 @@ impl TryFrom<BookRecord> for Book {
             BookId::from_uuid(record.id),
             title,
             record.hash.into(),
+            record.created_at.into(),
+            record.updated_at.into(),
+            record.deleted_at.map(Into::into),
+        ))
+    }
+}
+
+#[derive(Debug, Clone, toasty::Model)]
+#[table = "book_metadata"]
+pub struct BookMetadataRecord {
+    #[key]
+    pub book_id: Uuid,
+    pub subtitle: Option<String>,
+    pub authors: DbBookAuthors,
+    pub publisher: Option<String>,
+    pub published_date: Option<String>,
+    pub language: Option<String>,
+    pub description: Option<String>,
+    pub identifier: Option<String>,
+    pub created_at: DbTimestamp,
+    pub updated_at: DbTimestamp,
+    pub deleted_at: Option<DbTimestamp>,
+}
+
+impl BookMetadataRecord {
+    pub fn into_create(self) -> <Self as toasty::codegen_support::Model>::Create {
+        Self::create()
+            .book_id(self.book_id)
+            .subtitle(self.subtitle)
+            .authors(self.authors)
+            .publisher(self.publisher)
+            .published_date(self.published_date)
+            .language(self.language)
+            .description(self.description)
+            .identifier(self.identifier)
+            .created_at(self.created_at)
+            .updated_at(self.updated_at)
+            .deleted_at(self.deleted_at)
+    }
+}
+
+impl From<BookMetadata> for BookMetadataRecord {
+    fn from(metadata: BookMetadata) -> Self {
+        let inner = metadata.into_inner();
+        Self {
+            book_id: inner.book_id.as_uuid(),
+            subtitle: inner.subtitle.map(Into::into),
+            authors: DbBookAuthors(inner.authors),
+            publisher: inner.publisher.map(Into::into),
+            published_date: inner.published_date.map(|date| date.to_string()),
+            language: inner.language.map(Into::into),
+            description: inner.description.map(Into::into),
+            identifier: inner.identifier.map(Into::into),
+            created_at: DbTimestamp(inner.created_at),
+            updated_at: DbTimestamp(inner.updated_at),
+            deleted_at: inner.deleted_at.map(DbTimestamp),
+        }
+    }
+}
+
+impl TryFrom<BookMetadataRecord> for BookMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(record: BookMetadataRecord) -> Result<Self, Self::Error> {
+        Ok(BookMetadata::reconstruct(
+            BookId::from_uuid(record.book_id),
+            record.subtitle.map(BookSubtitle::parse).transpose()?,
+            record.authors.into(),
+            record.publisher.map(BookPublisher::parse).transpose()?,
+            record
+                .published_date
+                .as_deref()
+                .map(BookPublishedDate::parse)
+                .transpose()?,
+            record
+                .language
+                .as_deref()
+                .map(BookLanguage::parse)
+                .transpose()?,
+            record.description.map(BookDescription::parse).transpose()?,
+            record
+                .identifier
+                .as_deref()
+                .map(BookIdentifier::parse)
+                .transpose()?,
             record.created_at.into(),
             record.updated_at.into(),
             record.deleted_at.map(Into::into),

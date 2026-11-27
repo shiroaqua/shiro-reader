@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::{self, Cursor, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
@@ -10,15 +11,21 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use futures_util::{StreamExt, stream};
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
-use pdfium_render::prelude::{PdfPageRenderRotation, PdfRenderConfig, Pdfium};
+use pdfium_render::prelude::{
+    PdfDocumentMetadataTagType, PdfPageRenderRotation, PdfRenderConfig, Pdfium,
+};
 use rayon::prelude::*;
-use rbook::Epub;
+use rbook::{Epub, ebook::metadata::TitleKind};
 use shiro_application::library::ports::{
-    BookFileMetadata, BookFileStorageError, BookFileStore, CoverByteStream, OpenedBookFile,
+    BookFileMetadata, BookFileStorageError, BookFileStore, CoverByteStream,
+    ExtractedBookMetadata, OpenedBookFile,
 };
 use shiro_domain::library::book::{
-    file::entity::BookFileType,
     navigation::BookNavigation,
+    value_objects::{
+        BookAuthor, BookDescription, BookFileType, BookIdentifier, BookLanguage, BookPublishedDate,
+        BookPublisher, BookSubtitle, MAX_BOOK_AUTHORS,
+    },
 };
 use tokio::{
     fs::File,
@@ -29,7 +36,7 @@ use tokio_util::io::ReaderStream;
 use super::book_navigation;
 
 const BOOK_FILE_VERSION: u8 = 1;
-const BOOK_FILE_HEADER_SIZE: u64 = 1 + 1 + 32 + 8;
+const BOOK_FILE_HEADER_SIZE: u64 = 1 + 1 + 32 + 8 + 4;
 
 pub type StorageResult<T> = Result<T, BookFileStorageError>;
 
@@ -138,6 +145,53 @@ impl LocalBookFileStorage {
             }
         }
     }
+
+    /// Best-effort extracts embedded descriptive metadata from a stored book file.
+    ///
+    /// Returns an empty [`ExtractedBookMetadata`] if the file is missing or parsing fails.
+    pub async fn extract_metadata(&self, hash: &Hash) -> ExtractedBookMetadata {
+        let Some(meta) = self.get_meta(hash) else {
+            tracing::warn!(
+                hash = %hash.to_hex(),
+                reason = "book file metadata not found in storage",
+                "failed to extract book metadata, returning empty metadata"
+            );
+            return ExtractedBookMetadata::default();
+        };
+
+        let path = self.book_file_path(hash);
+        let pdfium = self.pdfium.clone();
+        let log_hash = hash.to_hex().to_string();
+        let log_path = path.display().to_string();
+
+        match tokio::task::spawn_blocking(move || {
+            extract_book_metadata_from_file(&path, meta, pdfium.as_deref())
+        })
+        .await
+        {
+            Ok(Ok(extracted)) => extracted,
+            Ok(Err(err)) => {
+                tracing::warn!(
+                    hash = %log_hash,
+                    file_type = %meta.file_type,
+                    path = %log_path,
+                    reason = %format!("{err:#}"),
+                    "failed to extract book metadata, returning empty metadata"
+                );
+                ExtractedBookMetadata::default()
+            }
+            Err(err) => {
+                tracing::warn!(
+                    hash = %log_hash,
+                    file_type = %meta.file_type,
+                    path = %log_path,
+                    reason = %err,
+                    "book metadata extraction task failed, returning empty metadata"
+                );
+                ExtractedBookMetadata::default()
+            }
+        }
+    }
 }
 
 impl BookFileStore for LocalBookFileStorage {
@@ -192,7 +246,7 @@ impl BookFileStore for LocalBookFileStorage {
             let temp_dir = dir.join(".temp");
 
             // 独立作用域确保克隆句柄在回填 Header 和 persist_noclobber 前关闭（兼容 Windows）。
-            let (file_type, extracted_cover) = {
+            let (file_type, page_count, extracted_cover) = {
                 let mut content = BookFileContentReader::new(
                     temp_file.as_file().try_clone()?,
                     BOOK_FILE_HEADER_SIZE,
@@ -208,17 +262,17 @@ impl BookFileStore for LocalBookFileStorage {
                 };
 
                 content.seek(SeekFrom::Start(0))?;
-                let cover = match file_type {
+                let (page_count, cover) = match file_type {
                     BookFileType::PDF => match pdfium.as_deref() {
-                        Some(pdfium) => extract_pdf_cover(content, pdfium),
-                        None => Err(anyhow::anyhow!("Pdfium library is not loaded")),
+                        Some(pdfium) => inspect_pdf_on_import(content, pdfium),
+                        None => (None, Err(anyhow::anyhow!("Pdfium library is not loaded"))),
                     },
-                    BookFileType::EPUB => extract_epub_cover(content),
+                    BookFileType::EPUB => (None, extract_epub_cover(content)),
                 };
                 let cover =
                     cover.and_then(|bytes| Ok((image::guess_format(&bytes)?, Bytes::from(bytes))));
 
-                (file_type, cover)
+                (file_type, page_count, cover)
             };
 
             let (cover_format, cover) = match extracted_cover {
@@ -242,6 +296,7 @@ impl BookFileStore for LocalBookFileStorage {
             };
             header[2..34].copy_from_slice(file_hash.as_bytes());
             header[34..42].copy_from_slice(&file_size.to_be_bytes());
+            header[42..46].copy_from_slice(&page_count.unwrap_or(0).to_be_bytes());
 
             temp_file.seek(SeekFrom::Start(0))?;
             temp_file.write_all(&header)?;
@@ -274,6 +329,7 @@ impl BookFileStore for LocalBookFileStorage {
                         BookFileMetadata {
                             file_type,
                             size: file_size,
+                            page_count,
                         },
                     );
                     Ok(())
@@ -418,6 +474,10 @@ impl BookFileStore for LocalBookFileStorage {
     async fn extract_navigation(&self, hash: &Hash) -> BookNavigation {
         LocalBookFileStorage::extract_navigation(self, hash).await
     }
+
+    async fn extract_metadata(&self, hash: &Hash) -> ExtractedBookMetadata {
+        LocalBookFileStorage::extract_metadata(self, hash).await
+    }
 }
 
 fn extract_book_navigation_from_file(
@@ -506,6 +566,17 @@ fn scan_book_storage(dir: &Path, ext: &str) -> io::Result<ScannedBookStorage> {
             }
             let file_size = u64::from_be_bytes(size_bytes);
 
+            let mut page_count_bytes = [0u8; 4];
+            if let Err(e) = file.read_exact(&mut page_count_bytes) {
+                tracing::warn!("Skipped: Cannot read page count from {}: {}", file_name, e);
+                return;
+            }
+            let raw_page_count = u32::from_be_bytes(page_count_bytes);
+            let page_count = match file_type {
+                BookFileType::PDF => (raw_page_count > 0).then_some(raw_page_count),
+                BookFileType::EPUB => None,
+            };
+
             let actual_size = match std::io::copy(
                 &mut Read::by_ref(&mut file).take(file_size),
                 &mut hasher,
@@ -536,6 +607,7 @@ fn scan_book_storage(dir: &Path, ext: &str) -> io::Result<ScannedBookStorage> {
                     BookFileMetadata {
                         file_type,
                         size: file_size,
+                        page_count,
                     },
                 );
                 tracing::debug!("loaded: {}", file_name);
@@ -639,25 +711,305 @@ fn read_file_type_from_book_file(file: &mut std::fs::File) -> io::Result<BookFil
     }
 }
 
-fn extract_pdf_cover(
+fn inspect_pdf_on_import(
     file: BookFileContentReader,
     pdfium: &Mutex<Pdfium>,
-) -> anyhow::Result<Vec<u8>> {
+) -> (Option<u32>, anyhow::Result<Vec<u8>>) {
+    let Ok(pdfium) = pdfium.lock() else {
+        return (None, Err(anyhow::anyhow!("Pdfium lock poisoned")));
+    };
+    let doc = match pdfium.load_pdf_from_reader(file, None) {
+        Ok(doc) => doc,
+        Err(err) => return (None, Err(err.into())),
+    };
+    let page_count = u32::try_from(doc.pages().len()).ok().filter(|&n| n > 0);
+    let cover_res = (|| -> anyhow::Result<Vec<u8>> {
+        let page = doc.pages().first()?;
+        let render_config = PdfRenderConfig::new()
+            .set_target_width(2000)
+            .set_maximum_height(2000)
+            .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
+        let bitmap = page.render_with_config(&render_config)?;
+        let image = bitmap.as_image()?;
+
+        let mut png_bytes = Vec::new();
+        image.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)?;
+        Ok(png_bytes)
+    })();
+    (page_count, cover_res)
+}
+
+fn extract_book_metadata_from_file(
+    path: &Path,
+    meta: BookFileMetadata,
+    pdfium: Option<&Mutex<Pdfium>>,
+) -> anyhow::Result<ExtractedBookMetadata> {
+    let mut file = std::fs::File::open(path)
+        .with_context(|| format!("failed to open book file at {}", path.display()))?;
+    let mut version = [0u8; 1];
+    file.read_exact(&mut version)
+        .with_context(|| format!("failed to read book file header version at {}", path.display()))?;
+    if version[0] != BOOK_FILE_VERSION {
+        anyhow::bail!(
+            "unsupported book file container version {} (expected {}) at {}",
+            version[0],
+            BOOK_FILE_VERSION,
+            path.display()
+        );
+    }
+
+    let content = BookFileContentReader::new(file, BOOK_FILE_HEADER_SIZE, meta.size)
+        .with_context(|| format!("failed to seek book payload at {}", path.display()))?;
+    match meta.file_type {
+        BookFileType::EPUB => extract_epub_metadata(content),
+        BookFileType::PDF => match pdfium {
+            Some(pdfium) => extract_pdf_metadata(content, pdfium),
+            None => Ok(ExtractedBookMetadata::default()),
+        },
+    }
+}
+
+fn extract_epub_metadata(content: BookFileContentReader) -> anyhow::Result<ExtractedBookMetadata> {
+    let epub = Epub::read(content).context("failed to parse EPUB archive")?;
+    let meta = epub.metadata();
+
+    let subtitle = meta
+        .titles()
+        .filter(|entry| entry.kind() == TitleKind::Subtitle)
+        .find_map(|entry| {
+            let cleaned = sanitize_singleline_text(entry.value());
+            BookSubtitle::parse(cleaned).ok()
+        });
+
+    let authors = extract_epub_authors(&meta);
+
+    let publisher = meta
+        .publishers()
+        .find_map(|entry| {
+            let cleaned = sanitize_singleline_text(entry.value());
+            BookPublisher::parse(cleaned).ok()
+        });
+
+    let published_date = extract_epub_published_date(&meta);
+
+    let language = meta.languages().find_map(|entry| {
+        let normalized = entry.value().trim().replace('_', "-");
+        BookLanguage::parse(normalized).ok()
+    });
+
+    let description = meta.descriptions().find_map(|entry| {
+        let cleaned = sanitize_multiline_text(entry.value());
+        BookDescription::parse(cleaned).ok()
+    });
+
+    let identifier = meta
+        .identifier()
+        .into_iter()
+        .chain(meta.identifiers())
+        .find_map(|entry| {
+            let raw = entry.value().trim();
+            if raw.is_empty() {
+                return None;
+            }
+            if let Ok(parsed) = BookIdentifier::parse(raw) {
+                return Some(parsed);
+            }
+            if let Some(scheme) = entry.scheme() {
+                let code = scheme.code().trim();
+                if !code.is_empty()
+                    && let Ok(parsed) = BookIdentifier::parse(format!("{code}:{raw}"))
+                {
+                    return Some(parsed);
+                }
+            }
+            None
+        });
+
+    Ok(ExtractedBookMetadata {
+        subtitle,
+        authors,
+        publisher,
+        published_date,
+        language,
+        description,
+        identifier,
+    })
+}
+
+fn extract_epub_authors(metadata: &rbook::epub::metadata::EpubMetadata<'_>) -> Vec<BookAuthor> {
+    fn collect_authors<'a>(
+        entries: impl Iterator<Item = rbook::epub::metadata::EpubContributor<'a>>,
+    ) -> Vec<BookAuthor> {
+        let mut seen = HashSet::new();
+        let mut authors = Vec::new();
+        for entry in entries {
+            let cleaned = sanitize_singleline_text(entry.value());
+            if let Ok(author) = BookAuthor::parse(cleaned)
+                && seen.insert(author.clone())
+            {
+                authors.push(author);
+                if authors.len() >= MAX_BOOK_AUTHORS {
+                    break;
+                }
+            }
+        }
+        authors
+    }
+
+    let primary = collect_authors(metadata.creators().filter(|entry| {
+        let mut roles = entry.roles().peekable();
+        roles.peek().is_none() || roles.any(|role| role.code().trim().eq_ignore_ascii_case("aut"))
+    }));
+    if !primary.is_empty() {
+        return primary;
+    }
+    collect_authors(metadata.creators())
+}
+
+fn extract_epub_published_date(
+    metadata: &rbook::epub::metadata::EpubMetadata<'_>,
+) -> Option<BookPublishedDate> {
+    if let Some(entry) = metadata.published_entry() {
+        let raw = entry.value().trim();
+        if let Ok(parsed) = BookPublishedDate::parse(raw) {
+            return Some(parsed);
+        }
+        if raw.len() > 10
+            && matches!(raw.as_bytes()[10], b'T' | b't' | b' ')
+            && let Ok(parsed) = BookPublishedDate::parse(&raw[..10])
+        {
+            return Some(parsed);
+        }
+    }
+    let dt = metadata.published()?;
+    let d = dt.date();
+    BookPublishedDate::parse(format!("{:04}-{:02}-{:02}", d.year(), d.month(), d.day())).ok()
+}
+
+fn extract_pdf_metadata(
+    content: BookFileContentReader,
+    pdfium: &Mutex<Pdfium>,
+) -> anyhow::Result<ExtractedBookMetadata> {
     let pdfium = pdfium
         .lock()
         .map_err(|_| anyhow::anyhow!("Pdfium lock poisoned"))?;
-    let doc = pdfium.load_pdf_from_reader(file, None)?;
-    let page = doc.pages().first()?;
-    let render_config = PdfRenderConfig::new()
-        .set_target_width(2000)
-        .set_maximum_height(2000)
-        .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
-    let bitmap = page.render_with_config(&render_config)?;
-    let image = bitmap.as_image()?;
+    let doc = pdfium
+        .load_pdf_from_reader(content, None)
+        .context("failed to load PDF document with Pdfium")?;
+    let meta = doc.metadata();
 
-    let mut png_bytes = Vec::new();
-    image.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)?;
-    Ok(png_bytes)
+    let authors = meta
+        .get(PdfDocumentMetadataTagType::Author)
+        .map(|tag| extract_pdf_authors(tag.value()))
+        .unwrap_or_default();
+
+    let description = meta
+        .get(PdfDocumentMetadataTagType::Subject)
+        .map(|tag| sanitize_multiline_text(tag.value()))
+        .and_then(|cleaned| BookDescription::parse(cleaned).ok());
+
+    let published_date = meta
+        .get(PdfDocumentMetadataTagType::CreationDate)
+        .and_then(|tag| parse_pdf_creation_date(tag.value()));
+
+    Ok(ExtractedBookMetadata {
+        subtitle: None,
+        authors,
+        publisher: None,
+        published_date,
+        language: None,
+        description,
+        identifier: None,
+    })
+}
+
+fn extract_pdf_authors(raw: &str) -> Vec<BookAuthor> {
+    let mut seen = HashSet::new();
+    let mut authors = Vec::new();
+    for part in raw.split([';', '；']) {
+        let cleaned = sanitize_singleline_text(part);
+        if let Ok(author) = BookAuthor::parse(cleaned)
+            && seen.insert(author.clone())
+        {
+            authors.push(author);
+            if authors.len() >= MAX_BOOK_AUTHORS {
+                break;
+            }
+        }
+    }
+    authors
+}
+
+fn parse_pdf_creation_date(raw: &str) -> Option<BookPublishedDate> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let stripped = trimmed
+        .strip_prefix("D:")
+        .or_else(|| trimmed.strip_prefix("d:"))
+        .unwrap_or(trimmed);
+
+    if let Ok(parsed) = BookPublishedDate::parse(stripped) {
+        return Some(parsed);
+    }
+    if stripped.len() > 10
+        && matches!(stripped.as_bytes()[10], b'T' | b't' | b' ')
+        && let Ok(parsed) = BookPublishedDate::parse(&stripped[..10])
+    {
+        return Some(parsed);
+    }
+
+    let digits: String = stripped
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .take(8)
+        .map(char::from)
+        .collect();
+    if digits.len() >= 8 {
+        BookPublishedDate::parse(format!(
+            "{}-{}-{}",
+            &digits[0..4],
+            &digits[4..6],
+            &digits[6..8]
+        ))
+        .ok()
+    } else if digits.len() >= 6 {
+        BookPublishedDate::parse(format!("{}-{}", &digits[0..4], &digits[4..6])).ok()
+    } else if digits.len() >= 4 {
+        BookPublishedDate::parse(&digits[0..4]).ok()
+    } else {
+        None
+    }
+}
+
+fn sanitize_singleline_text(raw: &str) -> String {
+    let mut normalized = String::with_capacity(raw.len());
+    let mut prev_space = true;
+    for ch in raw.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            if !prev_space {
+                normalized.push(' ');
+                prev_space = true;
+            }
+        } else {
+            normalized.push(ch);
+            prev_space = false;
+        }
+    }
+    if normalized.ends_with(' ') {
+        normalized.pop();
+    }
+    normalized
+}
+
+fn sanitize_multiline_text(raw: &str) -> String {
+    let normalized_newlines = raw.replace("\r\n", "\n").replace('\r', "\n");
+    let cleaned: String = normalized_newlines
+        .chars()
+        .filter(|&c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect();
+    cleaned.trim().to_owned()
 }
 
 fn extract_epub_cover(file: BookFileContentReader) -> anyhow::Result<Vec<u8>> {
@@ -2068,5 +2420,237 @@ mod tests {
         tmp2.write_all(&epub_via_manifest).unwrap();
         let reader2 = BookFileContentReader::new(tmp2, 0, epub_via_manifest.len() as u64).unwrap();
         assert_eq!(extract_epub_cover(reader2).unwrap(), png_bytes);
+    }
+
+    #[test]
+    fn scan_book_storage_persists_pdf_page_count_and_keeps_epub_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let books_dir = dir.path().join("books");
+        let storage = LocalBookFileStorage::new(books_dir.clone(), "book", None).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let epub = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#,
+            ),
+            (
+                "EPUB/package.opf",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">978-0-306-40615-7</dc:identifier>
+    <dc:title>Header Scan Book</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="ch1" linear="yes"/></spine>
+</package>"#,
+            ),
+            ("EPUB/ch1.xhtml", b"<html><body><p>Hello</p></body></html>"),
+        ]);
+        let epub_hash = blake3::hash(&epub);
+        rt.block_on(storage.import(&epub_hash, Cursor::new(epub.clone())))
+            .unwrap();
+
+        // Synthesize a stored PDF .book file with an explicit 42-page header field.
+        let pdf_payload = b"%PDF-1.4\n%fake\n";
+        let pdf_hash = blake3::hash(pdf_payload);
+        let mut pdf_stored = Vec::with_capacity(BOOK_FILE_HEADER_SIZE as usize + pdf_payload.len());
+        pdf_stored.push(BOOK_FILE_VERSION);
+        pdf_stored.push(0);
+        pdf_stored.extend_from_slice(pdf_hash.as_bytes());
+        pdf_stored.extend_from_slice(&(pdf_payload.len() as u64).to_be_bytes());
+        pdf_stored.extend_from_slice(&42u32.to_be_bytes());
+        pdf_stored.extend_from_slice(pdf_payload);
+        std::fs::write(
+            books_dir.join(format!("{}.book", pdf_hash.to_hex())),
+            pdf_stored,
+        )
+        .unwrap();
+
+        let (scanned, _) = scan_book_storage(&books_dir, "book").unwrap();
+        let epub_meta = *scanned.get(&epub_hash).unwrap();
+        assert_eq!(epub_meta.file_type, BookFileType::EPUB);
+        assert_eq!(epub_meta.size, epub.len() as u64);
+        assert_eq!(epub_meta.page_count, None);
+
+        let pdf_meta = *scanned.get(&pdf_hash).unwrap();
+        assert_eq!(pdf_meta.file_type, BookFileType::PDF);
+        assert_eq!(pdf_meta.size, pdf_payload.len() as u64);
+        assert_eq!(pdf_meta.page_count, Some(42));
+    }
+
+    #[test]
+    fn extract_epub_metadata_prefers_valid_fields_and_skips_invalid_primary_uuid() {
+        let epub = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#,
+            ),
+            (
+                "EPUB/package.opf",
+                br##"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:identifier id="uid">urn:uuid:77777777-7777-7777-7777-777777777777</dc:identifier>
+    <dc:identifier opf:scheme="ISBN">978-0-306-40615-7</dc:identifier>
+    <dc:title id="t1">Metadata Extraction</dc:title>
+    <meta refines="#t1" property="title-type">main</meta>
+    <dc:title id="t2">  Deep   Dive  </dc:title>
+    <meta refines="#t2" property="title-type">subtitle</meta>
+    <dc:creator id="c1">  Alice   Smith  </dc:creator>
+    <meta refines="#c1" property="role" scheme="marc:relators">aut</meta>
+    <dc:creator id="c2">Bob Editor</dc:creator>
+    <meta refines="#c2" property="role" scheme="marc:relators">edt</meta>
+    <dc:creator>Alice Smith</dc:creator>
+    <dc:creator>Carol Jones</dc:creator>
+    <dc:publisher>  Shiro   Press  </dc:publisher>
+    <dc:date opf:event="publication">2024-05</dc:date>
+    <dc:language>zh_cn</dc:language>
+    <dc:description>  Line one
+Line two  </dc:description>
+  </metadata>
+  <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="ch1" linear="yes"/></spine>
+</package>"##,
+            ),
+            ("EPUB/ch1.xhtml", b"<html><body><p>Body</p></body></html>"),
+        ]);
+
+        let mut tmp = tempfile::tempfile().unwrap();
+        tmp.write_all(&epub).unwrap();
+        let reader = BookFileContentReader::new(tmp, 0, epub.len() as u64).unwrap();
+        let extracted = extract_epub_metadata(reader).unwrap();
+
+        assert_eq!(
+            extracted.subtitle.as_ref().map(BookSubtitle::as_str),
+            Some("Deep Dive")
+        );
+        assert_eq!(
+            extracted
+                .authors
+                .iter()
+                .map(BookAuthor::as_str)
+                .collect::<Vec<_>>(),
+            ["Alice Smith", "Carol Jones"]
+        );
+        assert_eq!(
+            extracted.publisher.as_ref().map(BookPublisher::as_str),
+            Some("Shiro Press")
+        );
+        assert_eq!(
+            extracted.published_date.map(|d| d.to_string()).as_deref(),
+            Some("2024-05")
+        );
+        assert_eq!(
+            extracted.language.as_ref().map(BookLanguage::as_str),
+            Some("zh-CN")
+        );
+        assert_eq!(
+            extracted.description.as_ref().map(BookDescription::as_str),
+            Some("Line one Line two")
+        );
+        assert_eq!(
+            sanitize_multiline_text("  First\r\nSecond\x00  "),
+            "First\nSecond"
+        );
+        assert_eq!(
+            extracted.identifier.as_ref().map(BookIdentifier::as_str),
+            Some("9780306406157")
+        );
+    }
+
+    #[test]
+    fn extract_epub_authors_falls_back_to_all_creators_and_pdf_splits_on_semicolons() {
+        let epub = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            (
+                "META-INF/container.xml",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#,
+            ),
+            (
+                "EPUB/package.opf",
+                br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:identifier id="uid">urn:uuid:88888888-8888-8888-8888-888888888888</dc:identifier>
+    <dc:title>Fallback Authors</dc:title>
+    <dc:creator opf:role="edt">Only Editor</dc:creator>
+    <dc:creator opf:role="edt">Only Editor</dc:creator>
+  </metadata>
+  <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="ch1" linear="yes"/></spine>
+</package>"#,
+            ),
+            ("EPUB/ch1.xhtml", b"<html><body><p>Body</p></body></html>"),
+        ]);
+
+        let mut tmp = tempfile::tempfile().unwrap();
+        tmp.write_all(&epub).unwrap();
+        let reader = BookFileContentReader::new(tmp, 0, epub.len() as u64).unwrap();
+        let extracted = extract_epub_metadata(reader).unwrap();
+        assert_eq!(extracted.subtitle, None);
+        assert_eq!(
+            extracted
+                .authors
+                .iter()
+                .map(BookAuthor::as_str)
+                .collect::<Vec<_>>(),
+            ["Only Editor"]
+        );
+
+        let pdf_authors = extract_pdf_authors("Doe, Jane ; 张三；Doe, Jane ;  ");
+        assert_eq!(
+            pdf_authors
+                .iter()
+                .map(BookAuthor::as_str)
+                .collect::<Vec<_>>(),
+            ["Doe, Jane", "张三"]
+        );
+    }
+
+    #[test]
+    fn parse_pdf_creation_date_handles_standard_and_partial_formats() {
+        assert_eq!(
+            parse_pdf_creation_date("D:20240512103000+08'00'")
+                .map(|d| d.to_string())
+                .as_deref(),
+            Some("2024-05-12")
+        );
+        assert_eq!(
+            parse_pdf_creation_date("D:202405")
+                .map(|d| d.to_string())
+                .as_deref(),
+            Some("2024-05")
+        );
+        assert_eq!(
+            parse_pdf_creation_date("D:2024")
+                .map(|d| d.to_string())
+                .as_deref(),
+            Some("2024")
+        );
+        assert_eq!(
+            parse_pdf_creation_date("2023-11-09T00:00:00Z")
+                .map(|d| d.to_string())
+                .as_deref(),
+            Some("2023-11-09")
+        );
+        assert_eq!(parse_pdf_creation_date("D:20230229"), None);
+        assert_eq!(parse_pdf_creation_date("not-a-date"), None);
     }
 }

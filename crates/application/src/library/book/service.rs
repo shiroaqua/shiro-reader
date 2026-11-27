@@ -5,9 +5,12 @@ use std::{
 
 use shiro_domain::library::{
     book::{
-        entity::Book,
+        entity::{Book, BookMetadata, BookMetadataChange},
         errors::BookDomainError,
-        value_objects::{BookHash, BookId, BookStatus, BookTitle},
+        value_objects::{
+            BookAuthor, BookDescription, BookHash, BookId, BookIdentifier, BookLanguage,
+            BookPublishedDate, BookPublisher, BookStatus, BookSubtitle, BookTitle,
+        },
     },
     tag::value_objects::BookTagStatus,
 };
@@ -15,18 +18,22 @@ use shiro_domain::library::{
 use crate::library::{
     book::{
         commands::{
-            CreateBookCommand, DeleteBookCommand, DeleteBooksCommand, GetBookCoverCommand,
-            GetBookFileMetaCommand,
+            ChangeBookAuthorsCommand, ChangeBookDescriptionCommand, ChangeBookIdentifierCommand,
+            ChangeBookLanguageCommand, ChangeBookPublishedDateCommand, ChangeBookPublisherCommand,
+            ChangeBookSubtitleCommand, ClearBookAuthorsCommand, ClearBookDescriptionCommand,
+            ClearBookIdentifierCommand, ClearBookLanguageCommand, ClearBookPublishedDateCommand,
+            ClearBookPublisherCommand, ClearBookSubtitleCommand, CreateBookCommand,
+            DeleteBookCommand, DeleteBooksCommand, GetBookCoverCommand, GetBookFileMetaCommand,
             OpenBookFileRangeCommand, PermanentlyDeleteBooksCommand, RenameBookCommand,
             RestoreBookIdCommand,
         },
         dto::{
-            BookFileDescriptor, BookNavigationOutput, CreateBookOutput, GetBookOutput,
-            TrashedBookOutput,
+            BookFileDescriptor, BookMetadataOutput, BookNavigationOutput, CreateBookOutput,
+            GetBookOutput, TrashedBookOutput,
         },
         errors::BookApplicationError,
         file::{errors::BookFileApplicationError, service::BookFileService},
-        queries::{GetBookNavigationQuery, GetBooksQuery},
+        queries::{GetBookMetadataQuery, GetBookNavigationQuery, GetBooksQuery},
     },
     errors::LibraryApplicationError,
     ports::{BookFileStore, BookRepository, BookTransaction, CoverByteStream, OpenedBookFile},
@@ -78,8 +85,22 @@ where
             .bookfile
             .get_book_type(&hash)
             .ok_or(BookFileApplicationError::Unsupported)?;
+        let extracted = self.bookfile.extract_book_metadata(&hash).await;
         let book = Book::new(BookId::new(), title, BookHash::new(hash));
-        let book = self.repository.create(book).await?;
+        let metadata = BookMetadata::new(
+            book.id().clone(),
+            extracted.subtitle,
+            extracted.authors,
+            extracted.publisher,
+            extracted.published_date,
+            extracted.language,
+            extracted.description,
+            extracted.identifier,
+        );
+        let mut tx = self.repository.begin_transaction().await?;
+        let book = tx.create_book(book).await?;
+        let _ = tx.create_metadata(metadata).await?;
+        tx.commit().await?;
 
         Ok((book, file_type).into())
     }
@@ -126,6 +147,10 @@ where
                 .mark_deleted()?;
             tx.apply_book_change(change).await?;
         }
+        for mut metadata in tx.find_metadata_by_book_ids(&ids).await? {
+            let change = metadata.mark_deleted()?;
+            tx.apply_metadata_change(change).await?;
+        }
         for mut binding in tx.list_tag_bindings(&ids).await? {
             let change = binding.mark_deleted()?;
             tx.apply_tag_binding_change(change).await?;
@@ -148,6 +173,9 @@ where
         let restored_title = available_restore_title(&occupied, book.title())?;
         let change = book.restore(restored_title)?;
         tx.apply_book_change(change).await?;
+        let mut metadata = tx.find_metadata_by_book_id(&id).await?;
+        let change = metadata.restore()?;
+        tx.apply_metadata_change(change).await?;
         for mut binding in tx.list_tag_bindings(std::slice::from_ref(&id)).await? {
             if binding.status() != BookTagStatus::Active {
                 let change = binding.restore()?;
@@ -250,6 +278,23 @@ where
         let book = self.repository.find_by_id(&id).await?;
         self.bookfile.download_book_cover_file(*book.hash()).await
     }
+    
+    pub async fn get_book_navigation(
+        &mut self,
+        query: GetBookNavigationQuery,
+    ) -> Result<BookNavigationOutput, LibraryApplicationError> {
+        let id = BookId::parse(query.id)?;
+        let book = self.repository.find_by_id(&id).await?;
+        if book.status() != BookStatus::Active {
+            return Err(BookApplicationError::AlreadyDeleted.into());
+        }
+        let hash = *book.hash();
+        if self.bookfile.get_book_meta(&hash).is_none() {
+            return Err(BookFileApplicationError::NotFound.into());
+        }
+        let navigation = self.bookfile.extract_book_navigation(&hash).await;
+        Ok(navigation.into())
+    }
 
     pub async fn get_book_file_meta(
         &mut self,
@@ -272,21 +317,171 @@ where
         })
     }
 
-    pub async fn get_book_navigation(
+    pub async fn get_book_metadata(
         &mut self,
-        query: GetBookNavigationQuery,
-    ) -> Result<BookNavigationOutput, LibraryApplicationError> {
+        query: GetBookMetadataQuery,
+    ) -> Result<BookMetadataOutput, LibraryApplicationError> {
         let id = BookId::parse(query.id)?;
         let book = self.repository.find_by_id(&id).await?;
         if book.status() != BookStatus::Active {
             return Err(BookApplicationError::AlreadyDeleted.into());
         }
-        let hash = *book.hash();
-        if self.bookfile.get_book_meta(&hash).is_none() {
-            return Err(BookFileApplicationError::NotFound.into());
-        }
-        let navigation = self.bookfile.extract_book_navigation(&hash).await;
-        Ok(navigation.into())
+        let file_meta = self
+            .bookfile
+            .get_book_meta(book.hash())
+            .ok_or(BookFileApplicationError::NotFound)?;
+        let metadata = self.repository.find_metadata_by_book_id(&id).await?;
+        Ok((book, metadata, file_meta).into())
+    }
+
+    async fn mutate_book_metadata(
+        &mut self,
+        id: BookId,
+        mutate: impl for<'a> FnOnce(
+            &'a mut BookMetadata,
+        ) -> Result<BookMetadataChange<'a>, BookDomainError>,
+    ) -> Result<(), LibraryApplicationError> {
+        let mut tx = self.repository.begin_transaction().await?;
+        let mut metadata = tx.find_metadata_by_book_id(&id).await?;
+        let change = mutate(&mut metadata)?;
+        tx.apply_metadata_change(change).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn change_book_subtitle(
+        &mut self,
+        command: ChangeBookSubtitleCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let subtitle = BookSubtitle::parse(command.subtitle)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_subtitle(subtitle))
+            .await
+    }
+
+    pub async fn clear_book_subtitle(
+        &mut self,
+        command: ClearBookSubtitleCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_subtitle)
+            .await
+    }
+
+    pub async fn change_book_authors(
+        &mut self,
+        command: ChangeBookAuthorsCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let authors = BookAuthor::parse_list(command.authors)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_authors(authors))
+            .await
+    }
+
+    pub async fn clear_book_authors(
+        &mut self,
+        command: ClearBookAuthorsCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_authors)
+            .await
+    }
+
+    pub async fn change_book_publisher(
+        &mut self,
+        command: ChangeBookPublisherCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let publisher = BookPublisher::parse(command.publisher)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_publisher(publisher))
+            .await
+    }
+
+    pub async fn clear_book_publisher(
+        &mut self,
+        command: ClearBookPublisherCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_publisher)
+            .await
+    }
+
+    pub async fn change_book_published_date(
+        &mut self,
+        command: ChangeBookPublishedDateCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let published_date = BookPublishedDate::parse(command.published_date)?;
+        self.mutate_book_metadata(id, |metadata| {
+            metadata.change_published_date(published_date)
+        })
+        .await
+    }
+
+    pub async fn clear_book_published_date(
+        &mut self,
+        command: ClearBookPublishedDateCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_published_date)
+            .await
+    }
+
+    pub async fn change_book_language(
+        &mut self,
+        command: ChangeBookLanguageCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let language = BookLanguage::parse(command.language)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_language(language))
+            .await
+    }
+
+    pub async fn clear_book_language(
+        &mut self,
+        command: ClearBookLanguageCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_language)
+            .await
+    }
+
+    pub async fn change_book_description(
+        &mut self,
+        command: ChangeBookDescriptionCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let description = BookDescription::parse(command.description)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_description(description))
+            .await
+    }
+
+    pub async fn clear_book_description(
+        &mut self,
+        command: ClearBookDescriptionCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_description)
+            .await
+    }
+
+    pub async fn change_book_identifier(
+        &mut self,
+        command: ChangeBookIdentifierCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        let identifier = BookIdentifier::parse(command.identifier)?;
+        self.mutate_book_metadata(id, |metadata| metadata.change_identifier(identifier))
+            .await
+    }
+
+    pub async fn clear_book_identifier(
+        &mut self,
+        command: ClearBookIdentifierCommand,
+    ) -> Result<(), LibraryApplicationError> {
+        let id = BookId::parse(command.id)?;
+        self.mutate_book_metadata(id, BookMetadata::clear_identifier)
+            .await
     }
 
     pub async fn open_book_file_range(

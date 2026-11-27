@@ -2,7 +2,6 @@ use shiro_domain::library::{
     book::{
         entity::{Book, BookFields},
         errors::BookDomainError,
-        file::entity::BookFileType,
         locator::{
             BookAnchor, BookProgression, BookmarkLocator, EpubAnchor, EpubCfi, EpubFragment,
             EpubNavTarget, EpubPointCfi, EpubPointTarget, EpubRangeCfi, EpubResourcePath,
@@ -10,7 +9,11 @@ use shiro_domain::library::{
             PdfPageRects, PdfSelectionTarget, ReadingUnitOffset, SectionKey,
         },
         navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{BookHash, BookId, BookStatus, BookTitle, TocEntryFlags},
+        value_objects::{
+            BookAuthor, BookDescription, BookFileType, BookHash, BookId, BookIdentifier,
+            BookIdentifierScheme, BookLanguage, BookPublishedDate, BookPublisher, BookStatus,
+            BookSubtitle, BookTitle, MAX_BOOK_AUTHORS, TocEntryFlags,
+        },
     },
     tag::{
         entity::TagDefinition,
@@ -1019,4 +1022,628 @@ fn identity_token_hash_and_password_hash_validate_and_preserve_buffers() {
     assert_eq!(user.updated_at(), updated_at);
     let password_hash_out = user.into_inner().password_hash.into_inner();
     assert_eq!(password_hash_out.as_ptr(), raw_phc_ptr);
+}
+
+#[test]
+fn book_metadata_value_objects_validate_and_canonicalize_correctly() {
+    // Publisher
+    assert_eq!(
+        BookPublisher::parse("Shiro Press").unwrap().as_str(),
+        "Shiro Press"
+    );
+    assert_eq!(
+        BookPublisher::parse("").unwrap_err(),
+        BookDomainError::InvalidPublisher
+    );
+    assert_eq!(
+        BookPublisher::parse(" Shiro ").unwrap_err(),
+        BookDomainError::InvalidPublisher
+    );
+    assert_eq!(
+        BookPublisher::parse("Shiro\nPress").unwrap_err(),
+        BookDomainError::InvalidPublisher
+    );
+    assert_eq!(
+        BookPublisher::parse("x".repeat(257)).unwrap_err(),
+        BookDomainError::InvalidPublisher
+    );
+
+    // Description (allows newlines & tabs, rejects other control chars)
+    assert_eq!(
+        BookDescription::parse("Line 1\n\tLine 2").unwrap().as_str(),
+        "Line 1\n\tLine 2"
+    );
+    assert_eq!(
+        BookDescription::parse("").unwrap_err(),
+        BookDomainError::InvalidDescription
+    );
+    assert_eq!(
+        BookDescription::parse("  padded  ").unwrap_err(),
+        BookDomainError::InvalidDescription
+    );
+    assert_eq!(
+        BookDescription::parse("bad\x00char").unwrap_err(),
+        BookDomainError::InvalidDescription
+    );
+    assert_eq!(
+        BookDescription::parse("a".repeat(16_385)).unwrap_err(),
+        BookDomainError::InvalidDescription
+    );
+
+    // Published date (YYYY / YYYY-MM / YYYY-MM-DD)
+    let y = BookPublishedDate::parse("2024").unwrap();
+    assert_eq!(y.year(), 2024);
+    assert_eq!(y.month(), None);
+    assert_eq!(y.day(), None);
+    assert_eq!(y.to_string(), "2024");
+
+    let ym = BookPublishedDate::parse("2024-05").unwrap();
+    assert_eq!(ym.year(), 2024);
+    assert_eq!(ym.month(), Some(5));
+    assert_eq!(ym.day(), None);
+    assert_eq!(ym.to_string(), "2024-05");
+
+    let ymd = BookPublishedDate::parse("2024-02-29").unwrap();
+    assert_eq!(ymd.year(), 2024);
+    assert_eq!(ymd.month(), Some(2));
+    assert_eq!(ymd.day(), Some(29));
+    assert_eq!(ymd.to_string(), "2024-02-29");
+
+    for bad_date in [
+        "",
+        "202",
+        "2024-5",
+        "2024-13",
+        "2023-02-29",
+        "2024/05/01",
+        "2024-05-01T00:00:00Z",
+        "0000",
+    ] {
+        assert_eq!(
+            BookPublishedDate::parse(bad_date).unwrap_err(),
+            BookDomainError::InvalidPublishedDate,
+            "date {bad_date:?} should fail"
+        );
+    }
+
+    // Language (BCP 47 + RFC 5646 Section 2.1.1 canonical casing)
+    for (raw, expected) in [
+        ("EN", "en"),
+        ("zh-cn", "zh-CN"),
+        ("zh-hans-cn", "zh-Hans-CN"),
+        ("zh-cmn-hans-cn", "zh-cmn-Hans-CN"),
+        ("es-419", "es-419"),
+        ("de-CH-1996", "de-CH-1996"),
+        ("en-u-CA-gregory-x-Local", "en-u-ca-gregory-x-local"),
+    ] {
+        let parsed = BookLanguage::parse(raw).unwrap();
+        assert_eq!(parsed.as_str(), expected);
+        assert_eq!(BookLanguage::parse(parsed.as_str()).unwrap(), parsed);
+    }
+    for bad_lang in [
+        "",
+        "e",
+        "english",
+        "en_US",
+        "en--US",
+        "en-",
+        "-en",
+        "123",
+        "en-u",
+        "en-1996-1996",
+        "en-u-a-u-b",
+        "en-x",
+    ] {
+        assert_eq!(
+            BookLanguage::parse(bad_lang).unwrap_err(),
+            BookDomainError::InvalidLanguage,
+            "language {bad_lang:?} should fail"
+        );
+    }
+}
+
+#[test]
+fn book_identifier_validates_all_international_and_national_schemes_with_round_trip() {
+    use BookIdentifierScheme::*;
+
+    let valid_cases = [
+        ("978-0-306-40615-7", Isbn13, "9780306406157"),
+        ("ISBN: 978 0 306 40615 7", Isbn13, "9780306406157"),
+        ("0-306-40615-2", Isbn10, "0306406152"),
+        ("ISBN-10:0-8044-2957-x", Isbn10, "080442957X"),
+        ("0378-5955", Issn, "0378-5955"),
+        ("ISSN:20493630", Issn, "2049-3630"),
+        ("2434-561x", Issn, "2434-561X"),
+        ("977-0378595-00-2", Issn13, "9770378595002"),
+        ("979-0-060-11561-5", Ismn13, "9790060115615"),
+        ("M-060-11561-5", Ismn10, "M060115615"),
+        ("10.1000/182", Doi, "DOI:10.1000/182"),
+        ("https://doi.org/10.1007/978-3-030-12345-6", Doi, "DOI:10.1007/978-3-030-12345-6"),
+        ("0A9-2002-12B4A105-7", Istc, "ISTC:0A9-2002-12B4A105-7"),
+        ("ISTC: a022009000004bea", Istc, "ISTC:A02-2009-000004BE-A"),
+        ("B159-D8FA-0124-0000-K", Isan, "ISAN:B159-D8FA-0124-0000-K"),
+        (
+            "0000-0001-8947-0000-8-0000-0000-D",
+            Isan,
+            "ISAN:0000-0001-8947-0000-8-0000-0000-D",
+        ),
+        ("urn:nbn:DE:bvb:19-146642", UrnNbn, "urn:nbn:de:bvb:19-146642"),
+        ("CN 11-0106", Cn, "CN:11-0106"),
+        ("CN44-1661/x", Cn, "CN:44-1661/X"),
+        ("CN: 81-0001/（j）", Cn, "CN:81-0001/(J)"),
+        ("10018·123", Csbn, "CSBN:10018\u{00B7}123"),
+        ("统一书号: T15031·12", Csbn, "CSBN:T15031\u{00B7}12"),
+        ("CIP: 2023123456", Cip, "CIP:2023123456"),
+        ("CIP:(2024)第012345号", Cip, "CIP:2024012345"),
+        ("LCCN:n78-890351", Lccn, "LCCN:n78890351"),
+        ("LCCN:2001-2", Lccn, "LCCN:2001000002"),
+        ("JP20230001", Jpnb, "JP:20230001"),
+        ("JPNB: 2023000123", Jpnb, "JP:2023000123"),
+        ("4910-01511-054-9", JpMagazine, "JPMAG:4910015110549"),
+        ("JPMAG:01511-05", JpMagazine, "JPMAG:01511-05"),
+        ("GPN:1011200123", Gpn, "GPN:1011200123"),
+        ("ECN-1234-2023-001-000000001", Ecn, "ECN:1234-2023-001-000000001"),
+        ("ECN: 12342023001000000002", Ecn, "ECN:1234-2023-001-000000002"),
+        ("SBN:306-40615-2", Sbn, "SBN:306406152"),
+        ("GB9912345", Bnb, "BNB:GB9912345"),
+        ("BNB:gba123456", Bnb, "BNB:GBA123456"),
+        ("DNB:123456789X", Dnb, "DNB:123456789X"),
+        ("ark:/12148/cb30000001z", Bnf, "BNF:cb30000001z"),
+        ("BNF:FRBNF30000001", Bnf, "BNF:FRBNF30000001"),
+    ];
+
+    for (raw, expected_scheme, expected_canonical) in valid_cases {
+        let parsed = BookIdentifier::parse(raw)
+            .unwrap_or_else(|e| panic!("expected {raw:?} to parse, got {e:?}"));
+        assert_eq!(parsed.scheme(), expected_scheme, "raw={raw:?}");
+        assert_eq!(parsed.as_str(), expected_canonical, "raw={raw:?}");
+        // Canonical string must round-trip identically.
+        assert_eq!(
+            BookIdentifier::parse(parsed.as_str()).unwrap(),
+            parsed,
+            "round-trip failed for {expected_canonical:?}"
+        );
+    }
+
+    let invalid_cases = [
+        "",
+        "978-0-306-40615-8",
+        "ISBN:979-0-060-11561-5",
+        "0-306-40615-3",
+        "0378-5956",
+        "03785955",
+        "M-060-11561-6",
+        "0A9-2002-12B4A105-8",
+        "B159-D8FA-0124-0000-A",
+        "0000-0001-8947-0000-8-0000-0000-A",
+        "10.12/abc",
+        "CN 99-0001",
+        "CN 11-0000",
+        "2023123456",
+        "1011200123",
+        "123456789",
+        "LCCN:2001-0",
+        "urn:nbn:d:123",
+    ];
+
+    for bad in invalid_cases {
+        assert_eq!(
+            BookIdentifier::parse(bad).unwrap_err(),
+            BookDomainError::InvalidIdentifier,
+            "expected {bad:?} to be rejected"
+        );
+    }
+}
+
+#[test]
+fn book_metadata_entity_tracks_dirty_fields_and_round_trips() {
+    use shiro_domain::library::book::entity::{BookMetadata, BookMetadataFields};
+
+    let book_id = BookId::new();
+    let mut meta = BookMetadata::empty(book_id.clone());
+    assert_eq!(meta.book_id(), &book_id);
+    assert_eq!(meta.status(), BookStatus::Active);
+    assert_eq!(meta.subtitle(), None);
+    assert!(meta.authors().is_empty());
+    assert_eq!(meta.publisher(), None);
+    assert_eq!(meta.published_date(), None);
+    assert_eq!(meta.language(), None);
+    assert_eq!(meta.description(), None);
+    assert_eq!(meta.identifier(), None);
+    assert_eq!(meta.deleted_at(), None);
+
+    // Clearing already-empty fields is rejected as unchanged for every field.
+    assert_eq!(
+        meta.clear_subtitle().unwrap_err(),
+        BookDomainError::SubtitleUnchanged
+    );
+    assert_eq!(
+        meta.clear_authors().unwrap_err(),
+        BookDomainError::AuthorsUnchanged
+    );
+    assert_eq!(
+        meta.clear_publisher().unwrap_err(),
+        BookDomainError::PublisherUnchanged
+    );
+    assert_eq!(
+        meta.clear_published_date().unwrap_err(),
+        BookDomainError::PublishedDateUnchanged
+    );
+    assert_eq!(
+        meta.clear_language().unwrap_err(),
+        BookDomainError::LanguageUnchanged
+    );
+    assert_eq!(
+        meta.clear_description().unwrap_err(),
+        BookDomainError::DescriptionUnchanged
+    );
+    assert_eq!(
+        meta.clear_identifier().unwrap_err(),
+        BookDomainError::IdentifierUnchanged
+    );
+
+    // Restoring active metadata fails.
+    assert_eq!(meta.restore().unwrap_err(), BookDomainError::NotDeleted);
+
+    let sub_change = meta
+        .change_subtitle(BookSubtitle::parse("Shadow of the Moon").unwrap())
+        .unwrap();
+    assert_eq!(
+        sub_change.fields(),
+        BookMetadataFields::SUBTITLE | BookMetadataFields::UPDATED_AT
+    );
+
+    let authors_change = meta
+        .change_authors(vec![
+            BookAuthor::parse("Fuyumi Ono").unwrap(),
+            BookAuthor::parse("Akihiro Yamada").unwrap(),
+        ])
+        .unwrap();
+    assert_eq!(
+        authors_change.fields(),
+        BookMetadataFields::AUTHORS | BookMetadataFields::UPDATED_AT
+    );
+    // Reordering authors is recognized as a distinct change.
+    let reorder_change = meta
+        .change_authors(vec![
+            BookAuthor::parse("Akihiro Yamada").unwrap(),
+            BookAuthor::parse("Fuyumi Ono").unwrap(),
+        ])
+        .unwrap();
+    assert_eq!(
+        reorder_change.fields(),
+        BookMetadataFields::AUTHORS | BookMetadataFields::UPDATED_AT
+    );
+
+    let pub_change = meta
+        .change_publisher(BookPublisher::parse("O'Reilly").unwrap())
+        .unwrap();
+    assert_eq!(
+        pub_change.fields(),
+        BookMetadataFields::PUBLISHER | BookMetadataFields::UPDATED_AT
+    );
+
+    let date_change = meta
+        .change_published_date(BookPublishedDate::parse("2025-01-15").unwrap())
+        .unwrap();
+    assert_eq!(
+        date_change.fields(),
+        BookMetadataFields::PUBLISHED_DATE | BookMetadataFields::UPDATED_AT
+    );
+
+    let lang_change = meta
+        .change_language(BookLanguage::parse("en-us").unwrap())
+        .unwrap();
+    assert_eq!(
+        lang_change.fields(),
+        BookMetadataFields::LANGUAGE | BookMetadataFields::UPDATED_AT
+    );
+
+    let desc_change = meta
+        .change_description(BookDescription::parse("Systems handbook").unwrap())
+        .unwrap();
+    assert_eq!(
+        desc_change.fields(),
+        BookMetadataFields::DESCRIPTION | BookMetadataFields::UPDATED_AT
+    );
+
+    let id_change = meta
+        .change_identifier(BookIdentifier::parse("978-0-306-40615-7").unwrap())
+        .unwrap();
+    assert_eq!(
+        id_change.fields(),
+        BookMetadataFields::IDENTIFIER | BookMetadataFields::UPDATED_AT
+    );
+
+    // Unchanged concrete value is rejected for every field.
+    assert_eq!(
+        meta.change_subtitle(BookSubtitle::parse("Shadow of the Moon").unwrap())
+            .unwrap_err(),
+        BookDomainError::SubtitleUnchanged
+    );
+    assert_eq!(
+        meta.change_authors(vec![
+            BookAuthor::parse("Akihiro Yamada").unwrap(),
+            BookAuthor::parse("Fuyumi Ono").unwrap(),
+        ])
+        .unwrap_err(),
+        BookDomainError::AuthorsUnchanged
+    );
+    assert_eq!(
+        meta.change_authors(vec![]).unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
+    assert_eq!(
+        meta.change_authors(vec![
+            BookAuthor::parse("Dup").unwrap(),
+            BookAuthor::parse("Dup").unwrap(),
+        ])
+        .unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
+    assert_eq!(
+        meta.change_publisher(BookPublisher::parse("O'Reilly").unwrap())
+            .unwrap_err(),
+        BookDomainError::PublisherUnchanged
+    );
+    assert_eq!(
+        meta.change_published_date(BookPublishedDate::parse("2025-01-15").unwrap())
+            .unwrap_err(),
+        BookDomainError::PublishedDateUnchanged
+    );
+    assert_eq!(
+        meta.change_language(BookLanguage::parse("en-US").unwrap())
+            .unwrap_err(),
+        BookDomainError::LanguageUnchanged
+    );
+    assert_eq!(
+        meta.change_description(BookDescription::parse("Systems handbook").unwrap())
+            .unwrap_err(),
+        BookDomainError::DescriptionUnchanged
+    );
+    assert_eq!(
+        meta.change_identifier(BookIdentifier::parse("978-0-306-40615-7").unwrap())
+            .unwrap_err(),
+        BookDomainError::IdentifierUnchanged
+    );
+
+    // Clearing populated fields succeeds, tracks dirty fields, and rejects duplicate clear.
+    let clear_sub = meta.clear_subtitle().unwrap();
+    assert_eq!(
+        clear_sub.fields(),
+        BookMetadataFields::SUBTITLE | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.subtitle(), None);
+    assert_eq!(
+        meta.clear_subtitle().unwrap_err(),
+        BookDomainError::SubtitleUnchanged
+    );
+
+    let clear_authors = meta.clear_authors().unwrap();
+    assert_eq!(
+        clear_authors.fields(),
+        BookMetadataFields::AUTHORS | BookMetadataFields::UPDATED_AT
+    );
+    assert!(meta.authors().is_empty());
+    assert_eq!(
+        meta.clear_authors().unwrap_err(),
+        BookDomainError::AuthorsUnchanged
+    );
+
+    let clear_pub = meta.clear_publisher().unwrap();
+    assert_eq!(
+        clear_pub.fields(),
+        BookMetadataFields::PUBLISHER | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.publisher(), None);
+    assert_eq!(
+        meta.clear_publisher().unwrap_err(),
+        BookDomainError::PublisherUnchanged
+    );
+
+    let clear_date = meta.clear_published_date().unwrap();
+    assert_eq!(
+        clear_date.fields(),
+        BookMetadataFields::PUBLISHED_DATE | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.published_date(), None);
+    assert_eq!(
+        meta.clear_published_date().unwrap_err(),
+        BookDomainError::PublishedDateUnchanged
+    );
+
+    let clear_lang = meta.clear_language().unwrap();
+    assert_eq!(
+        clear_lang.fields(),
+        BookMetadataFields::LANGUAGE | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.language(), None);
+    assert_eq!(
+        meta.clear_language().unwrap_err(),
+        BookDomainError::LanguageUnchanged
+    );
+
+    let clear_desc = meta.clear_description().unwrap();
+    assert_eq!(
+        clear_desc.fields(),
+        BookMetadataFields::DESCRIPTION | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.description(), None);
+    assert_eq!(
+        meta.clear_description().unwrap_err(),
+        BookDomainError::DescriptionUnchanged
+    );
+
+    let clear_id = meta.clear_identifier().unwrap();
+    assert_eq!(
+        clear_id.fields(),
+        BookMetadataFields::IDENTIFIER | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.identifier(), None);
+    assert_eq!(
+        meta.clear_identifier().unwrap_err(),
+        BookDomainError::IdentifierUnchanged
+    );
+
+    // Re-populate fields so reconstruct round-trip exercises mixed Some/None and multi-author state.
+    let _ = meta
+        .change_subtitle(BookSubtitle::parse("Part 1").unwrap())
+        .unwrap();
+    let _ = meta
+        .change_authors(vec![
+            BookAuthor::parse("Alice").unwrap(),
+            BookAuthor::parse("Bob").unwrap(),
+        ])
+        .unwrap();
+    let _ = meta
+        .change_publisher(BookPublisher::parse("O'Reilly").unwrap())
+        .unwrap();
+
+    // Soft delete tracks DELETED_AT | UPDATED_AT and blocks mutations + clears + duplicate deletes.
+    let delete_change = meta.mark_deleted().unwrap();
+    assert_eq!(
+        delete_change.fields(),
+        BookMetadataFields::DELETED_AT | BookMetadataFields::UPDATED_AT
+    );
+    assert!(matches!(meta.status(), BookStatus::Deleted { .. }));
+    assert_eq!(meta.mark_deleted().unwrap_err(), BookDomainError::AlreadyDeleted);
+    assert_eq!(
+        meta.change_subtitle(BookSubtitle::parse("Blocked").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_authors(vec![BookAuthor::parse("Blocked").unwrap()])
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_subtitle().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_authors().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_publisher(BookPublisher::parse("Blocked").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_published_date(BookPublishedDate::parse("2025").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_language(BookLanguage::parse("en").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_description(BookDescription::parse("Blocked").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.change_identifier(BookIdentifier::parse("978-0-306-40615-7").unwrap())
+            .unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_publisher().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_published_date().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_language().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_description().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+    assert_eq!(
+        meta.clear_identifier().unwrap_err(),
+        BookDomainError::AlreadyDeleted
+    );
+
+    // Restore clears deleted_at and tracks DELETED_AT | UPDATED_AT.
+    let restore_change = meta.restore().unwrap();
+    assert_eq!(
+        restore_change.fields(),
+        BookMetadataFields::DELETED_AT | BookMetadataFields::UPDATED_AT
+    );
+    assert_eq!(meta.status(), BookStatus::Active);
+    assert_eq!(meta.deleted_at(), None);
+
+    // Reconstruct round-trip preserves all 11 fields.
+    let expected = meta.clone();
+    let inner = meta.into_inner();
+    let reconstructed = BookMetadata::reconstruct(
+        inner.book_id,
+        inner.subtitle,
+        inner.authors,
+        inner.publisher,
+        inner.published_date,
+        inner.language,
+        inner.description,
+        inner.identifier,
+        inner.created_at,
+        inner.updated_at,
+        inner.deleted_at,
+    );
+    assert_eq!(reconstructed, expected);
+}
+
+#[test]
+fn book_subtitle_and_author_value_objects_enforce_validation_and_uniqueness() {
+    assert_eq!(
+        BookSubtitle::parse("A Concise Guide").unwrap().as_str(),
+        "A Concise Guide"
+    );
+    let max_256 = "a".repeat(256);
+    assert_eq!(BookSubtitle::parse(max_256.clone()).unwrap().as_str(), max_256);
+    assert_eq!(BookAuthor::parse(max_256.clone()).unwrap().as_str(), max_256);
+
+    let too_long = "a".repeat(257);
+    for bad in ["", " Leading", "Trailing ", "Line\nBreak", "Null\0Char", &too_long] {
+        assert_eq!(
+            BookSubtitle::parse(bad).unwrap_err(),
+            BookDomainError::InvalidSubtitle
+        );
+        assert_eq!(
+            BookAuthor::parse(bad).unwrap_err(),
+            BookDomainError::InvalidAuthor
+        );
+    }
+
+    let ordered = BookAuthor::parse_list(vec!["Alice".into(), "Bob".into()]).unwrap();
+    assert_eq!(
+        ordered.iter().map(BookAuthor::as_str).collect::<Vec<_>>(),
+        ["Alice", "Bob"]
+    );
+
+    assert_eq!(
+        BookAuthor::parse_list(vec![]).unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
+    assert_eq!(
+        BookAuthor::parse_list(vec!["Alice".into(), "Alice".into()]).unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
+    assert_eq!(
+        BookAuthor::parse_list(vec!["Alice".into(), " ".into()]).unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
+    let too_many: Vec<String> = (0..=MAX_BOOK_AUTHORS)
+        .map(|index| format!("Author {index}"))
+        .collect();
+    assert_eq!(
+        BookAuthor::parse_list(too_many).unwrap_err(),
+        BookDomainError::InvalidAuthor
+    );
 }

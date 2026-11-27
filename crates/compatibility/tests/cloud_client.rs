@@ -1033,7 +1033,7 @@ async fn cloud_import_respects_server_max_upload_bytes_and_reports_upload_progre
 async fn cloud_client_head_and_range_verify_headers_refresh_redirects_and_tampering() {
     use axum::{http::header, response::IntoResponse};
     use shiro_compatibility::epub_reader::ByteRange;
-    use shiro_domain::library::book::file::entity::BookFileType;
+    use shiro_domain::library::book::value_objects::BookFileType;
 
     let server_root = tempfile::tempdir().unwrap();
     let state = build_real_v1_server_state(server_root.path()).await;
@@ -1247,4 +1247,172 @@ async fn cloud_client_head_and_range_verify_headers_refresh_redirects_and_tamper
             "expected CloudInvalidResponse for {bad_mode}"
         );
     }
+}
+
+#[tokio::test]
+async fn cloud_client_roundtrips_book_metadata_update_and_clear_with_real_server() {
+    let server_root = tempfile::tempdir().unwrap();
+    let state = build_real_v1_server_state(server_root.path()).await;
+    state
+        .user_service
+        .register(UserRegisterCommand {
+            name: "MetaUser".into(),
+            password: "password123".into(),
+        })
+        .await
+        .unwrap();
+
+    let server = RunningHttpServer::start(build_router(state)).await;
+    let client_dir = tempfile::tempdir().unwrap();
+    let (client, _) = new_client(&server.origin, client_dir.path(), None);
+    client
+        .login("MetaUser".into(), "password123".into())
+        .await
+        .unwrap();
+
+    let pdf_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/packaging/fixtures/smoke_pattern.pdf");
+    let pdf_bytes = fs::read(&pdf_path).expect("smoke_pattern.pdf");
+    let created = client
+        .import_reader_into_cloud(
+            "Cloud Meta Book.pdf",
+            Cursor::new(pdf_bytes.clone()),
+            None,
+            None,
+        )
+        .await
+        .expect("import pdf into cloud");
+
+    let initial = client
+        .get_book_metadata(&created.id)
+        .await
+        .expect("get initial metadata");
+    assert_eq!(initial.book_id, created.id);
+    assert_eq!(initial.file_type, "PDF");
+    assert_eq!(initial.size, pdf_bytes.len() as u64);
+    assert!(initial.page_count.is_some());
+
+    if initial.subtitle.is_some() {
+        client.clear_book_subtitle(&created.id).await.unwrap();
+    }
+    if !initial.authors.is_empty() {
+        client.clear_book_authors(&created.id).await.unwrap();
+    }
+    if initial.publisher.is_some() {
+        client.clear_book_publisher(&created.id).await.unwrap();
+    }
+    if initial.published_date.is_some() {
+        client.clear_book_published_date(&created.id).await.unwrap();
+    }
+    if initial.language.is_some() {
+        client.clear_book_language(&created.id).await.unwrap();
+    }
+    if initial.description.is_some() {
+        client.clear_book_description(&created.id).await.unwrap();
+    }
+    if initial.identifier.is_some() {
+        client.clear_book_identifier(&created.id).await.unwrap();
+    }
+
+    client
+        .change_book_subtitle(&created.id, "Cloud Edition".into())
+        .await
+        .expect("change subtitle");
+    client
+        .change_book_authors(&created.id, vec!["Alice".into(), "Bob".into()])
+        .await
+        .expect("change authors");
+    client
+        .change_book_publisher(&created.id, "Shiro Cloud Press".into())
+        .await
+        .expect("change publisher");
+    client
+        .change_book_published_date(&created.id, "2026-11".into())
+        .await
+        .expect("change published date");
+    client
+        .change_book_language(&created.id, "zh-hans-cn".into())
+        .await
+        .expect("change language");
+    client
+        .change_book_description(&created.id, "Cloud summary.".into())
+        .await
+        .expect("change description");
+    client
+        .change_book_identifier(&created.id, "978-0-306-40615-7".into())
+        .await
+        .expect("change identifier");
+
+    let updated = client
+        .get_book_metadata(&created.id)
+        .await
+        .expect("get updated metadata");
+    assert_eq!(updated.subtitle.as_deref(), Some("Cloud Edition"));
+    assert_eq!(updated.authors, vec!["Alice", "Bob"]);
+    assert_eq!(updated.publisher.as_deref(), Some("Shiro Cloud Press"));
+    assert_eq!(updated.published_date.as_deref(), Some("2026-11"));
+    assert_eq!(updated.language.as_deref(), Some("zh-Hans-CN"));
+    assert_eq!(updated.description.as_deref(), Some("Cloud summary."));
+    assert_eq!(updated.identifier.as_deref(), Some("9780306406157"));
+
+    assert_eq!(
+        client
+            .change_book_subtitle(&created.id, "Cloud Edition".into())
+            .await
+            .unwrap_err(),
+        ErrorCode::BookSubtitleUnchanged
+    );
+    assert_eq!(
+        client
+            .change_book_authors(&created.id, vec!["Alice".into(), "Bob".into()])
+            .await
+            .unwrap_err(),
+        ErrorCode::BookAuthorsUnchanged
+    );
+    assert_eq!(
+        client
+            .change_book_authors(&created.id, vec![])
+            .await
+            .unwrap_err(),
+        ErrorCode::BookInvalidAuthor
+    );
+    assert_eq!(
+        client
+            .change_book_language(&created.id, "zh-Hans-CN".into())
+            .await
+            .unwrap_err(),
+        ErrorCode::BookLanguageUnchanged
+    );
+    assert_eq!(
+        client
+            .change_book_identifier(&created.id, "bad".into())
+            .await
+            .unwrap_err(),
+        ErrorCode::BookInvalidIdentifier
+    );
+
+    client.clear_book_subtitle(&created.id).await.unwrap();
+    client.clear_book_authors(&created.id).await.unwrap();
+    client.clear_book_publisher(&created.id).await.unwrap();
+    client.clear_book_published_date(&created.id).await.unwrap();
+    client.clear_book_language(&created.id).await.unwrap();
+    client.clear_book_description(&created.id).await.unwrap();
+    client.clear_book_identifier(&created.id).await.unwrap();
+
+    let cleared = client
+        .get_book_metadata(&created.id)
+        .await
+        .expect("get cleared metadata");
+    assert_eq!(cleared.subtitle, None);
+    assert!(cleared.authors.is_empty());
+    assert_eq!(cleared.publisher, None);
+    assert_eq!(cleared.published_date, None);
+    assert_eq!(cleared.language, None);
+    assert_eq!(cleared.description, None);
+    assert_eq!(cleared.identifier, None);
+
+    assert_eq!(
+        client.clear_book_publisher(&created.id).await.unwrap_err(),
+        ErrorCode::BookPublisherUnchanged
+    );
 }

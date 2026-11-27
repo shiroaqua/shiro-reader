@@ -7,3 +7,8 @@ pub struct GetBooksQuery {
 pub struct GetBookNavigationQuery {
     pub id: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct GetBookMetadataQuery {
+    pub id: String,
+}

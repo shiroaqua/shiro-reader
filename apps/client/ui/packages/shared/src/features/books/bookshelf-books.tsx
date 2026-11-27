@@ -61,6 +61,7 @@ export function BookshelfBooks({
   headerOverlay = null,
   search = "",
   onSearchChange,
+  onSearchTag,
   onOpenBook,
   onOpenBookInNewWindow,
   onBooksDeleted,
@@ -68,6 +69,7 @@ export function BookshelfBooks({
   headerOverlay?: HTMLElement | null
   search?: string
   onSearchChange?: (search: string) => void
+  onSearchTag?: ((query: string) => void) | undefined
   onOpenBook?: ((book: Book) => void) | undefined
   onOpenBookInNewWindow?: ((book: Book) => void) | undefined
   onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
@@ -474,6 +476,7 @@ export function BookshelfBooks({
               onOpenBook={onOpenBook}
               onOpenBookInNewWindow={onOpenBookInNewWindow}
               onBooksDeleted={onBooksDeleted}
+              onSearchTag={onSearchTag ?? onSearchChange}
             />
           ))}
         </ul>

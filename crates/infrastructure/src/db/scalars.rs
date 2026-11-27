@@ -1,5 +1,8 @@
 use jiff::Timestamp;
-use shiro_domain::library::{book::value_objects::BookHash, tag::value_objects::TagValueRule};
+use shiro_domain::library::{
+    book::value_objects::{BookAuthor, BookHash},
+    tag::value_objects::TagValueRule,
+};
 use toasty::{
     schema::{Field, Load},
     stmt::{self, Assign, Assignment, Expr, IntoExpr, List, Path, Value},
@@ -245,5 +248,91 @@ impl Field for DbTimestamp {
 
     fn key_constraint<Origin>(&self, target: Path<Origin, Self::Inner>) -> Expr<bool> {
         target.eq(*self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbBookAuthors(pub Vec<BookAuthor>);
+
+impl From<Vec<BookAuthor>> for DbBookAuthors {
+    fn from(value: Vec<BookAuthor>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<DbBookAuthors> for Vec<BookAuthor> {
+    fn from(value: DbBookAuthors) -> Self {
+        value.0
+    }
+}
+
+impl Load for DbBookAuthors {
+    type Output = Self;
+
+    fn ty() -> stmt::Type {
+        stmt::Type::String
+    }
+
+    fn load(value: Value) -> toasty::Result<Self> {
+        let Value::String(encoded) = value else {
+            return Err(toasty::Error::invalid_result("book authors is not text"));
+        };
+        let raw: Vec<String> = serde_json::from_str(&encoded)
+            .map_err(|error| toasty::Error::invalid_result(error.to_string()))?;
+        if raw.is_empty() {
+            return Ok(Self(Vec::new()));
+        }
+        BookAuthor::parse_list(raw)
+            .map(Self)
+            .map_err(|error| toasty::Error::invalid_result(error.to_string()))
+    }
+
+    fn reload(target: &mut Self, value: Value) -> toasty::Result<()> {
+        *target = Self::load(value)?;
+        Ok(())
+    }
+}
+
+impl IntoExpr<DbBookAuthors> for DbBookAuthors {
+    fn into_expr(self) -> Expr<DbBookAuthors> {
+        self.by_ref()
+    }
+
+    fn by_ref(&self) -> Expr<DbBookAuthors> {
+        let names: Vec<&str> = self.0.iter().map(BookAuthor::as_str).collect();
+        let encoded = serde_json::to_string(&names).expect("book authors are serializable");
+        Expr::from_untyped(Value::String(encoded))
+    }
+}
+
+impl Assign<DbBookAuthors> for DbBookAuthors {
+    fn into_assignment(self) -> Assignment<DbBookAuthors> {
+        stmt::set(self.into_expr())
+    }
+}
+
+impl Field for DbBookAuthors {
+    type ExprTarget = Self;
+    type Path<Origin> = Path<Origin, Self>;
+    type ListPath<Origin> = Path<Origin, List<Self>>;
+    type Update<'a> = ();
+    type Inner = Self;
+
+    fn new_path<Origin>(path: Path<Origin, Self>) -> Self::Path<Origin> {
+        path
+    }
+
+    fn new_list_path<Origin>(path: Path<Origin, List<Self>>) -> Self::ListPath<Origin> {
+        path
+    }
+
+    fn new_update<'a>(
+        _: &'a mut toasty_core::stmt::Assignments,
+        _: stmt::Projection,
+    ) -> Self::Update<'a> {
+    }
+
+    fn key_constraint<Origin>(&self, target: Path<Origin, Self::Inner>) -> Expr<bool> {
+        target.eq(self.clone())
     }
 }

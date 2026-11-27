@@ -969,3 +969,175 @@ async fn custom_regex_tags_resolve_to_text_while_preserving_regex_validation() {
         .await
         .expect("custom regex matching value should succeed");
 }
+
+#[tokio::test]
+async fn local_runtime_reads_updates_clears_and_reports_errors_for_book_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    let lib_root = tmp.path().join("library");
+    let sink = Arc::new(RecordingSink::default());
+
+    let runtime = ClientRuntime::initialize(
+        &config_dir,
+        desktop_caps(lib_root.clone()),
+        AppLocale::En,
+        None,
+        sink.clone(),
+    )
+    .await;
+    runtime
+        .complete_initial_setup(InitialSetupRequest {
+            mode: LaunchMode::Local,
+            locale: AppLocale::En,
+            local_library_root: Some(lib_root.display().to_string()),
+            cloud_origin: None,
+        })
+        .await
+        .expect("complete setup");
+
+    let epub_bytes = fs::read(workspace_root().join("scripts/packaging/fixtures/smoke_cover.epub"))
+        .expect("smoke_cover.epub");
+    let book = runtime
+        .import_stream(
+            "op-meta-local",
+            "LocalMeta.epub",
+            Cursor::new(epub_bytes.clone()),
+            None,
+            None,
+        )
+        .await
+        .expect("import epub");
+
+    let initial = runtime
+        .get_book_metadata(book.id.clone())
+        .await
+        .expect("get initial metadata");
+    assert_eq!(initial.book_id, book.id);
+    assert_eq!(initial.file_type, "EPUB");
+    assert_eq!(initial.size, epub_bytes.len() as u64);
+    assert_eq!(initial.page_count, None);
+
+    if initial.subtitle.is_some() {
+        runtime.clear_book_subtitle(book.id.clone()).await.unwrap();
+    }
+    if !initial.authors.is_empty() {
+        runtime.clear_book_authors(book.id.clone()).await.unwrap();
+    }
+    if initial.publisher.is_some() {
+        runtime.clear_book_publisher(book.id.clone()).await.unwrap();
+    }
+    if initial.published_date.is_some() {
+        runtime
+            .clear_book_published_date(book.id.clone())
+            .await
+            .unwrap();
+    }
+    if initial.language.is_some() {
+        runtime.clear_book_language(book.id.clone()).await.unwrap();
+    }
+    if initial.description.is_some() {
+        runtime
+            .clear_book_description(book.id.clone())
+            .await
+            .unwrap();
+    }
+    if initial.identifier.is_some() {
+        runtime
+            .clear_book_identifier(book.id.clone())
+            .await
+            .unwrap();
+    }
+
+    runtime
+        .change_book_subtitle(book.id.clone(), "Local Edition".into())
+        .await
+        .expect("change subtitle");
+    runtime
+        .change_book_authors(book.id.clone(), vec!["Alice".into(), "Bob".into()])
+        .await
+        .expect("change authors");
+    runtime
+        .change_book_publisher(book.id.clone(), "Local Press".into())
+        .await
+        .expect("change publisher");
+    runtime
+        .change_book_published_date(book.id.clone(), "2025".into())
+        .await
+        .expect("change published date");
+    runtime
+        .change_book_language(book.id.clone(), "en-us".into())
+        .await
+        .expect("change language");
+    runtime
+        .change_book_description(book.id.clone(), "Local summary.".into())
+        .await
+        .expect("change description");
+    runtime
+        .change_book_identifier(book.id.clone(), "978-0-306-40615-7".into())
+        .await
+        .expect("change identifier");
+
+    let updated = runtime
+        .get_book_metadata(book.id.clone())
+        .await
+        .expect("get updated metadata");
+    assert_eq!(updated.subtitle.as_deref(), Some("Local Edition"));
+    assert_eq!(updated.authors, vec!["Alice", "Bob"]);
+    assert_eq!(updated.publisher.as_deref(), Some("Local Press"));
+    assert_eq!(updated.published_date.as_deref(), Some("2025"));
+    assert_eq!(updated.language.as_deref(), Some("en-US"));
+    assert_eq!(updated.description.as_deref(), Some("Local summary."));
+    assert_eq!(updated.identifier.as_deref(), Some("9780306406157"));
+
+    sink.clear();
+    let author_err = runtime
+        .change_book_authors(book.id.clone(), vec!["Alice".into(), "Alice".into()])
+        .await
+        .unwrap_err();
+    assert_eq!(author_err.code, ErrorCode::BookInvalidAuthor.code());
+    assert_eq!(sink.events().len(), 1);
+    assert_eq!(sink.events()[0].code, ErrorCode::BookInvalidAuthor.code());
+
+    sink.clear();
+    let err = runtime
+        .change_book_published_date(book.id.clone(), "2025-13-01".into())
+        .await
+        .unwrap_err();
+    assert_eq!(err.code, ErrorCode::BookInvalidPublishedDate.code());
+    assert_eq!(sink.events().len(), 1);
+    assert_eq!(sink.events()[0].code, ErrorCode::BookInvalidPublishedDate.code());
+
+    runtime.clear_book_subtitle(book.id.clone()).await.unwrap();
+    runtime.clear_book_authors(book.id.clone()).await.unwrap();
+    runtime.clear_book_publisher(book.id.clone()).await.unwrap();
+    runtime
+        .clear_book_published_date(book.id.clone())
+        .await
+        .unwrap();
+    runtime.clear_book_language(book.id.clone()).await.unwrap();
+    runtime
+        .clear_book_description(book.id.clone())
+        .await
+        .unwrap();
+    runtime
+        .clear_book_identifier(book.id.clone())
+        .await
+        .unwrap();
+
+    let cleared = runtime
+        .get_book_metadata(book.id.clone())
+        .await
+        .expect("get cleared metadata");
+    assert_eq!(cleared.subtitle, None);
+    assert!(cleared.authors.is_empty());
+    assert_eq!(cleared.publisher, None);
+    assert_eq!(cleared.published_date, None);
+    assert_eq!(cleared.language, None);
+    assert_eq!(cleared.description, None);
+    assert_eq!(cleared.identifier, None);
+
+    sink.clear();
+    let unchanged_err = runtime.clear_book_publisher(book.id).await.unwrap_err();
+    assert_eq!(unchanged_err.code, ErrorCode::BookPublisherUnchanged.code());
+    assert_eq!(sink.events().len(), 1);
+}

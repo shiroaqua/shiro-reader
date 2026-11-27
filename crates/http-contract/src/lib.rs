@@ -8,9 +8,11 @@ pub use auth::{LoginRequest, LogoutRequest, RefreshAccessTokenRequest};
 pub use error::{ErrorDetail, ErrorResponse};
 pub use library::{
     BOOK_FILE_FIELD_FILE, BOOK_FILE_FIELD_HASH, BOOK_FILE_FIELD_SIZE, BindBookTagRequest,
-    BookFileQuery, BookIdsRequest, BooksQuery, ChangeTagColorRequest, CreateBookRequest,
-    DefineTagRequest, DeleteTagQuery, DeleteTagStrategy, MoveTagRequest,
-    RenameBookRequest, RenameTagRequest, UnbindBookTagRequest,
+    BookFileQuery, BookIdsRequest, BooksQuery, ChangeBookAuthorsRequest,
+    ChangeBookDescriptionRequest, ChangeBookIdentifierRequest, ChangeBookLanguageRequest,
+    ChangeBookPublishedDateRequest, ChangeBookPublisherRequest, ChangeBookSubtitleRequest,
+    ChangeTagColorRequest, CreateBookRequest, DefineTagRequest, DeleteTagQuery, DeleteTagStrategy,
+    MoveTagRequest, RenameBookRequest, RenameTagRequest, UnbindBookTagRequest,
 };
 pub use meta::ServerMetaResponse;
 
@@ -88,6 +90,70 @@ mod tests {
             "/bookshelf/books/{book_id}/navigation"
         );
         assert_eq!(
+            paths::book_metadata("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_ROUTE,
+            "/bookshelf/books/{book_id}/metadata"
+        );
+        assert_eq!(
+            paths::book_metadata_subtitle("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/subtitle"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_SUBTITLE_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/subtitle"
+        );
+        assert_eq!(
+            paths::book_metadata_authors("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/authors"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_AUTHORS_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/authors"
+        );
+        assert_eq!(
+            paths::book_metadata_publisher("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/publisher"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_PUBLISHER_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/publisher"
+        );
+        assert_eq!(
+            paths::book_metadata_published_date("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/published-date"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_PUBLISHED_DATE_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/published-date"
+        );
+        assert_eq!(
+            paths::book_metadata_language("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/language"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_LANGUAGE_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/language"
+        );
+        assert_eq!(
+            paths::book_metadata_description("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/description"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_DESCRIPTION_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/description"
+        );
+        assert_eq!(
+            paths::book_metadata_identifier("b1"),
+            "/api/v1/library/bookshelf/books/b1/metadata/identifier"
+        );
+        assert_eq!(
+            paths::BOOK_METADATA_IDENTIFIER_ROUTE,
+            "/bookshelf/books/{book_id}/metadata/identifier"
+        );
+        assert_eq!(
             paths::book_cover("b1"),
             "/api/v1/library/bookshelf/books/b1/cover"
         );
@@ -111,5 +177,47 @@ mod tests {
             r#"{"title":"Book","hash":"abc","extra":true}"#,
         );
         assert!(parsed.is_err());
+        assert!(
+            serde_json::from_str::<ChangeBookSubtitleRequest>(
+                r#"{"subtitle":"Sub","extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookAuthorsRequest>(
+                r#"{"authors":["Alice"],"extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookPublisherRequest>(
+                r#"{"publisher":"Pub","extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookPublishedDateRequest>(
+                r#"{"published_date":"2024","extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookLanguageRequest>(
+                r#"{"language":"en","extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookDescriptionRequest>(
+                r#"{"description":"Desc","extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<ChangeBookIdentifierRequest>(
+                r#"{"identifier":"9780306406157","extra":true}"#
+            )
+            .is_err()
+        );
     }
 }

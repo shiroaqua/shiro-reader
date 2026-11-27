@@ -8,11 +8,16 @@ use pdfium_render::prelude::Pdfium;
 use shiro_application::library::{
     book::{
         commands::{
-            DeleteBooksCommand, GetBookCoverCommand, GetBookFileMetaCommand,
-            PermanentlyDeleteBooksCommand, RenameBookCommand, RestoreBookIdCommand,
+            ChangeBookAuthorsCommand, ChangeBookDescriptionCommand, ChangeBookIdentifierCommand,
+            ChangeBookLanguageCommand, ChangeBookPublishedDateCommand, ChangeBookPublisherCommand,
+            ChangeBookSubtitleCommand, ClearBookAuthorsCommand, ClearBookDescriptionCommand,
+            ClearBookIdentifierCommand, ClearBookLanguageCommand, ClearBookPublishedDateCommand,
+            ClearBookPublisherCommand, ClearBookSubtitleCommand, DeleteBooksCommand,
+            GetBookCoverCommand, GetBookFileMetaCommand, PermanentlyDeleteBooksCommand,
+            RenameBookCommand, RestoreBookIdCommand,
         },
-        dto::{GetBookOutput, TrashedBookOutput},
-        queries::{GetBookNavigationQuery, GetBooksQuery},
+        dto::{BookMetadataOutput, GetBookOutput, TrashedBookOutput},
+        queries::{GetBookMetadataQuery, GetBookNavigationQuery, GetBooksQuery},
     },
     ports::CoverByteStream,
     tag::{
@@ -23,7 +28,7 @@ use shiro_application::library::{
         dto::BookTagOutput,
     },
 };
-use shiro_domain::library::book::{file::entity::BookFileType, value_objects::BookId};
+use shiro_domain::library::book::value_objects::{BookFileType, BookId};
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode, PairedClientError};
 use shiro_http_contract::ServerMetaResponse;
 use shiro_infrastructure::{db::pool::checkpoint_library_wal, library_runtime::LocalLibrary};
@@ -1441,6 +1446,292 @@ impl ClientRuntime {
                 }),
             LibraryBackend::Cloud(cloud) => cloud
                 .get_book_navigation(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn get_book_metadata(
+        &self,
+        id: String,
+    ) -> Result<BookMetadataOutput, CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .get_book_metadata(GetBookMetadataQuery { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .get_book_metadata(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_subtitle(
+        &self,
+        id: String,
+        subtitle: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_subtitle(ChangeBookSubtitleCommand { id, subtitle })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_subtitle(&id, subtitle)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_subtitle(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_subtitle(ClearBookSubtitleCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_subtitle(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_authors(
+        &self,
+        id: String,
+        authors: Vec<String>,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_authors(ChangeBookAuthorsCommand { id, authors })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_authors(&id, authors)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_authors(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_authors(ClearBookAuthorsCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_authors(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_publisher(
+        &self,
+        id: String,
+        publisher: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_publisher(ChangeBookPublisherCommand { id, publisher })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_publisher(&id, publisher)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_publisher(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_publisher(ClearBookPublisherCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_publisher(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_published_date(
+        &self,
+        id: String,
+        published_date: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_published_date(ChangeBookPublishedDateCommand { id, published_date })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_published_date(&id, published_date)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_published_date(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_published_date(ClearBookPublishedDateCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_published_date(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_language(
+        &self,
+        id: String,
+        language: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_language(ChangeBookLanguageCommand { id, language })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_language(&id, language)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_language(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_language(ClearBookLanguageCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_language(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_description(
+        &self,
+        id: String,
+        description: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_description(ChangeBookDescriptionCommand { id, description })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_description(&id, description)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_description(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_description(ClearBookDescriptionCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_description(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn change_book_identifier(
+        &self,
+        id: String,
+        identifier: String,
+    ) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .change_book_identifier(ChangeBookIdentifierCommand { id, identifier })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .change_book_identifier(&id, identifier)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
+    pub async fn clear_book_identifier(&self, id: String) -> Result<(), CommandErrorPayload> {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .clear_book_identifier(ClearBookIdentifierCommand { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .clear_book_identifier(&id)
                 .await
                 .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
         }

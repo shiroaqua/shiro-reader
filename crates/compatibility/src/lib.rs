@@ -49,10 +49,11 @@ pub use reader_fonts::{MAX_CUSTOM_FONT_BYTES, SystemFontFamilyDto};
 pub use runtime::ClientRuntime;
 pub use shiro_application::library::{
     book::dto::{
-        BookAnchorDto, BookNavigationOutput, BookmarkLocatorDto, CreateBookOutput,
-        EpubNavTargetDto, EpubPointTargetDto, EpubRangeTargetDto, GetBookOutput,
-        HighlightLocatorDto, LinearUnitOutput, NavigationLocatorDto, NormalizedRectDto,
-        PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto, TocNodeOutput, TrashedBookOutput,
+        BookAnchorDto, BookMetadataOutput, BookNavigationOutput, BookmarkLocatorDto,
+        CreateBookOutput, EpubNavTargetDto, EpubPointTargetDto, EpubRangeTargetDto,
+        GetBookOutput, HighlightLocatorDto, LinearUnitOutput, NavigationLocatorDto,
+        NormalizedRectDto, PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto, TocNodeOutput,
+        TrashedBookOutput,
     },
     tag::dto::BookTagOutput,
 };

@@ -202,6 +202,48 @@ impl From<LibraryApplicationError> for AppError {
                 BookApplicationError::NotDeleted => AppError::Conflict {
                     message: "library.book.not_deleted",
                 },
+                BookApplicationError::InvalidSubtitle => AppError::BadRequest {
+                    message: "library.book.invalid_subtitle",
+                },
+                BookApplicationError::InvalidAuthor => AppError::BadRequest {
+                    message: "library.book.invalid_author",
+                },
+                BookApplicationError::InvalidPublisher => AppError::BadRequest {
+                    message: "library.book.invalid_publisher",
+                },
+                BookApplicationError::InvalidPublishedDate => AppError::BadRequest {
+                    message: "library.book.invalid_published_date",
+                },
+                BookApplicationError::InvalidLanguage => AppError::BadRequest {
+                    message: "library.book.invalid_language",
+                },
+                BookApplicationError::InvalidDescription => AppError::BadRequest {
+                    message: "library.book.invalid_description",
+                },
+                BookApplicationError::InvalidIdentifier => AppError::BadRequest {
+                    message: "library.book.invalid_identifier",
+                },
+                BookApplicationError::SubtitleUnchanged => AppError::BadRequest {
+                    message: "library.book.subtitle_unchanged",
+                },
+                BookApplicationError::AuthorsUnchanged => AppError::BadRequest {
+                    message: "library.book.authors_unchanged",
+                },
+                BookApplicationError::PublisherUnchanged => AppError::BadRequest {
+                    message: "library.book.publisher_unchanged",
+                },
+                BookApplicationError::PublishedDateUnchanged => AppError::BadRequest {
+                    message: "library.book.published_date_unchanged",
+                },
+                BookApplicationError::LanguageUnchanged => AppError::BadRequest {
+                    message: "library.book.language_unchanged",
+                },
+                BookApplicationError::DescriptionUnchanged => AppError::BadRequest {
+                    message: "library.book.description_unchanged",
+                },
+                BookApplicationError::IdentifierUnchanged => AppError::BadRequest {
+                    message: "library.book.identifier_unchanged",
+                },
                 BookApplicationError::Storage(error) => AppError::Internal(error),
             },
             LibraryApplicationError::BookFile(f) => match f {
@@ -516,6 +558,76 @@ mod tests {
                 BookApplicationError::NotDeleted,
                 StatusCode::CONFLICT,
                 ErrorCode::BookNotDeleted,
+            ),
+            (
+                BookApplicationError::InvalidSubtitle,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidSubtitle,
+            ),
+            (
+                BookApplicationError::InvalidAuthor,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidAuthor,
+            ),
+            (
+                BookApplicationError::InvalidPublisher,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidPublisher,
+            ),
+            (
+                BookApplicationError::InvalidPublishedDate,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidPublishedDate,
+            ),
+            (
+                BookApplicationError::InvalidLanguage,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidLanguage,
+            ),
+            (
+                BookApplicationError::InvalidDescription,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidDescription,
+            ),
+            (
+                BookApplicationError::InvalidIdentifier,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookInvalidIdentifier,
+            ),
+            (
+                BookApplicationError::SubtitleUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookSubtitleUnchanged,
+            ),
+            (
+                BookApplicationError::AuthorsUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookAuthorsUnchanged,
+            ),
+            (
+                BookApplicationError::PublisherUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookPublisherUnchanged,
+            ),
+            (
+                BookApplicationError::PublishedDateUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookPublishedDateUnchanged,
+            ),
+            (
+                BookApplicationError::LanguageUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookLanguageUnchanged,
+            ),
+            (
+                BookApplicationError::DescriptionUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookDescriptionUnchanged,
+            ),
+            (
+                BookApplicationError::IdentifierUnchanged,
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BookIdentifierUnchanged,
             ),
             (
                 BookApplicationError::Storage(storage_err()),

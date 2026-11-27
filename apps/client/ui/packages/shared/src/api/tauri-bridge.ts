@@ -5,6 +5,7 @@ import type { Locale } from "@shiro/ui-shared/lib/i18n"
 import type { AppTheme } from "@shiro/ui-shared/lib/theme"
 import type {
   Book,
+  BookMetadata,
   BookTag,
   Tag,
   TagDefinitionInput,
@@ -271,6 +272,36 @@ export const tauriBridge = {
   booksList: () => invokeTauri<Book[]>("books_list"),
   bookRename: (id: string, title: string) =>
     invokeTauri<void>("book_rename", { id, title }),
+  bookMetadataGet: (id: string) =>
+    invokeTauri<BookMetadata>("book_metadata_get", { id }),
+  bookSubtitleChange: (id: string, subtitle: string) =>
+    invokeTauri<void>("book_subtitle_change", { id, subtitle }),
+  bookSubtitleClear: (id: string) =>
+    invokeTauri<void>("book_subtitle_clear", { id }),
+  bookAuthorsChange: (id: string, authors: string[]) =>
+    invokeTauri<void>("book_authors_change", { id, authors }),
+  bookAuthorsClear: (id: string) =>
+    invokeTauri<void>("book_authors_clear", { id }),
+  bookPublisherChange: (id: string, publisher: string) =>
+    invokeTauri<void>("book_publisher_change", { id, publisher }),
+  bookPublisherClear: (id: string) =>
+    invokeTauri<void>("book_publisher_clear", { id }),
+  bookPublishedDateChange: (id: string, publishedDate: string) =>
+    invokeTauri<void>("book_published_date_change", { id, publishedDate }),
+  bookPublishedDateClear: (id: string) =>
+    invokeTauri<void>("book_published_date_clear", { id }),
+  bookLanguageChange: (id: string, language: string) =>
+    invokeTauri<void>("book_language_change", { id, language }),
+  bookLanguageClear: (id: string) =>
+    invokeTauri<void>("book_language_clear", { id }),
+  bookDescriptionChange: (id: string, description: string) =>
+    invokeTauri<void>("book_description_change", { id, description }),
+  bookDescriptionClear: (id: string) =>
+    invokeTauri<void>("book_description_clear", { id }),
+  bookIdentifierChange: (id: string, identifier: string) =>
+    invokeTauri<void>("book_identifier_change", { id, identifier }),
+  bookIdentifierClear: (id: string) =>
+    invokeTauri<void>("book_identifier_clear", { id }),
   booksDelete: (ids: string[]) => invokeTauri<void>("books_delete", { ids }),
   trashList: () => invokeTauri<TrashedBook[]>("trash_list"),
   trashRestore: (ids: string[]) =>

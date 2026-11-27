@@ -645,3 +645,296 @@ async fn book_navigation_supports_nested_fragments_nonlinear_units_and_failure_f
         }
     );
 }
+
+#[tokio::test]
+async fn book_metadata_get_update_clear_and_error_contracts() {
+    use shiro_reader_server::application::library::book::dto::BookMetadataOutput;
+
+    let app = TestApp::new().await;
+    let reader = app.session("MetaReader").await;
+    let other = app.session("OtherMetaReader").await;
+
+    app.upload(&reader, Epub).await;
+    app.upload(&reader, Pdf).await;
+    let epub = app.add_book(&reader, "Meta EPUB", Epub).await;
+    let pdf = app.add_book(&reader, "Meta PDF", Pdf).await;
+
+    // 1. GET metadata for EPUB and PDF
+    let epub_resp = app.book_metadata(Some(&reader), &epub.data.id).await;
+    epub_resp.assert_status(200);
+    let epub_meta: BookMetadataOutput = epub_resp.json_as();
+    assert_eq!(epub_meta.book_id, epub.data.id);
+    assert_eq!(epub_meta.file_type, "EPUB");
+    assert_eq!(epub_meta.size, SampleFile::Epub.bytes().len() as u64);
+    assert_eq!(epub_meta.page_count, None);
+    assert_eq!(epub_meta.created_at, epub.data.created_at.to_string());
+    let initial_updated_at: jiff::Timestamp = epub_meta.updated_at.parse().unwrap();
+    assert!(initial_updated_at >= epub.data.updated_at);
+
+    let pdf_resp = app.book_metadata(Some(&reader), &pdf.data.id).await;
+    pdf_resp.assert_status(200);
+    let pdf_meta: BookMetadataOutput = pdf_resp.json_as();
+    assert_eq!(pdf_meta.book_id, pdf.data.id);
+    assert_eq!(pdf_meta.file_type, "PDF");
+    assert_eq!(pdf_meta.size, SampleFile::Pdf.bytes().len() as u64);
+    assert_eq!(pdf_meta.page_count, Some(8));
+
+    // Ensure sample metadata starts clear for fields we mutate below or normalize baseline
+    if epub_meta.subtitle.is_some() {
+        app.clear_book_subtitle(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if !epub_meta.authors.is_empty() {
+        app.clear_book_authors(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if epub_meta.publisher.is_some() {
+        app.clear_book_publisher(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if epub_meta.published_date.is_some() {
+        app.clear_book_published_date(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if epub_meta.language.is_some() {
+        app.clear_book_language(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if epub_meta.description.is_some() {
+        app.clear_book_description(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+    if epub_meta.identifier.is_some() {
+        app.clear_book_identifier(Some(&reader), &epub.data.id)
+            .await
+            .assert_empty(204);
+    }
+
+    // 1b. Subtitle: update, unchanged, invalid
+    app.change_book_subtitle(Some(&reader), &epub.data.id, "The Annotated Edition")
+        .await
+        .assert_empty(204);
+    app.change_book_subtitle(Some(&reader), &epub.data.id, "The Annotated Edition")
+        .await
+        .assert_error(SubtitleUnchanged);
+    for bad in ["", " Subtitle", "Subtitle "] {
+        app.change_book_subtitle(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidSubtitle);
+    }
+
+    // 1c. Authors: update, reorder, unchanged, invalid
+    app.change_book_authors(Some(&reader), &epub.data.id, &["Alice", "Bob"])
+        .await
+        .assert_empty(204);
+    app.change_book_authors(Some(&reader), &epub.data.id, &["Bob", "Alice"])
+        .await
+        .assert_empty(204);
+    app.change_book_authors(Some(&reader), &epub.data.id, &["Bob", "Alice"])
+        .await
+        .assert_error(AuthorsUnchanged);
+    for bad in [
+        Vec::<&str>::new(),
+        vec![""],
+        vec![" Alice"],
+        vec!["Alice", "Alice"],
+    ] {
+        app.change_book_authors(Some(&reader), &epub.data.id, &bad)
+            .await
+            .assert_error(InvalidAuthor);
+    }
+
+    // 2. Publisher: update, unchanged, invalid, clear, clear again
+    app.change_book_publisher(Some(&reader), &epub.data.id, "Shiro Press")
+        .await
+        .assert_empty(204);
+    app.change_book_publisher(Some(&reader), &epub.data.id, "Shiro Press")
+        .await
+        .assert_error(PublisherUnchanged);
+    for bad in ["", " Shiro Press", "Shiro Press "] {
+        app.change_book_publisher(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidPublisher);
+    }
+
+    // 3. Published date: Year, YearMonth, Full Date, invalid, unchanged
+    app.change_book_published_date(Some(&reader), &epub.data.id, "2024")
+        .await
+        .assert_empty(204);
+    app.change_book_published_date(Some(&reader), &epub.data.id, "2024-08")
+        .await
+        .assert_empty(204);
+    app.change_book_published_date(Some(&reader), &epub.data.id, "2024-08-15")
+        .await
+        .assert_empty(204);
+    app.change_book_published_date(Some(&reader), &epub.data.id, "2024-08-15")
+        .await
+        .assert_error(PublishedDateUnchanged);
+    for bad in ["", "2024-02-31", "2024/08/15", " 2024"] {
+        app.change_book_published_date(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidPublishedDate);
+    }
+
+    // 4. Language: canonicalization, invalid, unchanged
+    app.change_book_language(Some(&reader), &epub.data.id, "zh-tw")
+        .await
+        .assert_empty(204);
+    app.change_book_language(Some(&reader), &epub.data.id, "zh-TW")
+        .await
+        .assert_error(LanguageUnchanged);
+    for bad in ["", "zh_TW", "toolongprimary", " en"] {
+        app.change_book_language(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidLanguage);
+    }
+
+    // 5. Description: multiline, invalid, unchanged
+    app.change_book_description(Some(&reader), &epub.data.id, "Line 1\nLine 2")
+        .await
+        .assert_empty(204);
+    app.change_book_description(Some(&reader), &epub.data.id, "Line 1\nLine 2")
+        .await
+        .assert_error(DescriptionUnchanged);
+    for bad in ["", " Line 1", "Line 1\0"] {
+        app.change_book_description(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidDescription);
+    }
+
+    // 6. Identifier: canonicalization, invalid, unchanged
+    app.change_book_identifier(Some(&reader), &epub.data.id, "978-0-306-40615-7")
+        .await
+        .assert_empty(204);
+    app.change_book_identifier(Some(&reader), &epub.data.id, "9780306406157")
+        .await
+        .assert_error(IdentifierUnchanged);
+    for bad in ["", "not-an-isbn", " 9780306406157"] {
+        app.change_book_identifier(Some(&reader), &epub.data.id, bad)
+            .await
+            .assert_error(InvalidIdentifier);
+    }
+
+    // Verify persisted values via GET
+    let updated: BookMetadataOutput = app
+        .book_metadata(Some(&reader), &epub.data.id)
+        .await
+        .json_as();
+    assert_eq!(updated.subtitle.as_deref(), Some("The Annotated Edition"));
+    assert_eq!(updated.authors, vec!["Bob", "Alice"]);
+    assert_eq!(updated.publisher.as_deref(), Some("Shiro Press"));
+    assert_eq!(updated.published_date.as_deref(), Some("2024-08-15"));
+    assert_eq!(updated.language.as_deref(), Some("zh-TW"));
+    assert_eq!(updated.description.as_deref(), Some("Line 1\nLine 2"));
+    assert_eq!(updated.identifier.as_deref(), Some("9780306406157"));
+    let updated_at: jiff::Timestamp = updated.updated_at.parse().unwrap();
+    assert!(updated_at >= initial_updated_at);
+    assert!(updated_at > epub.data.updated_at);
+
+    // 7. Clear all 7 fields and verify idempotency rejection
+    app.clear_book_subtitle(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_subtitle(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(SubtitleUnchanged);
+
+    app.clear_book_authors(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_authors(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(AuthorsUnchanged);
+
+    app.clear_book_publisher(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_publisher(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(PublisherUnchanged);
+
+    app.clear_book_published_date(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_published_date(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(PublishedDateUnchanged);
+
+    app.clear_book_language(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_language(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(LanguageUnchanged);
+
+    app.clear_book_description(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_description(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(DescriptionUnchanged);
+
+    app.clear_book_identifier(Some(&reader), &epub.data.id)
+        .await
+        .assert_empty(204);
+    app.clear_book_identifier(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(IdentifierUnchanged);
+
+    let cleared: BookMetadataOutput = app
+        .book_metadata(Some(&reader), &epub.data.id)
+        .await
+        .json_as();
+    assert_eq!(cleared.subtitle, None);
+    assert!(cleared.authors.is_empty());
+    assert_eq!(cleared.publisher, None);
+    assert_eq!(cleared.published_date, None);
+    assert_eq!(cleared.language, None);
+    assert_eq!(cleared.description, None);
+    assert_eq!(cleared.identifier, None);
+
+    // 8. Auth, cross-user isolation, invalid/missing ID, and soft-deleted book contracts
+    app.book_metadata(None, &epub.data.id)
+        .await
+        .assert_error(MissingBearer);
+    app.change_book_publisher(None, &epub.data.id, "Anon")
+        .await
+        .assert_error(MissingBearer);
+    app.clear_book_publisher(None, &epub.data.id)
+        .await
+        .assert_error(MissingBearer);
+
+    app.book_metadata(Some(&other), &epub.data.id)
+        .await
+        .assert_error(BookNotFound);
+    app.change_book_publisher(Some(&other), &epub.data.id, "Hacked")
+        .await
+        .assert_error(BookNotFound);
+    app.clear_book_identifier(Some(&other), &epub.data.id)
+        .await
+        .assert_error(BookNotFound);
+
+    app.book_metadata(Some(&reader), INVALID_ID)
+        .await
+        .assert_error(InvalidBookId);
+    app.book_metadata(Some(&reader), UNKNOWN_ID)
+        .await
+        .assert_error(BookNotFound);
+
+    epub.delete().await.assert_empty(204);
+    app.book_metadata(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(BookAlreadyDeleted);
+    app.change_book_publisher(Some(&reader), &epub.data.id, "Deleted")
+        .await
+        .assert_error(BookAlreadyDeleted);
+    app.clear_book_publisher(Some(&reader), &epub.data.id)
+        .await
+        .assert_error(BookAlreadyDeleted);
+}

@@ -94,7 +94,7 @@ define_error_catalog! {
     UserNameUnchanged => (1107, "identity.user.name_unchanged", "用户名未发生变化。", "The username has not changed."),
     UserPasswordHashUnchanged => (1108, "identity.user.password_hash_unchanged", "密码未发生变化。", "The password has not changed."),
 
-    // Library book (2001..2010)
+    // Library book (2001..2024)
     BookInvalidId => (2001, "library.book.invalid_id", "书籍 ID 无效。", "Invalid book ID."),
     BookMissingTitle => (2002, "library.book.missing_title", "请输入书籍标题。", "Please enter a book title."),
     BookInvalidTitleFormat => (2003, "library.book.invalid_title_format", "书籍标题格式无效。", "Invalid book title format."),
@@ -103,6 +103,20 @@ define_error_catalog! {
     BookTitleUnchanged => (2008, "library.book.title_unchanged", "书籍标题未发生变化。", "The book title has not changed."),
     BookAlreadyDeleted => (2009, "library.book.already_deleted", "书籍已在回收站中。", "The book is already in the recycle bin."),
     BookNotDeleted => (2010, "library.book.not_deleted", "书籍不在回收站中，无法恢复。", "The book is not in the recycle bin and cannot be restored."),
+    BookInvalidPublisher => (2011, "library.book.invalid_publisher", "出版商格式无效。", "Invalid book publisher format."),
+    BookInvalidPublishedDate => (2012, "library.book.invalid_published_date", "出版日期格式无效。", "Invalid book published date format."),
+    BookInvalidLanguage => (2013, "library.book.invalid_language", "语言标签格式无效。", "Invalid book language tag format."),
+    BookInvalidDescription => (2014, "library.book.invalid_description", "书籍简介格式无效。", "Invalid book description format."),
+    BookInvalidIdentifier => (2015, "library.book.invalid_identifier", "图书编号格式无效或校验失败。", "Invalid book identifier."),
+    BookPublisherUnchanged => (2016, "library.book.publisher_unchanged", "出版商未发生变化。", "The book publisher has not changed."),
+    BookPublishedDateUnchanged => (2017, "library.book.published_date_unchanged", "出版日期未发生变化。", "The book published date has not changed."),
+    BookLanguageUnchanged => (2018, "library.book.language_unchanged", "书籍语言未发生变化。", "The book language has not changed."),
+    BookDescriptionUnchanged => (2019, "library.book.description_unchanged", "书籍简介未发生变化。", "The book description has not changed."),
+    BookIdentifierUnchanged => (2020, "library.book.identifier_unchanged", "图书编号未发生变化。", "The book identifier has not changed."),
+    BookInvalidSubtitle => (2021, "library.book.invalid_subtitle", "副标题格式无效。", "Invalid book subtitle format."),
+    BookInvalidAuthor => (2022, "library.book.invalid_author", "作者格式无效。", "Invalid book author format."),
+    BookSubtitleUnchanged => (2023, "library.book.subtitle_unchanged", "副标题未发生变化。", "The book subtitle has not changed."),
+    BookAuthorsUnchanged => (2024, "library.book.authors_unchanged", "作者未发生变化。", "The book authors have not changed."),
 
     // Library book file (2101..2108, 2110..2117)
     BookFileUploadConflict => (2101, "library.book.file.upload.conflict", "文件上传冲突，请重试。", "File upload conflict. Please try again."),

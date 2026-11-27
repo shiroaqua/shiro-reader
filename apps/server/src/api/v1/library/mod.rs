@@ -26,6 +26,45 @@ pub fn standard_router() -> Router<AppState> {
             get(book::handlers::get_book_navigation),
         )
         .route(
+            paths::BOOK_METADATA_ROUTE,
+            get(book::handlers::get_book_metadata),
+        )
+        .route(
+            paths::BOOK_METADATA_SUBTITLE_ROUTE,
+            patch(book::handlers::change_book_subtitle)
+                .delete(book::handlers::clear_book_subtitle),
+        )
+        .route(
+            paths::BOOK_METADATA_AUTHORS_ROUTE,
+            patch(book::handlers::change_book_authors)
+                .delete(book::handlers::clear_book_authors),
+        )
+        .route(
+            paths::BOOK_METADATA_PUBLISHER_ROUTE,
+            patch(book::handlers::change_book_publisher)
+                .delete(book::handlers::clear_book_publisher),
+        )
+        .route(
+            paths::BOOK_METADATA_PUBLISHED_DATE_ROUTE,
+            patch(book::handlers::change_book_published_date)
+                .delete(book::handlers::clear_book_published_date),
+        )
+        .route(
+            paths::BOOK_METADATA_LANGUAGE_ROUTE,
+            patch(book::handlers::change_book_language)
+                .delete(book::handlers::clear_book_language),
+        )
+        .route(
+            paths::BOOK_METADATA_DESCRIPTION_ROUTE,
+            patch(book::handlers::change_book_description)
+                .delete(book::handlers::clear_book_description),
+        )
+        .route(
+            paths::BOOK_METADATA_IDENTIFIER_ROUTE,
+            patch(book::handlers::change_book_identifier)
+                .delete(book::handlers::clear_book_identifier),
+        )
+        .route(
             paths::BOOK_TAGS_ROUTE,
             get(tag::handlers::get_book_tags)
                 .post(tag::handlers::bind_tag)

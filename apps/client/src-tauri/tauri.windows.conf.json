@@ -5,7 +5,7 @@
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "offlineInstaller"
+        "type": "embedBootstrapper"
       },
       "nsis": {
         "languages": ["English", "SimpChinese"],

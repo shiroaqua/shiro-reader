@@ -5,10 +5,12 @@ use bytes::Bytes;
 use futures_util::Stream;
 use shiro_domain::library::{
     book::{
-        entity::{Book, BookChange},
-        file::entity::BookFileType,
+        entity::{Book, BookChange, BookMetadata, BookMetadataChange},
         navigation::BookNavigation,
-        value_objects::BookId,
+        value_objects::{
+            BookAuthor, BookDescription, BookFileType, BookId, BookIdentifier, BookLanguage,
+            BookPublishedDate, BookPublisher, BookSubtitle,
+        },
     },
     tag::{
         entity::{BookTag, BookTagChange, TagDefinition, TagDefinitionChange},
@@ -36,15 +38,15 @@ pub trait BookRepository: Clone + Send + Sync + 'static {
     where
         Self: 'a;
 
-    fn create(
-        &mut self,
-        book: Book,
-    ) -> impl Future<Output = Result<Book, BookRepositoryError>> + Send;
-
     fn find_by_id(
         &mut self,
         id: &BookId,
     ) -> impl Future<Output = Result<Book, BookRepositoryError>> + Send;
+
+    fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> impl Future<Output = Result<BookMetadata, BookRepositoryError>> + Send;
 
     fn list_active(
         &mut self,
@@ -66,6 +68,11 @@ pub trait BookTransaction: Send {
         book: Book,
     ) -> impl Future<Output = Result<Book, BookRepositoryError>> + Send;
 
+    fn create_metadata(
+        &mut self,
+        metadata: BookMetadata,
+    ) -> impl Future<Output = Result<BookMetadata, BookRepositoryError>> + Send;
+
     fn find_by_id(
         &mut self,
         id: &BookId,
@@ -76,6 +83,16 @@ pub trait BookTransaction: Send {
         ids: &[BookId],
     ) -> impl Future<Output = Result<Vec<Book>, BookRepositoryError>> + Send;
 
+    fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> impl Future<Output = Result<BookMetadata, BookRepositoryError>> + Send;
+
+    fn find_metadata_by_book_ids(
+        &mut self,
+        book_ids: &[BookId],
+    ) -> impl Future<Output = Result<Vec<BookMetadata>, BookRepositoryError>> + Send;
+
     fn list_active_titles(
         &mut self,
     ) -> impl Future<Output = Result<HashSet<String>, BookRepositoryError>> + Send;
@@ -83,6 +100,11 @@ pub trait BookTransaction: Send {
     fn apply_book_change(
         &mut self,
         change: BookChange<'_>,
+    ) -> impl Future<Output = Result<(), BookRepositoryError>> + Send;
+
+    fn apply_metadata_change(
+        &mut self,
+        change: BookMetadataChange<'_>,
     ) -> impl Future<Output = Result<(), BookRepositoryError>> + Send;
 
     fn delete_books(
@@ -205,6 +227,18 @@ pub trait TagTransaction: Send {
 pub struct BookFileMetadata {
     pub file_type: BookFileType,
     pub size: u64,
+    pub page_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExtractedBookMetadata {
+    pub subtitle: Option<BookSubtitle>,
+    pub authors: Vec<BookAuthor>,
+    pub publisher: Option<BookPublisher>,
+    pub published_date: Option<BookPublishedDate>,
+    pub language: Option<BookLanguage>,
+    pub description: Option<BookDescription>,
+    pub identifier: Option<BookIdentifier>,
 }
 
 #[derive(Debug)]
@@ -299,4 +333,12 @@ pub trait BookFileStore: Send + Sync + 'static {
         &self,
         hash: &Hash,
     ) -> impl Future<Output = BookNavigation> + Send;
+
+    /// Best-effort extracts embedded descriptive metadata from a stored book file.
+    ///
+    /// Returns an empty [`ExtractedBookMetadata`] if extraction fails or fields are invalid.
+    fn extract_metadata(
+        &self,
+        hash: &Hash,
+    ) -> impl Future<Output = ExtractedBookMetadata> + Send;
 }

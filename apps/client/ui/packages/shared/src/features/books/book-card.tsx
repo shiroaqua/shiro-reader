@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Check,
   ExternalLink,
+  Info,
   Pencil,
   Tag,
   Trash2,
@@ -19,6 +20,7 @@ import {
 import { Input } from "@shiro/ui-shared/components/ui/input"
 import { Separator } from "@shiro/ui-shared/components/ui/separator"
 import { BookCover } from "@shiro/ui-shared/features/books/book-cover"
+import { BookPropertiesDialog } from "@shiro/ui-shared/features/books/book-properties-dialog"
 import { assertBookSupportedInReader } from "@shiro/ui-shared/features/reader/workspace/book-launch"
 import { useLongPress } from "@shiro/ui-shared/hooks/use-long-press"
 import { isMobilePlatform } from "@shiro/ui-shared/hooks/use-mobile"
@@ -41,6 +43,7 @@ export function BookCard({
   onOpenBook,
   onOpenBookInNewWindow,
   onBooksDeleted,
+  onSearchTag,
 }: {
   book: Book
   selected: boolean
@@ -51,11 +54,13 @@ export function BookCard({
   onOpenBook?: ((book: Book) => void) | undefined
   onOpenBookInNewWindow?: ((book: Book) => void) | undefined
   onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
+  onSearchTag?: ((query: string) => void) | undefined
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [renaming, setRenaming] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
   const isTouch = useIsTouch()
   const isTouchMenu = isTouch || isMobilePlatform()
@@ -65,6 +70,7 @@ export function BookCard({
     if (isSelectionMode) {
       setRenaming(false)
       setTagsOpen(false)
+      setPropertiesOpen(false)
       setActionsOpen(false)
     }
   }
@@ -300,6 +306,10 @@ export function BookCard({
           <Tag aria-hidden="true" />
           {t("local.book.tags")}
         </ContextMenuItem>
+        <ContextMenuItem onClick={() => setPropertiesOpen(true)}>
+          <Info aria-hidden="true" />
+          {t("local.book.properties")}
+        </ContextMenuItem>
         <ContextMenuItem
           variant="destructive"
           disabled={deleteMutation.isPending}
@@ -342,6 +352,12 @@ export function BookCard({
             onSelect: () => setTagsOpen(true),
           },
           {
+            key: "properties",
+            label: t("local.book.properties"),
+            icon: <Info aria-hidden="true" />,
+            onSelect: () => setPropertiesOpen(true),
+          },
+          {
             key: "delete",
             label: t("local.book.delete"),
             icon: <Trash2 aria-hidden="true" />,
@@ -355,6 +371,13 @@ export function BookCard({
         book={book}
         open={tagsOpen && !isSelectionMode}
         onOpenChange={setTagsOpen}
+      />
+      <BookPropertiesDialog
+        book={book}
+        open={propertiesOpen && !isSelectionMode}
+        onOpenChange={setPropertiesOpen}
+        onBookDeleted={() => onBooksDeleted?.([book.id])}
+        onSearchTag={onSearchTag}
       />
     </>
   )

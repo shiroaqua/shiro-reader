@@ -1,10 +1,18 @@
 import { setPreviewLibrary, type LibraryBridge } from "./library"
 import { enableReaderPreview } from "./reader-mock"
 import type { UploadPanelSnapshot, UploadTask } from "./tauri-bridge"
-import type { Book, BookTag, Tag, TagTreeNode, TrashedBook } from "@shiro/ui-shared/lib/types"
+import type {
+  Book,
+  BookMetadata,
+  BookTag,
+  Tag,
+  TagTreeNode,
+  TrashedBook,
+} from "@shiro/ui-shared/lib/types"
 import { notifyLocalError } from "@shiro/ui-shared/lib/error-notifications"
 
 const books = new Map<string, Book>()
+const metadataMap = new Map<string, BookMetadata>()
 const trash = new Map<string, TrashedBook>()
 const tags = new Map<string, Tag>()
 const bindings = new Map<string, Map<string, BookTag>>()
@@ -14,6 +22,21 @@ function addBook(title: string, type: string): Book {
   const now = new Date().toISOString()
   const book = { id, title, hash: id, type, created_at: now, updated_at: now }
   books.set(id, book)
+  metadataMap.set(id, {
+    book_id: id,
+    subtitle: null,
+    authors: [],
+    publisher: null,
+    published_date: null,
+    language: null,
+    description: null,
+    identifier: null,
+    type: type.toUpperCase(),
+    size: type.toLowerCase() === "pdf" ? 2_457_600 : 1_048_576,
+    page_count: type.toLowerCase() === "pdf" ? 112 : null,
+    created_at: now,
+    updated_at: now,
+  })
   return book
 }
 
@@ -228,11 +251,92 @@ const previewLibrary: LibraryBridge = {
     return [...books.values()]
   },
   async bookRename(id, title) {
+    const updatedAt = new Date().toISOString()
     books.set(id, {
       ...requireItem(books, id),
       title,
-      updated_at: new Date().toISOString(),
+      updated_at: updatedAt,
     })
+    const existingMeta = metadataMap.get(id)
+    if (existingMeta) {
+      metadataMap.set(id, { ...existingMeta, updated_at: updatedAt })
+    }
+  },
+  async bookMetadataGet(id) {
+    const book = requireItem(books, id)
+    return (
+      metadataMap.get(id) ?? {
+        book_id: book.id,
+        subtitle: null,
+        authors: [],
+        publisher: null,
+        published_date: null,
+        language: null,
+        description: null,
+        identifier: null,
+        type: book.type.toUpperCase(),
+        size: 0,
+        page_count: null,
+        created_at: book.created_at,
+        updated_at: book.updated_at,
+      }
+    )
+  },
+  async bookSubtitleChange(id, subtitle) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, subtitle })
+  },
+  async bookSubtitleClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, subtitle: null })
+  },
+  async bookAuthorsChange(id, authors) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, authors: [...authors] })
+  },
+  async bookAuthorsClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, authors: [] })
+  },
+  async bookPublisherChange(id, publisher) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, publisher })
+  },
+  async bookPublisherClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, publisher: null })
+  },
+  async bookPublishedDateChange(id, published_date) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, published_date })
+  },
+  async bookPublishedDateClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, published_date: null })
+  },
+  async bookLanguageChange(id, language) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, language })
+  },
+  async bookLanguageClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, language: null })
+  },
+  async bookDescriptionChange(id, description) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, description })
+  },
+  async bookDescriptionClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, description: null })
+  },
+  async bookIdentifierChange(id, identifier) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, identifier })
+  },
+  async bookIdentifierClear(id) {
+    const current = await previewLibrary.bookMetadataGet(id)
+    metadataMap.set(id, { ...current, identifier: null })
   },
   async booksDelete(ids) {
     const selected = ids.map((id) => requireItem(books, id))
@@ -276,6 +380,7 @@ const previewLibrary: LibraryBridge = {
     ids.forEach((id) => requireItem(trash, id))
     for (const id of ids) {
       trash.delete(id)
+      metadataMap.delete(id)
       bindings.delete(id)
     }
   },

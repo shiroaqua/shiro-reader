@@ -113,6 +113,101 @@ describe("tauri-bridge", () => {
       })
     })
 
+    it("maps book metadata get, change, and clear IPC arguments cleanly", async () => {
+      const metaPayload = {
+        book_id: "b1",
+        subtitle: "Annotated Edition",
+        authors: ["Alice", "Bob"],
+        publisher: "Shiro Press",
+        published_date: "2025-08",
+        language: "zh-TW",
+        description: "Summary",
+        identifier: "9780306406157",
+        type: "EPUB",
+        size: 1024,
+        page_count: null,
+        created_at: "2026-01-15T10:00:00.000Z",
+        updated_at: "2026-01-15T10:00:00.000Z",
+      }
+      tauriTestHost.onInvoke("book_metadata_get", () => metaPayload)
+      tauriTestHost.onInvoke("book_subtitle_change", () => undefined)
+      tauriTestHost.onInvoke("book_subtitle_clear", () => undefined)
+      tauriTestHost.onInvoke("book_authors_change", () => undefined)
+      tauriTestHost.onInvoke("book_authors_clear", () => undefined)
+      tauriTestHost.onInvoke("book_publisher_change", () => undefined)
+      tauriTestHost.onInvoke("book_publisher_clear", () => undefined)
+      tauriTestHost.onInvoke("book_published_date_change", () => undefined)
+      tauriTestHost.onInvoke("book_published_date_clear", () => undefined)
+      tauriTestHost.onInvoke("book_language_change", () => undefined)
+      tauriTestHost.onInvoke("book_language_clear", () => undefined)
+      tauriTestHost.onInvoke("book_description_change", () => undefined)
+      tauriTestHost.onInvoke("book_description_clear", () => undefined)
+      tauriTestHost.onInvoke("book_identifier_change", () => undefined)
+      tauriTestHost.onInvoke("book_identifier_clear", () => undefined)
+
+      expect(await tauriBridge.bookMetadataGet("b1")).toEqual(metaPayload)
+      await tauriBridge.bookSubtitleChange("b1", "Annotated Edition")
+      await tauriBridge.bookSubtitleClear("b1")
+      await tauriBridge.bookAuthorsChange("b1", ["Alice", "Bob"])
+      await tauriBridge.bookAuthorsClear("b1")
+      await tauriBridge.bookPublisherChange("b1", "Shiro Press")
+      await tauriBridge.bookPublisherClear("b1")
+      await tauriBridge.bookPublishedDateChange("b1", "2025-08")
+      await tauriBridge.bookPublishedDateClear("b1")
+      await tauriBridge.bookLanguageChange("b1", "zh-TW")
+      await tauriBridge.bookLanguageClear("b1")
+      await tauriBridge.bookDescriptionChange("b1", "Summary")
+      await tauriBridge.bookDescriptionClear("b1")
+      await tauriBridge.bookIdentifierChange("b1", "9780306406157")
+      await tauriBridge.bookIdentifierClear("b1")
+
+      expect(
+        tauriTestHost.invokeCalls("book_metadata_get")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_subtitle_change")[0]!.args
+      ).toEqual({ id: "b1", subtitle: "Annotated Edition" })
+      expect(
+        tauriTestHost.invokeCalls("book_subtitle_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_authors_change")[0]!.args
+      ).toEqual({ id: "b1", authors: ["Alice", "Bob"] })
+      expect(
+        tauriTestHost.invokeCalls("book_authors_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_publisher_change")[0]!.args
+      ).toEqual({ id: "b1", publisher: "Shiro Press" })
+      expect(
+        tauriTestHost.invokeCalls("book_publisher_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_published_date_change")[0]!.args
+      ).toEqual({ id: "b1", publishedDate: "2025-08" })
+      expect(
+        tauriTestHost.invokeCalls("book_published_date_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_language_change")[0]!.args
+      ).toEqual({ id: "b1", language: "zh-TW" })
+      expect(
+        tauriTestHost.invokeCalls("book_language_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_description_change")[0]!.args
+      ).toEqual({ id: "b1", description: "Summary" })
+      expect(
+        tauriTestHost.invokeCalls("book_description_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+      expect(
+        tauriTestHost.invokeCalls("book_identifier_change")[0]!.args
+      ).toEqual({ id: "b1", identifier: "9780306406157" })
+      expect(
+        tauriTestHost.invokeCalls("book_identifier_clear")[0]!.args
+      ).toEqual({ id: "b1" })
+    })
+
     it("invokes concurrent upload queue IPC commands with exact argument payloads", async () => {
       const snap = makeUploadSnapshot({
         revision: 2,

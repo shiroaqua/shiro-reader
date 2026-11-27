@@ -235,6 +235,184 @@ impl TestApp {
         )
         .await
     }
+    pub async fn book_metadata(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::GET,
+            &shiro_http_contract::paths::book_metadata(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_subtitle(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        subtitle: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_subtitle(id),
+            Some(json!({ "subtitle": subtitle })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_subtitle(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_subtitle(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_authors(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        authors: &[&str],
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_authors(id),
+            Some(json!({ "authors": authors })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_authors(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_authors(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_publisher(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        publisher: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_publisher(id),
+            Some(json!({ "publisher": publisher })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_publisher(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_publisher(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_published_date(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        published_date: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_published_date(id),
+            Some(json!({ "published_date": published_date })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_published_date(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_published_date(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_language(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        language: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_language(id),
+            Some(json!({ "language": language })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_language(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_language(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_description(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        description: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_description(id),
+            Some(json!({ "description": description })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_description(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_description(id),
+            None,
+            session,
+        )
+        .await
+    }
+    pub async fn change_book_identifier(
+        &self,
+        session: Option<&Session>,
+        id: &str,
+        identifier: &str,
+    ) -> HttpResponse {
+        self.send(
+            Method::PATCH,
+            &shiro_http_contract::paths::book_metadata_identifier(id),
+            Some(json!({ "identifier": identifier })),
+            session,
+        )
+        .await
+    }
+    pub async fn clear_book_identifier(&self, session: Option<&Session>, id: &str) -> HttpResponse {
+        self.send(
+            Method::DELETE,
+            &shiro_http_contract::paths::book_metadata_identifier(id),
+            None,
+            session,
+        )
+        .await
+    }
     pub async fn upload(&self, session: &Session, file: SampleFile) {
         self.upload_parts(Some(session), &[&file.hash()], Some(&file.bytes()))
             .await

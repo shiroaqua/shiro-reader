@@ -15,8 +15,7 @@ use blake3::Hash;
 use bytes::Bytes;
 use dashmap::{DashMap, mapref::entry::Entry};
 use shiro_domain::library::book::{
-    file::entity::BookFileType,
-    navigation::BookNavigation,
+    navigation::BookNavigation, value_objects::BookFileType,
 };
 use tokio::{
     io::{AsyncRead, ReadBuf},
@@ -26,7 +25,10 @@ use tokio::{
 use crate::library::{
     book::file::errors::BookFileApplicationError,
     errors::LibraryApplicationError,
-    ports::{BookFileMetadata, BookFileStore, BookFileStorageError, CoverByteStream, OpenedBookFile},
+    ports::{
+        BookFileMetadata, BookFileStorageError, BookFileStore, CoverByteStream,
+        ExtractedBookMetadata, OpenedBookFile,
+    },
 };
 
 const DEFAULT_BASE_TIMEOUT_SECS: u64 = 30;
@@ -232,6 +234,10 @@ impl<S: BookFileStore> BookFileService<S> {
 
     pub async fn extract_book_navigation(&self, hash: &Hash) -> BookNavigation {
         self.storage.extract_navigation(hash).await
+    }
+
+    pub async fn extract_book_metadata(&self, hash: &Hash) -> ExtractedBookMetadata {
+        self.storage.extract_metadata(hash).await
     }
 
     pub fn parse_existing_hash(&self, hash: &str) -> Result<Hash, LibraryApplicationError> {

@@ -6,6 +6,7 @@ import {
 } from "@shiro/ui-shared/api/tauri-bridge"
 import type {
   Book,
+  BookMetadata,
   BookTag,
   Tag,
   TagDefinitionInput,
@@ -25,6 +26,7 @@ type UploadOpenUiListener = () => void
 
 export class FakeLibrary implements LibraryBridge {
   private books = new Map<string, Book>()
+  private metadata = new Map<string, BookMetadata>()
   private trash = new Map<string, TrashedBook>()
   private tags = new Map<string, Tag>()
   private bindings = new Map<string, Map<string, BookTag>>()
@@ -46,6 +48,33 @@ export class FakeLibrary implements LibraryBridge {
   seedBooks(items: readonly Book[]): this {
     for (const book of items) {
       this.books.set(book.id, { ...book })
+      if (!this.metadata.has(book.id)) {
+        this.metadata.set(book.id, {
+          book_id: book.id,
+          subtitle: null,
+          authors: [],
+          publisher: null,
+          published_date: null,
+          language: null,
+          description: null,
+          identifier: null,
+          type: book.type.toUpperCase(),
+          size: 1_048_576,
+          page_count: book.type.toLowerCase() === "pdf" ? 10 : null,
+          created_at: book.created_at,
+          updated_at: book.updated_at,
+        })
+      }
+    }
+    return this
+  }
+
+  seedMetadata(items: readonly BookMetadata[]): this {
+    for (const item of items) {
+      this.metadata.set(item.book_id, {
+        ...item,
+        authors: [...item.authors],
+      })
     }
     return this
   }
@@ -142,12 +171,188 @@ export class FakeLibrary implements LibraryBridge {
 
   bookRename = async (id: string, title: string): Promise<void> => {
     const current = this.requireBook(id)
+    const updatedAt = new Date().toISOString()
     this.books.set(id, {
       ...current,
       title,
-      updated_at: new Date().toISOString(),
+      updated_at: updatedAt,
     })
+    const meta = this.metadata.get(id)
+    if (meta) {
+      this.metadata.set(id, { ...meta, updated_at: updatedAt })
+    }
   }
+
+  bookMetadataGet = async (id: string): Promise<BookMetadata> => {
+    const book = this.requireBook(id)
+    const existing = this.metadata.get(id)
+    if (existing) {
+      return { ...existing, authors: [...existing.authors] }
+    }
+    const fallback: BookMetadata = {
+      book_id: book.id,
+      subtitle: null,
+      authors: [],
+      publisher: null,
+      published_date: null,
+      language: null,
+      description: null,
+      identifier: null,
+      type: book.type.toUpperCase(),
+      size: 1_048_576,
+      page_count: book.type.toLowerCase() === "pdf" ? 10 : null,
+      created_at: book.created_at,
+      updated_at: book.updated_at,
+    }
+    this.metadata.set(id, fallback)
+    return { ...fallback, authors: [] }
+  }
+
+  private async updateMetadataField(
+    id: string,
+    field:
+      | "subtitle"
+      | "publisher"
+      | "published_date"
+      | "language"
+      | "description"
+      | "identifier",
+    unchangedKey: string,
+    nextValue: string | null
+  ): Promise<void> {
+    const current = await this.bookMetadataGet(id)
+    if (current[field] === nextValue) {
+      throw new CommandError(
+        makeCommandErrorPayload({ key: unchangedKey, itemId: id })
+      )
+    }
+    this.metadata.set(id, { ...current, [field]: nextValue })
+  }
+
+  bookSubtitleChange = (id: string, subtitle: string) =>
+    this.updateMetadataField(
+      id,
+      "subtitle",
+      "library.book.subtitle_unchanged",
+      subtitle
+    )
+
+  bookSubtitleClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "subtitle",
+      "library.book.subtitle_unchanged",
+      null
+    )
+
+  bookAuthorsChange = async (id: string, authors: string[]): Promise<void> => {
+    const current = await this.bookMetadataGet(id)
+    if (
+      current.authors.length === authors.length &&
+      current.authors.every((item, index) => item === authors[index])
+    ) {
+      throw new CommandError(
+        makeCommandErrorPayload({
+          key: "library.book.authors_unchanged",
+          itemId: id,
+        })
+      )
+    }
+    this.metadata.set(id, { ...current, authors: [...authors] })
+  }
+
+  bookAuthorsClear = async (id: string): Promise<void> => {
+    const current = await this.bookMetadataGet(id)
+    if (current.authors.length === 0) {
+      throw new CommandError(
+        makeCommandErrorPayload({
+          key: "library.book.authors_unchanged",
+          itemId: id,
+        })
+      )
+    }
+    this.metadata.set(id, { ...current, authors: [] })
+  }
+
+  bookPublisherChange = (id: string, publisher: string) =>
+    this.updateMetadataField(
+      id,
+      "publisher",
+      "library.book.publisher_unchanged",
+      publisher
+    )
+
+  bookPublisherClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "publisher",
+      "library.book.publisher_unchanged",
+      null
+    )
+
+  bookPublishedDateChange = (id: string, publishedDate: string) =>
+    this.updateMetadataField(
+      id,
+      "published_date",
+      "library.book.published_date_unchanged",
+      publishedDate
+    )
+
+  bookPublishedDateClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "published_date",
+      "library.book.published_date_unchanged",
+      null
+    )
+
+  bookLanguageChange = (id: string, language: string) =>
+    this.updateMetadataField(
+      id,
+      "language",
+      "library.book.language_unchanged",
+      language
+    )
+
+  bookLanguageClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "language",
+      "library.book.language_unchanged",
+      null
+    )
+
+  bookDescriptionChange = (id: string, description: string) =>
+    this.updateMetadataField(
+      id,
+      "description",
+      "library.book.description_unchanged",
+      description
+    )
+
+  bookDescriptionClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "description",
+      "library.book.description_unchanged",
+      null
+    )
+
+  bookIdentifierChange = (id: string, identifier: string) =>
+    this.updateMetadataField(
+      id,
+      "identifier",
+      "library.book.identifier_unchanged",
+      identifier
+    )
+
+  bookIdentifierClear = (id: string) =>
+    this.updateMetadataField(
+      id,
+      "identifier",
+      "library.book.identifier_unchanged",
+      null
+    )
 
   booksDelete = async (ids: string[]): Promise<void> => {
     const selected = ids.map((id) => this.requireBook(id))
@@ -192,6 +397,7 @@ export class FakeLibrary implements LibraryBridge {
     }
     for (const id of ids) {
       this.trash.delete(id)
+      this.metadata.delete(id)
       this.bindings.delete(id)
     }
   }
@@ -411,6 +617,37 @@ export class FakeLibrary implements LibraryBridge {
       books_list: () => this.booksList(),
       book_rename: (args) =>
         this.bookRename(String(args?.id), String(args?.title)),
+      book_metadata_get: (args) => this.bookMetadataGet(String(args?.id)),
+      book_subtitle_change: (args) =>
+        this.bookSubtitleChange(String(args?.id), String(args?.subtitle)),
+      book_subtitle_clear: (args) => this.bookSubtitleClear(String(args?.id)),
+      book_authors_change: (args) =>
+        this.bookAuthorsChange(
+          String(args?.id),
+          (args?.authors as string[] | undefined) ?? []
+        ),
+      book_authors_clear: (args) => this.bookAuthorsClear(String(args?.id)),
+      book_publisher_change: (args) =>
+        this.bookPublisherChange(String(args?.id), String(args?.publisher)),
+      book_publisher_clear: (args) => this.bookPublisherClear(String(args?.id)),
+      book_published_date_change: (args) =>
+        this.bookPublishedDateChange(
+          String(args?.id),
+          String(args?.publishedDate)
+        ),
+      book_published_date_clear: (args) =>
+        this.bookPublishedDateClear(String(args?.id)),
+      book_language_change: (args) =>
+        this.bookLanguageChange(String(args?.id), String(args?.language)),
+      book_language_clear: (args) => this.bookLanguageClear(String(args?.id)),
+      book_description_change: (args) =>
+        this.bookDescriptionChange(String(args?.id), String(args?.description)),
+      book_description_clear: (args) =>
+        this.bookDescriptionClear(String(args?.id)),
+      book_identifier_change: (args) =>
+        this.bookIdentifierChange(String(args?.id), String(args?.identifier)),
+      book_identifier_clear: (args) =>
+        this.bookIdentifierClear(String(args?.id)),
       books_delete: (args) =>
         this.booksDelete((args?.ids as string[] | undefined) ?? []),
       trash_list: () => this.trashList(),

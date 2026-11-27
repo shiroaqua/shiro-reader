@@ -1,7 +1,7 @@
 use std::{io, path::PathBuf};
 
 use shiro_compatibility::{
-    AppTheme, BookNavigationOutput, BookTagOutput, BootstrapStateDto,
+    AppTheme, BookMetadataOutput, BookNavigationOutput, BookTagOutput, BootstrapStateDto,
     CloudOriginCheckResult, DeleteTagStrategyDto, EnqueueUploadItem, EpubSessionId, GetBookOutput,
     InitialSetupRequest, NavigationLocatorDto, OpenEpubResponseDto, ReaderProfileDto,
     ReaderProfilePatchDto, ReaderSettingsSnapshotDto, RestoreBooksResult, SystemFontFamilyDto,
@@ -403,6 +403,136 @@ pub async fn book_navigation(
     id: String,
 ) -> Result<BookNavigationOutput, CommandErrorPayload> {
     state.runtime.get_book_navigation(id).await
+}
+
+#[tauri::command]
+pub async fn book_metadata_get(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<BookMetadataOutput, CommandErrorPayload> {
+    state.runtime.get_book_metadata(id).await
+}
+
+#[tauri::command]
+pub async fn book_subtitle_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    subtitle: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_subtitle(id, subtitle).await
+}
+
+#[tauri::command]
+pub async fn book_subtitle_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_subtitle(id).await
+}
+
+#[tauri::command]
+pub async fn book_authors_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    authors: Vec<String>,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_authors(id, authors).await
+}
+
+#[tauri::command]
+pub async fn book_authors_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_authors(id).await
+}
+
+#[tauri::command]
+pub async fn book_publisher_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    publisher: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_publisher(id, publisher).await
+}
+
+#[tauri::command]
+pub async fn book_publisher_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_publisher(id).await
+}
+
+#[tauri::command]
+pub async fn book_published_date_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    published_date: String,
+) -> Result<(), CommandErrorPayload> {
+    state
+        .runtime
+        .change_book_published_date(id, published_date)
+        .await
+}
+
+#[tauri::command]
+pub async fn book_published_date_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_published_date(id).await
+}
+
+#[tauri::command]
+pub async fn book_language_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    language: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_language(id, language).await
+}
+
+#[tauri::command]
+pub async fn book_language_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_language(id).await
+}
+
+#[tauri::command]
+pub async fn book_description_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    description: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_description(id, description).await
+}
+
+#[tauri::command]
+pub async fn book_description_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_description(id).await
+}
+
+#[tauri::command]
+pub async fn book_identifier_change(
+    state: State<'_, ClientAppState>,
+    id: String,
+    identifier: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.change_book_identifier(id, identifier).await
+}
+
+#[tauri::command]
+pub async fn book_identifier_clear(
+    state: State<'_, ClientAppState>,
+    id: String,
+) -> Result<(), CommandErrorPayload> {
+    state.runtime.clear_book_identifier(id).await
 }
 
 // -----------------------------------------------------------------------------

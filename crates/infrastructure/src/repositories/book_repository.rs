@@ -5,7 +5,7 @@ use shiro_application::library::ports::{
 };
 use shiro_domain::library::{
     book::{
-        entity::{Book, BookChange, BookFields},
+        entity::{Book, BookChange, BookFields, BookMetadata, BookMetadataChange, BookMetadataFields},
         value_objects::{BookId, BookStatus},
     },
     tag::entity::{BookTag, BookTagChange, BookTagFields},
@@ -14,8 +14,8 @@ use toasty::{Db, Executor, Transaction};
 use uuid::Uuid;
 
 use crate::db::{
-    models::{BookRecord, BookTagRecord},
-    scalars::DbTimestamp,
+    models::{BookMetadataRecord, BookRecord, BookTagRecord},
+    scalars::{DbBookAuthors, DbTimestamp},
     sqlite::sqlite_error,
 };
 
@@ -33,17 +33,15 @@ impl SqliteBookRepository {
 impl BookRepository for SqliteBookRepository {
     type Tx<'a> = SqliteBookTransaction<'a>;
 
-    async fn create(&mut self, book: Book) -> Result<Book, BookRepositoryError> {
-        let record = BookRecord::from(book)
-            .into_create()
-            .exec(&mut self.db)
-            .await
-            .map_err(map_book_db_error)?;
-        Book::try_from(record).map_err(BookRepositoryError::Storage)
-    }
-
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
         find_book_by_id(&mut self.db, id).await
+    }
+
+    async fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        find_book_metadata_by_id(&mut self.db, book_id).await
     }
 
     async fn list_active(&mut self, ids: &[BookId]) -> Result<Vec<Book>, BookRepositoryError> {
@@ -102,12 +100,61 @@ impl BookTransaction for SqliteBookTransaction<'_> {
         Book::try_from(record).map_err(BookRepositoryError::Storage)
     }
 
+    async fn create_metadata(
+        &mut self,
+        metadata: BookMetadata,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        let record = BookMetadataRecord::from(metadata)
+            .into_create()
+            .exec(&mut self.tx)
+            .await
+            .map_err(map_book_db_error)?;
+        BookMetadata::try_from(record).map_err(BookRepositoryError::Storage)
+    }
+
     async fn find_by_id(&mut self, id: &BookId) -> Result<Book, BookRepositoryError> {
         find_book_by_id(&mut self.tx, id).await
     }
 
     async fn find_by_ids(&mut self, ids: &[BookId]) -> Result<Vec<Book>, BookRepositoryError> {
         find_books_by_ids(&mut self.tx, ids).await
+    }
+
+    async fn find_metadata_by_book_id(
+        &mut self,
+        book_id: &BookId,
+    ) -> Result<BookMetadata, BookRepositoryError> {
+        find_book_metadata_by_id(&mut self.tx, book_id).await
+    }
+
+    async fn find_metadata_by_book_ids(
+        &mut self,
+        book_ids: &[BookId],
+    ) -> Result<Vec<BookMetadata>, BookRepositoryError> {
+        let records = match book_ids {
+            [] => Vec::new(),
+            [book_id] => BookMetadataRecord::filter(
+                BookMetadataRecord::fields()
+                    .book_id()
+                    .eq(book_id.as_uuid()),
+            )
+            .exec(&mut self.tx)
+            .await
+            .map_err(map_book_db_error)?,
+            book_ids => BookMetadataRecord::filter(
+                BookMetadataRecord::fields()
+                    .book_id()
+                    .in_list(book_uuid_list(book_ids)),
+            )
+            .exec(&mut self.tx)
+            .await
+            .map_err(map_book_db_error)?,
+        };
+        records
+            .into_iter()
+            .map(BookMetadata::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(BookRepositoryError::Storage)
     }
 
     async fn list_active_titles(&mut self) -> Result<HashSet<String>, BookRepositoryError> {
@@ -138,6 +185,51 @@ impl BookTransaction for SqliteBookTransaction<'_> {
             update.set_updated_at(DbTimestamp(entity.updated_at()));
         }
         if fields.contains(BookFields::DELETED_AT) {
+            update.set_deleted_at(entity.deleted_at().map(DbTimestamp));
+        }
+        update.exec(&mut self.tx).await.map_err(map_book_db_error)
+    }
+
+    async fn apply_metadata_change(
+        &mut self,
+        change: BookMetadataChange<'_>,
+    ) -> Result<(), BookRepositoryError> {
+        if change.is_empty() {
+            return Ok(());
+        }
+        let entity = change.entity();
+        let fields = change.fields();
+        let mut update = BookMetadataRecord::filter(
+            BookMetadataRecord::fields()
+                .book_id()
+                .eq(entity.book_id().as_uuid()),
+        )
+        .update();
+        if fields.contains(BookMetadataFields::SUBTITLE) {
+            update.set_subtitle(entity.subtitle().map(|v| v.as_str().to_owned()));
+        }
+        if fields.contains(BookMetadataFields::AUTHORS) {
+            update.set_authors(DbBookAuthors(entity.authors().to_vec()));
+        }
+        if fields.contains(BookMetadataFields::PUBLISHER) {
+            update.set_publisher(entity.publisher().map(|v| v.as_str().to_owned()));
+        }
+        if fields.contains(BookMetadataFields::PUBLISHED_DATE) {
+            update.set_published_date(entity.published_date().map(|v| v.to_string()));
+        }
+        if fields.contains(BookMetadataFields::LANGUAGE) {
+            update.set_language(entity.language().map(|v| v.as_str().to_owned()));
+        }
+        if fields.contains(BookMetadataFields::DESCRIPTION) {
+            update.set_description(entity.description().map(|v| v.as_str().to_owned()));
+        }
+        if fields.contains(BookMetadataFields::IDENTIFIER) {
+            update.set_identifier(entity.identifier().map(|v| v.as_str().to_owned()));
+        }
+        if fields.contains(BookMetadataFields::UPDATED_AT) {
+            update.set_updated_at(DbTimestamp(entity.updated_at()));
+        }
+        if fields.contains(BookMetadataFields::DELETED_AT) {
             update.set_deleted_at(entity.deleted_at().map(DbTimestamp));
         }
         update.exec(&mut self.tx).await.map_err(map_book_db_error)
@@ -234,6 +326,16 @@ async fn find_book_by_id(
         .await
         .map_err(map_book_db_error)?;
     Book::try_from(record).map_err(BookRepositoryError::Storage)
+}
+
+async fn find_book_metadata_by_id(
+    executor: &mut impl Executor,
+    book_id: &BookId,
+) -> Result<BookMetadata, BookRepositoryError> {
+    let record = BookMetadataRecord::get_by_book_id(executor, book_id.as_uuid())
+        .await
+        .map_err(map_book_db_error)?;
+    BookMetadata::try_from(record).map_err(BookRepositoryError::Storage)
 }
 
 async fn find_books_by_ids(

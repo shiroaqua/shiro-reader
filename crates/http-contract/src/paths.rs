@@ -35,6 +35,15 @@ pub const TAG_PARENT_ROUTE: &str = "/tags/{tag_id}/parent";
 pub const BOOK_FILES_ROUTE: &str = "/files/book";
 pub const BOOK_FILE_ROUTE: &str = "/bookshelf/books/{book_id}/file";
 pub const BOOK_NAVIGATION_ROUTE: &str = "/bookshelf/books/{book_id}/navigation";
+pub const BOOK_METADATA_ROUTE: &str = "/bookshelf/books/{book_id}/metadata";
+pub const BOOK_METADATA_SUBTITLE_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/subtitle";
+pub const BOOK_METADATA_AUTHORS_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/authors";
+pub const BOOK_METADATA_PUBLISHER_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/publisher";
+pub const BOOK_METADATA_PUBLISHED_DATE_ROUTE: &str =
+    "/bookshelf/books/{book_id}/metadata/published-date";
+pub const BOOK_METADATA_LANGUAGE_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/language";
+pub const BOOK_METADATA_DESCRIPTION_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/description";
+pub const BOOK_METADATA_IDENTIFIER_ROUTE: &str = "/bookshelf/books/{book_id}/metadata/identifier";
 
 pub fn book(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}")
@@ -46,6 +55,38 @@ pub fn book_file(book_id: &str) -> String {
 
 pub fn book_navigation(book_id: &str) -> String {
     format!("{BOOKS}/{book_id}/navigation")
+}
+
+pub fn book_metadata(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata")
+}
+
+pub fn book_metadata_subtitle(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/subtitle")
+}
+
+pub fn book_metadata_authors(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/authors")
+}
+
+pub fn book_metadata_publisher(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/publisher")
+}
+
+pub fn book_metadata_published_date(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/published-date")
+}
+
+pub fn book_metadata_language(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/language")
+}
+
+pub fn book_metadata_description(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/description")
+}
+
+pub fn book_metadata_identifier(book_id: &str) -> String {
+    format!("{BOOKS}/{book_id}/metadata/identifier")
 }
 
 pub fn book_cover(book_id: &str) -> String {

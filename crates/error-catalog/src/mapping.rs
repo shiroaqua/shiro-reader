@@ -28,6 +28,20 @@ impl From<&BookApplicationError> for ErrorCode {
             BookApplicationError::TitleUnchanged => Self::BookTitleUnchanged,
             BookApplicationError::AlreadyDeleted => Self::BookAlreadyDeleted,
             BookApplicationError::NotDeleted => Self::BookNotDeleted,
+            BookApplicationError::InvalidSubtitle => Self::BookInvalidSubtitle,
+            BookApplicationError::InvalidAuthor => Self::BookInvalidAuthor,
+            BookApplicationError::InvalidPublisher => Self::BookInvalidPublisher,
+            BookApplicationError::InvalidPublishedDate => Self::BookInvalidPublishedDate,
+            BookApplicationError::InvalidLanguage => Self::BookInvalidLanguage,
+            BookApplicationError::InvalidDescription => Self::BookInvalidDescription,
+            BookApplicationError::InvalidIdentifier => Self::BookInvalidIdentifier,
+            BookApplicationError::SubtitleUnchanged => Self::BookSubtitleUnchanged,
+            BookApplicationError::AuthorsUnchanged => Self::BookAuthorsUnchanged,
+            BookApplicationError::PublisherUnchanged => Self::BookPublisherUnchanged,
+            BookApplicationError::PublishedDateUnchanged => Self::BookPublishedDateUnchanged,
+            BookApplicationError::LanguageUnchanged => Self::BookLanguageUnchanged,
+            BookApplicationError::DescriptionUnchanged => Self::BookDescriptionUnchanged,
+            BookApplicationError::IdentifierUnchanged => Self::BookIdentifierUnchanged,
             BookApplicationError::Storage(_) => Self::CommonInternalServerError,
         }
     }
@@ -115,6 +129,62 @@ mod tests {
                 ErrorCode::BookAlreadyDeleted,
             ),
             (BookApplicationError::NotDeleted, ErrorCode::BookNotDeleted),
+            (
+                BookApplicationError::InvalidSubtitle,
+                ErrorCode::BookInvalidSubtitle,
+            ),
+            (
+                BookApplicationError::InvalidAuthor,
+                ErrorCode::BookInvalidAuthor,
+            ),
+            (
+                BookApplicationError::InvalidPublisher,
+                ErrorCode::BookInvalidPublisher,
+            ),
+            (
+                BookApplicationError::InvalidPublishedDate,
+                ErrorCode::BookInvalidPublishedDate,
+            ),
+            (
+                BookApplicationError::InvalidLanguage,
+                ErrorCode::BookInvalidLanguage,
+            ),
+            (
+                BookApplicationError::InvalidDescription,
+                ErrorCode::BookInvalidDescription,
+            ),
+            (
+                BookApplicationError::InvalidIdentifier,
+                ErrorCode::BookInvalidIdentifier,
+            ),
+            (
+                BookApplicationError::SubtitleUnchanged,
+                ErrorCode::BookSubtitleUnchanged,
+            ),
+            (
+                BookApplicationError::AuthorsUnchanged,
+                ErrorCode::BookAuthorsUnchanged,
+            ),
+            (
+                BookApplicationError::PublisherUnchanged,
+                ErrorCode::BookPublisherUnchanged,
+            ),
+            (
+                BookApplicationError::PublishedDateUnchanged,
+                ErrorCode::BookPublishedDateUnchanged,
+            ),
+            (
+                BookApplicationError::LanguageUnchanged,
+                ErrorCode::BookLanguageUnchanged,
+            ),
+            (
+                BookApplicationError::DescriptionUnchanged,
+                ErrorCode::BookDescriptionUnchanged,
+            ),
+            (
+                BookApplicationError::IdentifierUnchanged,
+                ErrorCode::BookIdentifierUnchanged,
+            ),
             (
                 BookApplicationError::Storage(storage_err()),
                 ErrorCode::CommonInternalServerError,

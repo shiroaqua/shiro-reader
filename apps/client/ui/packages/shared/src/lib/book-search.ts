@@ -160,6 +160,19 @@ export function formatTagToken(name: string, value?: string | null): string {
   return `#${name}:"${value.replace(/[\\"]/g, (char) => `\\${char}`)}"`
 }
 
+export function formatBookTagSearchQuery(
+  tag: Pick<Tag, "name">,
+  value: string | null | undefined,
+  locale: Locale
+): string {
+  const displayName = translateTagName(tag.name, locale)
+  const tokenName = TAG_NAME_STOP.test(displayName) ? tag.name : displayName
+  return formatTagToken(
+    tokenName,
+    value !== undefined && value !== null && value !== "" ? value : null
+  )
+}
+
 /* ---------------------------------------------------------------- index -- */
 
 export type IndexedTag = {

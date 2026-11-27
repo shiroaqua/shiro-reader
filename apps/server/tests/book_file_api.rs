@@ -104,8 +104,9 @@ async fn restart_rejects_book_files_with_mismatched_size_or_hash() {
         u64::from_be_bytes(original[34..42].try_into().unwrap()),
         Epub.bytes().len() as u64
     );
+    assert_eq!(&original[42..46], &[0, 0, 0, 0]);
 
-    for corrupt_byte in [41, 42] {
+    for corrupt_byte in [41, 46] {
         let mut stored = original.clone();
         stored[corrupt_byte] ^= 1;
         std::fs::write(&path, stored).unwrap();

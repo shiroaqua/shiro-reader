@@ -11,24 +11,33 @@ use axum::{
     },
 };
 use axum_extra::extract::Query;
-use shiro_domain::library::book::file::entity::BookFileType;
+use shiro_domain::library::book::value_objects::BookFileType;
 use shiro_error_catalog::ErrorCode;
-use shiro_http_contract::{BookIdsRequest, BooksQuery, CreateBookRequest, RenameBookRequest};
+use shiro_http_contract::{
+    BookIdsRequest, BooksQuery, ChangeBookAuthorsRequest, ChangeBookDescriptionRequest,
+    ChangeBookIdentifierRequest, ChangeBookLanguageRequest, ChangeBookPublishedDateRequest,
+    ChangeBookPublisherRequest, ChangeBookSubtitleRequest, CreateBookRequest, RenameBookRequest,
+};
 use tokio_util::io::ReaderStream;
 
 use crate::{
     api::extractors::auth::RoutedState,
     application::library::book::{
         commands::{
-            CreateBookCommand, DeleteBookCommand, DeleteBooksCommand, GetBookCoverCommand,
-            GetBookFileMetaCommand, OpenBookFileRangeCommand, PermanentlyDeleteBooksCommand,
-            RenameBookCommand, RestoreBookIdCommand,
+            ChangeBookAuthorsCommand, ChangeBookDescriptionCommand, ChangeBookIdentifierCommand,
+            ChangeBookLanguageCommand, ChangeBookPublishedDateCommand, ChangeBookPublisherCommand,
+            ChangeBookSubtitleCommand, ClearBookAuthorsCommand, ClearBookDescriptionCommand,
+            ClearBookIdentifierCommand, ClearBookLanguageCommand, ClearBookPublishedDateCommand,
+            ClearBookPublisherCommand, ClearBookSubtitleCommand, CreateBookCommand,
+            DeleteBookCommand, DeleteBooksCommand, GetBookCoverCommand, GetBookFileMetaCommand,
+            OpenBookFileRangeCommand, PermanentlyDeleteBooksCommand, RenameBookCommand,
+            RestoreBookIdCommand,
         },
         dto::{
-            BookFileDescriptor, BookNavigationOutput, CreateBookOutput, GetBookOutput,
-            TrashedBookOutput,
+            BookFileDescriptor, BookMetadataOutput, BookNavigationOutput, CreateBookOutput,
+            GetBookOutput, TrashedBookOutput,
         },
-        queries::{GetBookNavigationQuery, GetBooksQuery},
+        queries::{GetBookMetadataQuery, GetBookNavigationQuery, GetBooksQuery},
     },
     error::AppError,
 };
@@ -164,6 +173,199 @@ pub async fn get_book_navigation(
         .get_book_navigation(GetBookNavigationQuery { id: book_id })
         .await?;
     Ok(Json(output))
+}
+
+pub async fn get_book_metadata(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<Json<BookMetadataOutput>, AppError> {
+    let output = state
+        .book_service()
+        .get_book_metadata(GetBookMetadataQuery { id: book_id })
+        .await?;
+    Ok(Json(output))
+}
+
+pub async fn change_book_subtitle(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookSubtitleRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_subtitle(ChangeBookSubtitleCommand {
+            id: book_id,
+            subtitle: request.subtitle,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_subtitle(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_subtitle(ClearBookSubtitleCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_authors(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookAuthorsRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_authors(ChangeBookAuthorsCommand {
+            id: book_id,
+            authors: request.authors,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_authors(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_authors(ClearBookAuthorsCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_publisher(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookPublisherRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_publisher(ChangeBookPublisherCommand {
+            id: book_id,
+            publisher: request.publisher,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_publisher(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_publisher(ClearBookPublisherCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_published_date(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookPublishedDateRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_published_date(ChangeBookPublishedDateCommand {
+            id: book_id,
+            published_date: request.published_date,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_published_date(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_published_date(ClearBookPublishedDateCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_language(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookLanguageRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_language(ChangeBookLanguageCommand {
+            id: book_id,
+            language: request.language,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_language(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_language(ClearBookLanguageCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_description(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookDescriptionRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_description(ChangeBookDescriptionCommand {
+            id: book_id,
+            description: request.description,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_description(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_description(ClearBookDescriptionCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn change_book_identifier(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+    Json(request): Json<ChangeBookIdentifierRequest>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .change_book_identifier(ChangeBookIdentifierCommand {
+            id: book_id,
+            identifier: request.identifier,
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn clear_book_identifier(
+    state: RoutedState,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    state
+        .book_service()
+        .clear_book_identifier(ClearBookIdentifierCommand { id: book_id })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn head_book_file(

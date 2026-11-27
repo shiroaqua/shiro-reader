@@ -37,6 +37,20 @@ impl From<BookDomainError> for BookApplicationError {
             BookDomainError::TitleUnchanged => Self::TitleUnchanged,
             BookDomainError::AlreadyDeleted => Self::AlreadyDeleted,
             BookDomainError::NotDeleted => Self::NotDeleted,
+            BookDomainError::InvalidSubtitle => Self::InvalidSubtitle,
+            BookDomainError::InvalidAuthor => Self::InvalidAuthor,
+            BookDomainError::InvalidPublisher => Self::InvalidPublisher,
+            BookDomainError::InvalidPublishedDate => Self::InvalidPublishedDate,
+            BookDomainError::InvalidLanguage => Self::InvalidLanguage,
+            BookDomainError::InvalidDescription => Self::InvalidDescription,
+            BookDomainError::InvalidIdentifier => Self::InvalidIdentifier,
+            BookDomainError::SubtitleUnchanged => Self::SubtitleUnchanged,
+            BookDomainError::AuthorsUnchanged => Self::AuthorsUnchanged,
+            BookDomainError::PublisherUnchanged => Self::PublisherUnchanged,
+            BookDomainError::PublishedDateUnchanged => Self::PublishedDateUnchanged,
+            BookDomainError::LanguageUnchanged => Self::LanguageUnchanged,
+            BookDomainError::DescriptionUnchanged => Self::DescriptionUnchanged,
+            BookDomainError::IdentifierUnchanged => Self::IdentifierUnchanged,
             BookDomainError::InvalidReadingUnitOffset
             | BookDomainError::InvalidBookProgression
             | BookDomainError::InvalidEpubResourcePath

@@ -25,19 +25,22 @@ use shiro_application::{
     },
     library::{
         book::dto::{
-            BookNavigationOutput, CreateBookOutput, GetBookOutput, TrashedBookOutput,
+            BookMetadataOutput, BookNavigationOutput, CreateBookOutput, GetBookOutput,
+            TrashedBookOutput,
         },
         ports::CoverByteStream,
         tag::dto::{BookTagOutput, TagDefinitionOutput, TagTreeNodeOutput},
     },
 };
-use shiro_domain::library::book::file::entity::BookFileType;
+use shiro_domain::library::book::value_objects::BookFileType;
 use shiro_error_catalog::ErrorCode;
 use shiro_http_contract::{
-    BindBookTagRequest, BookIdsRequest, ChangeTagColorRequest, CreateBookRequest,
-    DEFAULT_MAX_UPLOAD_BYTES, DefineTagRequest, DeleteTagStrategy, ErrorResponse, LoginRequest,
-    LogoutRequest, MoveTagRequest, RefreshAccessTokenRequest, RenameBookRequest, RenameTagRequest,
-    ServerMetaResponse, UnbindBookTagRequest, paths,
+    BindBookTagRequest, BookIdsRequest, ChangeBookAuthorsRequest, ChangeBookDescriptionRequest,
+    ChangeBookIdentifierRequest, ChangeBookLanguageRequest, ChangeBookPublishedDateRequest,
+    ChangeBookPublisherRequest, ChangeBookSubtitleRequest, ChangeTagColorRequest,
+    CreateBookRequest, DEFAULT_MAX_UPLOAD_BYTES, DefineTagRequest, DeleteTagStrategy,
+    ErrorResponse, LoginRequest, LogoutRequest, MoveTagRequest, RefreshAccessTokenRequest,
+    RenameBookRequest, RenameTagRequest, ServerMetaResponse, UnbindBookTagRequest, paths,
 };
 use tokio::{
     fs::File,
@@ -424,6 +427,169 @@ impl CloudClient {
         self.send_authorized_json::<(), BookNavigationOutput>(
             Method::GET,
             &paths::book_navigation(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn get_book_metadata(&self, book_id: &str) -> Result<BookMetadataOutput, ErrorCode> {
+        self.send_authorized_json::<(), BookMetadataOutput>(
+            Method::GET,
+            &paths::book_metadata(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_subtitle(
+        &self,
+        book_id: &str,
+        subtitle: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_subtitle(book_id),
+            Some(&ChangeBookSubtitleRequest { subtitle }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_subtitle(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_subtitle(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_authors(
+        &self,
+        book_id: &str,
+        authors: Vec<String>,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_authors(book_id),
+            Some(&ChangeBookAuthorsRequest { authors }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_authors(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_authors(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_publisher(
+        &self,
+        book_id: &str,
+        publisher: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_publisher(book_id),
+            Some(&ChangeBookPublisherRequest { publisher }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_publisher(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_publisher(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_published_date(
+        &self,
+        book_id: &str,
+        published_date: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_published_date(book_id),
+            Some(&ChangeBookPublishedDateRequest { published_date }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_published_date(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_published_date(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_language(
+        &self,
+        book_id: &str,
+        language: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_language(book_id),
+            Some(&ChangeBookLanguageRequest { language }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_language(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_language(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_description(
+        &self,
+        book_id: &str,
+        description: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_description(book_id),
+            Some(&ChangeBookDescriptionRequest { description }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_description(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_description(book_id),
+            None,
+        )
+        .await
+    }
+
+    pub async fn change_book_identifier(
+        &self,
+        book_id: &str,
+        identifier: String,
+    ) -> Result<(), ErrorCode> {
+        self.send_authorized_empty(
+            Method::PATCH,
+            &paths::book_metadata_identifier(book_id),
+            Some(&ChangeBookIdentifierRequest { identifier }),
+        )
+        .await
+    }
+
+    pub async fn clear_book_identifier(&self, book_id: &str) -> Result<(), ErrorCode> {
+        self.send_authorized_empty::<()>(
+            Method::DELETE,
+            &paths::book_metadata_identifier(book_id),
             None,
         )
         .await

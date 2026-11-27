@@ -7,7 +7,14 @@ import type {
   UploadTask,
 } from "@shiro/ui-shared/api/tauri-bridge"
 import type { RustErrorEvent } from "@shiro/ui-shared/lib/error-notifications"
-import type { Book, BookTag, Tag, TagTreeNode, TrashedBook } from "@shiro/ui-shared/lib/types"
+import type {
+  Book,
+  BookMetadata,
+  BookTag,
+  Tag,
+  TagTreeNode,
+  TrashedBook,
+} from "@shiro/ui-shared/lib/types"
 
 let idCounter = 0
 
@@ -28,6 +35,29 @@ export function makeBook(overrides: Partial<Book> = {}): Book {
     title: `Book ${id}`,
     hash: `hash-${id}`,
     type: "epub",
+    created_at: overrides.created_at ?? timestamp,
+    updated_at: timestamp,
+    ...overrides,
+  }
+}
+
+export function makeBookMetadata(
+  overrides: Partial<BookMetadata> = {}
+): BookMetadata {
+  const bookId = overrides.book_id ?? nextId("book")
+  const timestamp = overrides.updated_at ?? "2026-01-15T10:00:00.000Z"
+  return {
+    book_id: bookId,
+    subtitle: null,
+    authors: [],
+    publisher: null,
+    published_date: null,
+    language: null,
+    description: null,
+    identifier: null,
+    type: "EPUB",
+    size: 1_048_576,
+    page_count: null,
     created_at: overrides.created_at ?? timestamp,
     updated_at: timestamp,
     ...overrides,
