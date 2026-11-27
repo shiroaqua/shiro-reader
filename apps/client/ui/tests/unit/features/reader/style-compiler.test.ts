@@ -646,4 +646,106 @@ describe("StyleCompiler and reader settings store", () => {
     await resetPromise
     expect(getReaderSettingsSnapshot().bookOverrides["race-book"]).toBeUndefined()
   })
+
+  it("unifies reflowable EPUB backgrounds across html/body/descendants, emits --theme-bg-color, and spares fixed-layout EPUBs", () => {
+    const base = getDefaultReaderProfile(true)
+
+    const lightCompiled = compileReaderStyle(
+      {
+        ...base,
+        appearance: { surface: "follow_app" },
+        typography: { ...base.typography, overridePublisherStyles: false },
+        behavior: { ...base.behavior, flow: "scrolled", seamlessScroll: false },
+      },
+      "pink",
+      [],
+      "http://shiro-font.localhost/font/",
+      true,
+      390
+    )
+    expect(lightCompiled.chapterCss).toContain("--theme-bg-color: #fff4fe;")
+    expect(lightCompiled.chapterCss).toContain("html:root {")
+
+    const darkCompiled = compileReaderStyle(
+      {
+        ...base,
+        appearance: { surface: "night_dark" },
+        behavior: { ...base.behavior, flow: "scrolled", seamlessScroll: false },
+      },
+      "default",
+      [],
+      "http://shiro-font.localhost/font/",
+      true,
+      390
+    )
+    expect(darkCompiled.chapterCss).toContain("--theme-bg-color: #1c1d21;")
+
+    const fxlCompiled = compileReaderStyle(
+      {
+        ...base,
+        appearance: { surface: "sepia_warm" },
+      },
+      "default",
+      [],
+      "http://shiro-font.localhost/font/",
+      true,
+      390,
+      { isFixedLayout: true }
+    )
+    expect(fxlCompiled.chapterCss).toContain("--theme-bg-color: #f6efe2;")
+    expect(fxlCompiled.chapterCss).not.toContain("html:root body *:not(")
+
+    const publisherStyleEl = document.createElement("style")
+    publisherStyleEl.textContent = `
+      body { background: rgb(228, 222, 204) url('old-paper.jpg') !important; }
+      .title1 { background: #e4decc !important; }
+      .un { background: rgb(228, 222, 204); }
+      p span { background: rgb(123, 190, 238); }
+      blockquote { background: #F9F0C9 url('Old-paper2.jpg'); }
+      hr { background-color: rgb(153, 153, 153); }
+      [data-shiro-synthetic="translation"] { background-color: rgb(240, 240, 240); }
+    `
+    const styleEl = document.createElement("style")
+    styleEl.textContent = lightCompiled.chapterCss
+
+    const container = document.createElement("div")
+    container.innerHTML = `
+      <p class="title1">1</p>
+      <p class="un">hidden</p>
+      <p><span id="book-span">note</span></p>
+      <blockquote><p>quote</p></blockquote>
+      <hr />
+      <p data-shiro-synthetic="translation">译文</p>
+    `
+    document.head.appendChild(publisherStyleEl)
+    document.head.appendChild(styleEl)
+    document.body.appendChild(container)
+    try {
+      const rootStyle = getComputedStyle(document.documentElement)
+      const bodyStyle = getComputedStyle(document.body)
+      const title1Style = getComputedStyle(container.querySelector(".title1")!)
+      const unStyle = getComputedStyle(container.querySelector(".un")!)
+      const spanStyle = getComputedStyle(container.querySelector("#book-span")!)
+      const quoteStyle = getComputedStyle(container.querySelector("blockquote")!)
+      const hrStyle = getComputedStyle(container.querySelector("hr")!)
+      const synthStyle = getComputedStyle(
+        container.querySelector('[data-shiro-synthetic="translation"]')!
+      )
+
+      expect(rootStyle.backgroundColor).toBe("rgb(255, 244, 254)")
+      expect(rootStyle.backgroundImage).toBe("none")
+
+      for (const s of [bodyStyle, title1Style, unStyle, spanStyle, quoteStyle]) {
+        expect(["rgba(0, 0, 0, 0)", "transparent"]).toContain(s.backgroundColor)
+        expect(s.backgroundImage).toBe("none")
+      }
+
+      expect(hrStyle.backgroundColor).toBe("rgb(153, 153, 153)")
+      expect(synthStyle.backgroundColor).toBe("rgb(240, 240, 240)")
+    } finally {
+      publisherStyleEl.remove()
+      styleEl.remove()
+      container.remove()
+    }
+  })
 })

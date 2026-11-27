@@ -1580,4 +1580,138 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
 
     await instance.destroy()
   })
+
+  it("strips inline publisher backgrounds on mounted reflowable sections (while preserving hr/img) and reattaches reused sections on seamlessScroll exit", async () => {
+    const baseBridge = createMockReaderBridge()
+    const view = createFakeView()
+    view.renderer.scrolled = true
+
+    const styledXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" style="background: rgb(228, 222, 204) !important;">
+  <body style="background: rgb(228, 222, 204) url('old-paper.jpg') !important; color: #111;">
+    <p id="p-bg" style="background-color: rgb(123, 190, 238) !important; background-image: url('bg.png'); margin-top: 4px;">Text</p>
+    <hr id="hr-keep" style="background-color: rgb(153, 153, 153);" />
+    <img id="img-keep" alt="x" style="background-color: rgb(255, 255, 255);" />
+  </body>
+</html>`
+    const sectionDoc = new DOMParser().parseFromString(
+      styledXhtml,
+      "application/xhtml+xml"
+    )
+    view.renderer.docs = [{ index: 0, doc: sectionDoc }]
+
+    const book = {
+      transformTarget: new EventTarget(),
+      metadata: { title: "Bg Book", language: "zh" },
+      dir: "ltr" as const,
+      rendition: { layout: "reflowable" as const },
+      toc: [],
+      sections: [{ id: "OEBPS/ch0.xhtml", size: 100, cfi: "/6/2!", linear: null }],
+      resolveHref: () => ({ index: 0, anchor: () => 0 }),
+      isExternal: () => false,
+      destroy: vi.fn(),
+    }
+
+    const fakeContinuous = {
+      scrolled: true,
+      render: vi.fn(),
+      setStyles: vi.fn(),
+      applyLayout: vi.fn(),
+      goTo: vi.fn().mockResolvedValue(undefined),
+      goToFraction: vi.fn().mockResolvedValue(undefined),
+      scrollByPage: vi.fn().mockResolvedValue(undefined),
+      getContents: vi.fn(() => []),
+      destroy: vi.fn(),
+    }
+
+    const engine = new FoliateEpubEngine({
+      bridge: baseBridge,
+      loadModules: async () => ({
+        View: FakeViewCtor as never,
+        EPUB: class {
+          async init() {
+            return book
+          }
+        } as never,
+      }),
+      createView: () => view as never,
+      createContinuousRenderer: () => fakeContinuous as never,
+    })
+
+    const scrolledStyle: CompiledReaderStyle = {
+      ...DEFAULT_TEST_STYLE,
+      paginatorAttributes: {
+        ...DEFAULT_TEST_STYLE.paginatorAttributes,
+        flow: "scrolled",
+      },
+      seamlessScroll: false,
+    }
+
+    const container = document.createElement("div")
+    const instance = await engine.open({
+      tabId: "tab-bg",
+      bookId: "book-bg",
+      bookHash: "hash-bg",
+      fallbackTitle: "Bg Book",
+      preloadedNavigation: null,
+      initialLocator: undefined,
+      initialStyle: scrolledStyle,
+      container,
+      events: {
+        onRelocate: () => {},
+        onSelectionChange: () => {},
+        onViewportTap: () => {},
+        onExternalLink: () => {},
+        onKeyCommand: () => {},
+        onFatalError: () => {},
+      },
+    })
+
+    // Initial load of reflowable section strips inline backgrounds on html, body, and descendants except hr/img
+    view.dispatchEvent(
+      new CustomEvent("load", { detail: { doc: sectionDoc, index: 0 } })
+    )
+    expect(sectionDoc.documentElement.style.getPropertyValue("background")).toBe("")
+    expect(sectionDoc.documentElement.style.getPropertyValue("background-color")).toBe("")
+    expect(sectionDoc.body.style.getPropertyValue("background")).toBe("")
+    expect(sectionDoc.body.style.getPropertyValue("background-image")).toBe("")
+    expect(sectionDoc.body.style.color).toBeTruthy()
+    const pEl = sectionDoc.getElementById("p-bg") as HTMLElement
+    expect(pEl.style.backgroundColor).toBe("")
+    expect(pEl.style.backgroundImage).toBe("")
+    expect(pEl.style.marginTop).toBe("4px")
+    const hrEl = sectionDoc.getElementById("hr-keep") as HTMLElement
+    const imgEl = sectionDoc.getElementById("img-keep") as HTMLElement
+    expect(hrEl.style.backgroundColor).toBe("rgb(153, 153, 153)")
+    expect(imgEl.style.backgroundColor).toBe("rgb(255, 255, 255)")
+
+    // Relocate so lastEmittedRelocation points to section 0, then toggle seamlessScroll true -> false
+    view.dispatchEvent(
+      new CustomEvent("relocate", {
+        detail: {
+          cfi: "/6/2!",
+          fraction: 0.25,
+          section: { current: 0, total: 1 },
+        },
+      })
+    )
+
+    instance.applyStyle({ ...scrolledStyle, seamlessScroll: true })
+    await vi.waitFor(() => {
+      expect(fakeContinuous.goTo).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 0 })
+      )
+    })
+
+    // Re-dirty body inline style to confirm reattachActiveViewContents re-attaches and cleans reused doc
+    // even when FakeRenderer.goTo does not emit a new "load" event
+    sectionDoc.body.style.setProperty("background", "rgb(228, 222, 204)", "important")
+    instance.applyStyle(scrolledStyle)
+    await vi.waitFor(() => {
+      expect(fakeContinuous.destroy).toHaveBeenCalledTimes(1)
+      expect(sectionDoc.body.style.getPropertyValue("background")).toBe("")
+    })
+
+    await instance.destroy()
+  })
 })

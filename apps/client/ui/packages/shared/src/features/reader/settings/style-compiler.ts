@@ -330,6 +330,7 @@ export function compileReaderStyle(
 
   const effectiveBodyFont = bodyFontCss ?? "inherit"
   cssParts.push(`:root {
+  --theme-bg-color: ${palette.backgroundHex};
   --shiro-body-font: ${effectiveBodyFont};
   --shiro-body-size: ${fontSizePx}px;
   --shiro-body-weight: ${fontWeight ?? "inherit"};
@@ -375,6 +376,18 @@ export function compileReaderStyle(
   letter-spacing: var(--shiro-body-letter-spacing);
   word-spacing: var(--shiro-body-word-spacing);
 ${fontFamilyRule}${fontWeightRule}${textAlignRule}${hyphensRule}}${scrolledBodyMarginRule ? `\n\n${scrolledBodyMarginRule}` : ""}`)
+
+  if (!isFixedLayout) {
+    cssParts.push(`html:root {
+  background-color: ${palette.backgroundHex} !important;
+  background-image: none !important;
+}
+html:root body,
+html:root body *:not(img, picture, video, canvas, svg, svg *, hr, [data-shiro-synthetic], [data-shiro-synthetic] *) {
+  background-color: transparent !important;
+  background-image: none !important;
+}`)
+  }
 
   const indentRule =
     paragraphIndentEm !== null ? `  text-indent: ${paragraphIndentEm}em;\n` : ""
@@ -431,10 +444,15 @@ ${protectedResetWeight}  text-align: center;
   }
 
   if (palette.isDark) {
-    cssParts.push(`:root, body {
+    const darkBgRule = isFixedLayout
+      ? `:root, body {
   background-color: ${palette.backgroundHex} !important;
   color: ${palette.foregroundHex} !important;
-}
+}`
+      : `:root, body {
+  color: ${palette.foregroundHex} !important;
+}`
+    cssParts.push(`${darkBgRule}
 p:not([data-shiro-synthetic="translation"]), div:not([data-shiro-synthetic="translation"]), span:not([data-shiro-synthetic="translation"]), li:not([data-shiro-synthetic="translation"]), blockquote:not([data-shiro-synthetic="translation"]), h1, h2, h3, h4, h5, h6, dt, dd:not([data-shiro-synthetic="translation"]), figcaption {
   color: inherit !important;
 }

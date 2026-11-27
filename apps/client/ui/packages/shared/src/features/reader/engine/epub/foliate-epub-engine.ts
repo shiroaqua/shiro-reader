@@ -525,6 +525,40 @@ function findFirstLinearIndex(sections: readonly EpubSection[]): number {
   return first >= 0 ? first : 0
 }
 
+const PRESERVED_BACKGROUND_SELECTOR =
+  "img, picture, video, canvas, svg, svg *, hr, [data-shiro-synthetic], [data-shiro-synthetic] *"
+
+function clearElementInlineBackground(el: Element | null | undefined): void {
+  if (!el) return
+  const styled = el as Element & { style?: CSSStyleDeclaration }
+  const style = styled.style
+  if (!style || typeof style.removeProperty !== "function") return
+  style.removeProperty("background")
+  style.removeProperty("background-color")
+  style.removeProperty("background-image")
+}
+
+function clearPublisherInlineBackgrounds(
+  doc: Document,
+  options?: { readonly preserveBodyBackground?: boolean }
+): void {
+  clearElementInlineBackground(doc.documentElement)
+  if (!options?.preserveBodyBackground) {
+    clearElementInlineBackground(doc.body)
+  }
+  const styledDescendants = doc.body?.querySelectorAll("[style]")
+  if (!styledDescendants) return
+  for (const el of Array.from(styledDescendants)) {
+    if (
+      typeof el.matches === "function" &&
+      el.matches(PRESERVED_BACKGROUND_SELECTOR)
+    ) {
+      continue
+    }
+    clearElementInlineBackground(el)
+  }
+}
+
 function hydrateBackendExternalTocUrls(
   backendToc: readonly ReaderTocNode[],
   foliateToc: readonly EpubTocEntry[],
@@ -1098,6 +1132,11 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
       sectionBridge = bridge
 
       const attachMountedSection = (index: number, doc: Document): void => {
+        if (!isFixedLayout) {
+          clearPublisherInlineBackgrounds(doc, {
+            preserveBodyBackground: continuousRenderer !== null,
+          })
+        }
         mountedDocs.set(index, doc)
         abortSectionSelectionListener(index)
         const sectionSelectionController = new AbortController()
@@ -1364,6 +1403,22 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
         }
       }
 
+      const reattachActiveViewContents = (
+        fallbackIndex?: number | null
+      ): void => {
+        for (const item of activeView.renderer?.getContents?.() ?? []) {
+          const idx = item.index ?? fallbackIndex
+          if (
+            typeof idx === "number" &&
+            Number.isFinite(idx) &&
+            item.doc &&
+            !mountedDocs.has(idx)
+          ) {
+            attachMountedSection(idx, item.doc)
+          }
+        }
+      }
+
       const exitContinuousScrollMode = async (
         targetLocator: BookLocator | null
       ): Promise<void> => {
@@ -1389,9 +1444,15 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
             activeView.renderer,
             targetLocator
           )
-          if (navigated || destroyed || modeSwitchEpoch !== epoch) return
+          if (destroyed || modeSwitchEpoch !== epoch) return
+          if (navigated) {
+            reattachActiveViewContents(targetLocator.spine_index)
+            return
+          }
         }
         await activeView.init({ showTextStart: true })
+        if (destroyed || modeSwitchEpoch !== epoch) return
+        reattachActiveViewContents(null)
       }
 
       const applyStyleInternal = (style: CompiledReaderStyle) => {
