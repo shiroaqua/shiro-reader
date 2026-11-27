@@ -3,7 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use derive_new::new;
 use shiro_domain::library::{
     book::{
         entity::Book,
@@ -33,10 +32,18 @@ use crate::library::{
     ports::{BookFileStore, BookRepository, BookTransaction, CoverByteStream, OpenedBookFile},
 };
 
-#[derive(new)]
 pub struct BookService<R, F> {
     repository: R,
     bookfile: Arc<BookFileService<F>>,
+}
+
+impl<R, F> BookService<R, F> {
+    pub fn new(repository: R, bookfile: Arc<BookFileService<F>>) -> Self {
+        Self {
+            repository,
+            bookfile,
+        }
+    }
 }
 
 fn available_restore_title(

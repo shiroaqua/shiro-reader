@@ -30,6 +30,7 @@ import { SettingsDialog } from "@shiro/ui-shared/features/settings/settings-dial
 import { useBackHandler } from "@shiro/ui-shared/hooks/use-back-handler"
 import { BACK_PRIORITY } from "@shiro/ui-shared/lib/back-navigation"
 import { useTranslation } from "@shiro/ui-shared/lib/i18n"
+import { mobileReaderStore } from "../reader/mobile-reader-store"
 
 export function MobileDashboardScreen() {
   const { t } = useTranslation()
@@ -172,9 +173,24 @@ export function MobileDashboardScreen() {
             headerOverlay={headerOverlay}
             search={bookSearch}
             onSearchChange={setBookSearch}
+            onOpenBook={(book) => {
+              mobileReaderStore.openBook(book)
+            }}
+            onOpenBookInBackground={(book) => {
+              mobileReaderStore.openBookInBackground(book)
+            }}
+            onBooksDeleted={(ids) => {
+              mobileReaderStore.evictBookIds(ids)
+            }}
           />
         )}
-        {activeMenu === "trash" && <TrashList />}
+        {activeMenu === "trash" && (
+          <TrashList
+            onBooksPermanentlyDeleted={(ids) => {
+              mobileReaderStore.evictBookIds(ids)
+            }}
+          />
+        )}
       </div>
       <MobileNav menus={menus} label={t("local.dashboard.navigation")} />
       {isTauri && (

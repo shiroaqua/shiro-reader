@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -24,6 +25,7 @@ import {
   markRustErrorHandled,
   notifyLocalError,
   notifyRustError,
+  type RustErrorEvent,
 } from "@shiro/ui-shared/lib/error-notifications"
 import { setAppLocaleOverride, type Locale } from "@shiro/ui-shared/lib/i18n"
 import { applyAppTheme, type AppTheme } from "@shiro/ui-shared/lib/theme"
@@ -51,7 +53,17 @@ const AppRuntimeContext = createContext<AppRuntimeContextValue | undefined>(
   undefined
 )
 
-export function AppRuntimeProvider({ children }: { children: ReactNode }) {
+export function AppRuntimeProvider({
+  children,
+  replayBuffered = true,
+  listenGlobalErrors = true,
+  errorFilter,
+}: {
+  children: ReactNode
+  replayBuffered?: boolean | undefined
+  listenGlobalErrors?: boolean | undefined
+  errorFilter?: ((event: RustErrorEvent) => boolean) | undefined
+}) {
   const isTauri = isTauriRuntime()
   const queryClient = useQueryClient()
   const [bootstrap, setBootstrap] = useState<BootstrapState | null>(null)
@@ -59,9 +71,13 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
   const [bootAttempt, setBootAttempt] = useState(0)
   const lastUserIdRef = useRef<string | null>(null)
   const lastPhaseRef = useRef<BootstrapState["phase"] | null>(null)
+  const errorFilterRef = useRef(errorFilter)
+  useLayoutEffect(() => {
+    errorFilterRef.current = errorFilter
+  }, [errorFilter])
 
   const applyBootstrap = useCallback(
-    (next: BootstrapState, replayBuffered = false) => {
+    (next: BootstrapState, shouldReplayBuffered = false) => {
       setAppLocaleOverride(next.locale)
       applyAppTheme(next.theme)
       setCoverUrlBase(next.coverUrlBase)
@@ -79,7 +95,7 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
       lastPhaseRef.current = next.phase
       lastUserIdRef.current = nextUserId
 
-      if (replayBuffered) {
+      if (shouldReplayBuffered) {
         if (next.phase === "startup_failed" && next.startupError) {
           markRustErrorHandled(next.startupError.errorId)
         }
@@ -104,12 +120,16 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
     const boot = async () => {
       try {
         // Register event listeners BEFORE requesting bootstrap state so no early events are lost.
-        unlistenError = await listenRustErrors((event) => {
-          if (active) notifyRustError(event)
-        })
-        if (!active) {
-          unlistenError()
-          return
+        if (listenGlobalErrors) {
+          unlistenError = await listenRustErrors((event) => {
+            if (!active) return
+            if (errorFilterRef.current && !errorFilterRef.current(event)) return
+            notifyRustError(event)
+          })
+          if (!active) {
+            unlistenError()
+            return
+          }
         }
         unlistenState = await listenRuntimeState((state) => {
           if (!active) return
@@ -121,9 +141,11 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
         }
         const initial = await tauriBridge.getBootstrapState()
         if (!active) return
-        applyBootstrap(initial, true)
+        applyBootstrap(initial, replayBuffered)
       } catch {
-        if (active) notifyLocalError("local.common.error.unknown")
+        if (active && listenGlobalErrors) {
+          notifyLocalError("local.common.error.unknown")
+        }
       } finally {
         if (active) setIsLoading(false)
       }
@@ -135,7 +157,7 @@ export function AppRuntimeProvider({ children }: { children: ReactNode }) {
       unlistenError?.()
       unlistenState?.()
     }
-  }, [isTauri, applyBootstrap, bootAttempt])
+  }, [isTauri, applyBootstrap, bootAttempt, replayBuffered, listenGlobalErrors])
 
   const completeSetup = useCallback(
     async (request: InitialSetupRequest) => {

@@ -24,6 +24,17 @@
     public void requestUploadNotificationPermission(long);
 }
 
+-keepattributes RuntimeVisibleAnnotations
+
+-keep class com.shiroaqua.shiroreader.MainActivity$ShiroReaderAndroidBridge {
+    *;
+}
+
+-keepclassmembers class com.shiroaqua.shiroreader.MainActivity$ShiroReaderAndroidBridge {
+    @android.webkit.JavascriptInterface <methods>;
+    public *;
+}
+
 -keepclasseswithmembers class com.shiroaqua.shiroreader.UploadNotificationBridge {
     public static native void nativeRegisterContext(android.content.Context);
     public static native void nativeOnPermissionResult(long, boolean);

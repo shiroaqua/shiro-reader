@@ -740,9 +740,9 @@ describe("Bookshelf, Trash, and Upload integration", () => {
       ).toBeInTheDocument()
     })
 
-    it("hides ALL upload buttons, panel, and drop overlay on unsupported mobile platforms (e.g. iOS)", async () => {
+    it("hides ALL upload buttons, panel, and drop overlay on mobile when canImportBooks is false", async () => {
       tauriTestHost.reset()
-      tauriTestHost.setPlatform("ios")
+      tauriTestHost.setPlatform("android")
       const library = new FakeLibrary()
 
       renderMobileApp({

@@ -2,8 +2,10 @@ import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
 import { resetLibraryBridge } from "@shiro/ui-shared/api/library"
+import { resetReaderBridge } from "@shiro/ui-shared/api/reader-bridge"
 import { setCoverUrlBase } from "@shiro/ui-shared/api/tauri-bridge"
 import { resetBookImportState } from "@shiro/ui-shared/features/books/book-import-store"
+import { resetReaderSettingsStoreForTest } from "@shiro/ui-shared/features/reader/settings/reader-settings-store"
 import { resetErrorNotifications } from "@shiro/ui-shared/lib/error-notifications"
 import { setAppLocaleOverride } from "@shiro/ui-shared/lib/i18n"
 import { resetBuilderIds } from "./support/builders"
@@ -57,6 +59,19 @@ vi.mock("@tauri-apps/api/webview", async () => {
   }
 })
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    minimize: vi.fn().mockResolvedValue(undefined),
+    toggleMaximize: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+    isMaximized: vi.fn().mockResolvedValue(false),
+    isFullscreen: vi.fn().mockResolvedValue(false),
+    setFullscreen: vi.fn().mockResolvedValue(undefined),
+    startDragging: vi.fn().mockResolvedValue(undefined),
+    onResized: vi.fn().mockResolvedValue(() => {}),
+  }),
+}))
+
 installMediaMocks()
 
 if (typeof globalThis.ResizeObserver === "undefined") {
@@ -96,6 +111,8 @@ afterEach(() => {
   setAppLocaleOverride(null)
   setCoverUrlBase("shiro-cover://localhost/book/")
   resetLibraryBridge()
+  resetReaderBridge()
+  resetReaderSettingsStoreForTest()
   localStorage.clear()
   resetMediaMocks()
   tauriTestHost.reset()

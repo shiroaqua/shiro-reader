@@ -1,7 +1,10 @@
 import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
+  BookOpen,
   Check,
+  ExternalLink,
+  Layers,
   Pencil,
   Tag,
   Trash2,
@@ -16,7 +19,9 @@ import {
   ContextMenuTrigger,
 } from "@shiro/ui-shared/components/ui/context-menu"
 import { Input } from "@shiro/ui-shared/components/ui/input"
+import { Separator } from "@shiro/ui-shared/components/ui/separator"
 import { BookCover } from "@shiro/ui-shared/features/books/book-cover"
+import { assertBookSupportedInReader } from "@shiro/ui-shared/features/reader/workspace/book-launch"
 import { useLongPress } from "@shiro/ui-shared/hooks/use-long-press"
 import { isMobilePlatform } from "@shiro/ui-shared/hooks/use-mobile"
 import { useIsTouch } from "@shiro/ui-shared/hooks/use-touch"
@@ -35,6 +40,10 @@ export function BookCard({
   selectionPreview = null,
   onToggleSelect,
   onHoverChange,
+  onOpenBook,
+  onOpenBookInNewWindow,
+  onOpenBookInBackground,
+  onBooksDeleted,
 }: {
   book: Book
   selected: boolean
@@ -42,6 +51,10 @@ export function BookCard({
   selectionPreview?: SelectionPreview
   onToggleSelect: (shiftKey: boolean) => void
   onHoverChange?: ((hovering: boolean) => void) | undefined
+  onOpenBook?: ((book: Book) => void) | undefined
+  onOpenBookInNewWindow?: ((book: Book) => void) | undefined
+  onOpenBookInBackground?: ((book: Book) => void) | undefined
+  onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -77,6 +90,7 @@ export function BookCard({
     if (error instanceof CommandError && error.payload.key === "library.book.not_found") {
       setRenaming(false)
       updateBooks((books) => books.filter((item) => item.id !== book.id))
+      onBooksDeleted?.([book.id])
     }
   }
 
@@ -97,6 +111,7 @@ export function BookCard({
     mutationFn: () => library.bookshelf.book.delete(book.id),
     onSuccess: () => {
       updateBooks((books) => books.filter((item) => item.id !== book.id))
+      onBooksDeleted?.([book.id])
     },
     onError: handleMutationError,
     onSettled: () =>
@@ -133,11 +148,18 @@ export function BookCard({
         {...longPress.handlers}
         onClick={(event) => {
           if (longPress.consumeClick()) return
-          if (!isSelectionMode || isRenaming) return
-          onToggleSelect(event.shiftKey)
+          if (isRenaming) return
+          if (isSelectionMode) {
+            onToggleSelect(event.shiftKey)
+            return
+          }
+          if (onOpenBook && assertBookSupportedInReader(book)) {
+            onOpenBook(book)
+          }
         }}
         className={cn(
           "group/card flex min-w-0 flex-col gap-1",
+          Boolean(onOpenBook) && !isSelectionMode && !isRenaming && "cursor-pointer",
           isSelectionMode && "cursor-pointer select-none",
           isTouchMenu && "[-webkit-touch-callout:none] select-none"
         )}
@@ -259,6 +281,33 @@ export function BookCard({
         )}
       </ContextMenuTrigger>
       <ContextMenuContent finalFocus={false}>
+        {onOpenBook && (
+          <ContextMenuItem
+            onClick={() => {
+              if (assertBookSupportedInReader(book)) {
+                onOpenBook(book)
+              }
+            }}
+          >
+            <BookOpen aria-hidden="true" />
+            {t("local.reader.action.open")}
+          </ContextMenuItem>
+        )}
+        {onOpenBookInNewWindow && (
+          <ContextMenuItem
+            onClick={() => {
+              if (assertBookSupportedInReader(book)) {
+                onOpenBookInNewWindow(book)
+              }
+            }}
+          >
+            <ExternalLink aria-hidden="true" />
+            {t("local.reader.action.open_new_window")}
+          </ContextMenuItem>
+        )}
+        {(onOpenBook || onOpenBookInNewWindow) && (
+          <Separator className="my-1" />
+        )}
         <ContextMenuItem onClick={() => setRenaming(true)}>
           <Pencil aria-hidden="true" />
           {t("local.book.rename")}
@@ -282,6 +331,48 @@ export function BookCard({
         onOpenChange={setActionsOpen}
         title={book.title}
         items={[
+          ...(onOpenBook
+            ? [
+                {
+                  key: "open",
+                  label: t("local.reader.action.open"),
+                  icon: <BookOpen aria-hidden="true" />,
+                  onSelect: () => {
+                    if (assertBookSupportedInReader(book)) {
+                      onOpenBook(book)
+                    }
+                  },
+                },
+              ]
+            : []),
+          ...(onOpenBookInNewWindow
+            ? [
+                {
+                  key: "open-new-window",
+                  label: t("local.reader.action.open_new_window"),
+                  icon: <ExternalLink aria-hidden="true" />,
+                  onSelect: () => {
+                    if (assertBookSupportedInReader(book)) {
+                      onOpenBookInNewWindow(book)
+                    }
+                  },
+                },
+              ]
+            : []),
+          ...(onOpenBookInBackground
+            ? [
+                {
+                  key: "open-background",
+                  label: t("local.reader.action.open_background_tab"),
+                  icon: <Layers aria-hidden="true" />,
+                  onSelect: () => {
+                    if (assertBookSupportedInReader(book)) {
+                      onOpenBookInBackground(book)
+                    }
+                  },
+                },
+              ]
+            : []),
           {
             key: "rename",
             label: t("local.book.rename"),

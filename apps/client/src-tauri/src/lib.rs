@@ -1,6 +1,8 @@
 mod android_upload_notification;
 mod commands;
 mod cover;
+mod font_protocol;
+pub mod reader_windows;
 
 use std::{
     path::{Path, PathBuf},
@@ -30,13 +32,20 @@ pub const UPLOAD_STATE_EVENT_NAME: &str = "shiro://upload-state";
 /// Tauri event name emitted when the user taps the Android upload notification.
 pub const UPLOAD_OPEN_UI_EVENT_NAME: &str = "shiro://upload-open-ui";
 
+/// Tauri event name carrying local reader settings and custom font manifest updates.
+pub const READER_SETTINGS_EVENT_NAME: &str = "shiro://reader-settings";
+
 pub struct ClientAppState {
     pub runtime: Arc<ClientRuntime>,
+    pub reader_windows: Arc<reader_windows::ReaderWindowCoordinator>,
 }
 
 impl ClientAppState {
     pub fn new(runtime: Arc<ClientRuntime>) -> Self {
-        Self { runtime }
+        Self {
+            runtime,
+            reader_windows: Arc::new(reader_windows::ReaderWindowCoordinator::new()),
+        }
     }
 }
 
@@ -78,6 +87,13 @@ impl ErrorSink for TauriErrorSink {
 
     fn emit_runtime_state(&self, state: &BootstrapStateDto) {
         let _ = self.app.emit(RUNTIME_STATE_EVENT_NAME, state);
+        if state.phase != shiro_compatibility::StartupPhase::Ready
+            && let Some(app_state) = self.app.try_state::<ClientAppState>()
+        {
+            app_state
+                .reader_windows
+                .close_all_windows_sync(&self.app, &app_state.runtime);
+        }
     }
 
     fn emit_upload_state(&self, snapshot: &UploadPanelSnapshotDto) {
@@ -160,6 +176,15 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        .register_asynchronous_uri_scheme_protocol("shiro-font", |ctx, request, responder| {
+            let runtime = Arc::clone(&ctx.app_handle().state::<ClientAppState>().runtime);
+            let method = request.method().clone();
+            let path = request.uri().path().to_owned();
+            tauri::async_runtime::spawn(async move {
+                let response = font_protocol::handle_font_request(&runtime, &method, &path).await;
+                responder.respond(response);
+            });
+        })
         .setup(|app| {
             let handle = app.handle();
 
@@ -233,9 +258,33 @@ pub fn run() {
             commands::trash_list,
             commands::trash_restore,
             commands::trash_permanently_delete,
+            commands::book_navigation,
             commands::epub_open,
+            commands::epub_attach_or_open,
             commands::epub_read_entry,
             commands::epub_close,
+            commands::reader_get_settings,
+            commands::reader_update_global_settings,
+            commands::reader_set_book_override,
+            commands::reader_reset_book_override,
+            commands::reader_list_system_fonts,
+            commands::reader_pick_and_import_font,
+            commands::reader_delete_custom_font,
+            commands::reader_read_custom_font,
+            commands::reader_open_book,
+            commands::reader_get_window_snapshot,
+            commands::reader_activate_tab,
+            commands::reader_reorder_tabs,
+            commands::reader_close_tab,
+            commands::reader_update_tab_state,
+            commands::reader_report_tab_strip_metrics,
+            commands::reader_move_tab_to_window,
+            commands::reader_tear_off_tab,
+            commands::reader_drag_start,
+            commands::reader_drag_over,
+            commands::reader_drag_commit,
+            commands::reader_drag_cancel,
+            commands::reader_open_external_url,
             commands::tags_list,
             commands::tag_define,
             commands::tag_rename,
@@ -257,6 +306,33 @@ pub fn run() {
             commands::upload_consume_pending_open_ui,
             commands::upload_set_mobile_ui_open,
         ])
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            {
+                let label = window.label().to_owned();
+                let state = window.app_handle().state::<ClientAppState>();
+                match event {
+                    tauri::WindowEvent::Focused(true) => {
+                        state.reader_windows.on_window_focused(&label);
+                    }
+                    tauri::WindowEvent::Destroyed => {
+                        state.reader_windows.on_window_destroyed(
+                            window.app_handle(),
+                            &label,
+                            &state.runtime,
+                        );
+                    }
+                    tauri::WindowEvent::CloseRequested { .. } if label == "main" => {
+                        state
+                            .reader_windows
+                            .close_all_windows_sync(window.app_handle(), &state.runtime);
+                    }
+                    _ => {}
+                }
+            }
+            #[cfg(not(desktop))]
+            let _ = (window, event);
+        })
         .build(tauri::generate_context!())
         .expect("error while building ShiroReader desktop client");
 
@@ -264,6 +340,9 @@ pub fn run() {
         if let RunEvent::Exit = event {
             android_upload_notification::clear_immediately();
             let state = app_handle.state::<ClientAppState>();
+            state
+                .reader_windows
+                .close_all_windows_sync(app_handle, &state.runtime);
             tauri::async_runtime::block_on(state.runtime.shutdown());
         }
     });
@@ -284,7 +363,12 @@ mod tests {
     };
     use shiro_error_catalog::AppLocale;
 
-    use crate::{build_client_env_filter, cover::handle_cover_request, localized_app_title};
+    use tauri::http::Method;
+
+    use crate::{
+        build_client_env_filter, cover::handle_cover_request, font_protocol::handle_font_request,
+        localized_app_title,
+    };
 
     #[test]
     fn localized_app_title_matches_locale() {
@@ -425,6 +509,8 @@ mod tests {
             retain_completed_uploads: false,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            font_url_base: "shiro-font://localhost/font/".to_owned(),
+            can_enumerate_system_fonts: true,
             epub_cache_max_bytes: 64 * 1024 * 1024,
         };
         let mobile_caps = PlatformCapabilities {
@@ -434,6 +520,8 @@ mod tests {
             retain_completed_uploads: true,
             default_library_root: PathBuf::from("library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            font_url_base: "http://shiro-font.localhost/font/".to_owned(),
+            can_enumerate_system_fonts: false,
             epub_cache_max_bytes: 24 * 1024 * 1024,
         };
 
@@ -478,5 +566,161 @@ mod tests {
             .to_string(),
             ClientLogLevel::compile_default().as_str()
         );
+    }
+
+    fn minimal_test_sfnt(sfnt_magic: [u8; 4], family_name: &str) -> Vec<u8> {
+        let mut head = vec![0u8; 54];
+        head[0..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        head[12..16].copy_from_slice(&0x5F0F_3CF5u32.to_be_bytes());
+        head[18..20].copy_from_slice(&1000u16.to_be_bytes());
+
+        let mut hhea = vec![0u8; 36];
+        hhea[0..4].copy_from_slice(&0x0001_0000u32.to_be_bytes());
+        hhea[34..36].copy_from_slice(&1u16.to_be_bytes());
+
+        let mut maxp = Vec::new();
+        maxp.extend_from_slice(&0x0000_5000u32.to_be_bytes());
+        maxp.extend_from_slice(&1u16.to_be_bytes());
+
+        let utf16_be: Vec<u8> = family_name
+            .encode_utf16()
+            .flat_map(|unit| unit.to_be_bytes())
+            .collect();
+        let mut name_table = Vec::new();
+        name_table.extend_from_slice(&0u16.to_be_bytes());
+        name_table.extend_from_slice(&1u16.to_be_bytes());
+        name_table.extend_from_slice(&18u16.to_be_bytes());
+        name_table.extend_from_slice(&3u16.to_be_bytes());
+        name_table.extend_from_slice(&1u16.to_be_bytes());
+        name_table.extend_from_slice(&0x0409u16.to_be_bytes());
+        name_table.extend_from_slice(&1u16.to_be_bytes());
+        name_table.extend_from_slice(&(utf16_be.len() as u16).to_be_bytes());
+        name_table.extend_from_slice(&0u16.to_be_bytes());
+        name_table.extend_from_slice(&utf16_be);
+
+        let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
+            (*b"head", head),
+            (*b"hhea", hhea),
+            (*b"maxp", maxp),
+            (*b"name", name_table),
+        ];
+        tables.sort_by_key(|(tag, _)| *tag);
+
+        let header_len = 12 + tables.len() * 16;
+        let mut out = Vec::new();
+        out.extend_from_slice(&sfnt_magic);
+        out.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        out.extend_from_slice(&[0u8; 6]);
+
+        let mut offset = header_len;
+        let mut dir = Vec::new();
+        let mut body = Vec::new();
+        for (tag, data) in tables {
+            dir.extend_from_slice(&tag);
+            dir.extend_from_slice(&0u32.to_be_bytes());
+            dir.extend_from_slice(&(offset as u32).to_be_bytes());
+            dir.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            body.extend_from_slice(&data);
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+            offset = header_len + body.len();
+        }
+        out.extend_from_slice(&dir);
+        out.extend_from_slice(&body);
+        out
+    }
+
+    #[tokio::test]
+    async fn font_protocol_serves_registered_fonts_with_cors_and_rejects_unknown_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = ClientRuntime::initialize(
+            tmp.path().join("config"),
+            PlatformCapabilities::current_host(tmp.path().join("library")),
+            AppLocale::En,
+            None,
+            Arc::new(NoopErrorSink),
+        )
+        .await;
+
+        let ttf_bytes = minimal_test_sfnt([0x00, 0x01, 0x00, 0x00], "Shiro Protocol Font");
+        let snapshot = runtime
+            .import_custom_font_bytes("protocol.ttf".to_owned(), ttf_bytes.clone())
+            .expect("import test font");
+        assert_eq!(snapshot.custom_fonts.len(), 1);
+        let font_id = snapshot.custom_fonts[0].font_id.clone();
+
+        let otf_bytes = minimal_test_sfnt(*b"OTTO", "Shiro Protocol OTF");
+        let otf_snapshot = runtime
+            .import_custom_font_bytes("protocol.otf".to_owned(), otf_bytes.clone())
+            .expect("import test otf font");
+        let otf_id = otf_snapshot
+            .custom_fonts
+            .iter()
+            .find(|f| f.family_name == "Shiro Protocol OTF")
+            .expect("otf entry")
+            .font_id
+            .clone();
+
+        let ok_resp = handle_font_request(&runtime, &Method::GET, &format!("/font/{font_id}")).await;
+        assert_eq!(ok_resp.status(), 200);
+        assert_eq!(ok_resp.headers().get("content-type").unwrap(), "font/ttf");
+        assert_eq!(
+            ok_resp.headers().get("access-control-allow-origin").unwrap(),
+            "*"
+        );
+        assert_eq!(
+            ok_resp.headers().get("cache-control").unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(ok_resp.body(), &ttf_bytes);
+        assert_eq!(
+            ok_resp.headers().get("content-length").unwrap(),
+            &ttf_bytes.len().to_string()
+        );
+
+        let head_resp =
+            handle_font_request(&runtime, &Method::HEAD, &format!("/font/{font_id}")).await;
+        assert_eq!(head_resp.status(), 200);
+        assert_eq!(
+            head_resp.headers().get("content-length").unwrap(),
+            &ttf_bytes.len().to_string()
+        );
+        assert!(head_resp.body().is_empty());
+
+        let opt_resp =
+            handle_font_request(&runtime, &Method::OPTIONS, &format!("/font/{font_id}")).await;
+        assert_eq!(opt_resp.status(), 204);
+        assert_eq!(
+            opt_resp.headers().get("access-control-allow-origin").unwrap(),
+            "*"
+        );
+        assert_eq!(
+            opt_resp.headers().get("access-control-allow-methods").unwrap(),
+            "GET, HEAD, OPTIONS"
+        );
+
+        let otf_resp = handle_font_request(&runtime, &Method::GET, &format!("/font/{otf_id}")).await;
+        assert_eq!(otf_resp.status(), 200);
+        assert_eq!(otf_resp.headers().get("content-type").unwrap(), "font/otf");
+        assert_eq!(otf_resp.body(), &otf_bytes);
+
+        for disallowed in [Method::POST, Method::PUT, Method::DELETE] {
+            let method_resp =
+                handle_font_request(&runtime, &disallowed, &format!("/font/{font_id}")).await;
+            assert_eq!(method_resp.status(), 405, "method={disallowed}");
+        }
+
+        let missing_id = "0".repeat(64);
+        for bad_path in [
+            "/",
+            "/font/",
+            "/font/not-hex",
+            "/font/../secret",
+            &format!("/font/{missing_id}"),
+        ] {
+            let resp = handle_font_request(&runtime, &Method::GET, bad_path).await;
+            assert_eq!(resp.status(), 404, "bad_path={bad_path}");
+        }
     }
 }

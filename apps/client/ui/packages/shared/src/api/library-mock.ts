@@ -1,4 +1,5 @@
 import { setPreviewLibrary, type LibraryBridge } from "./library"
+import { enableReaderPreview } from "./reader-mock"
 import type { UploadPanelSnapshot, UploadTask } from "./tauri-bridge"
 import type { Book, BookTag, Tag, TagTreeNode, TrashedBook } from "@shiro/ui-shared/lib/types"
 import { notifyLocalError } from "@shiro/ui-shared/lib/error-notifications"
@@ -447,4 +448,5 @@ export function enableLibraryPreview() {
   addBook("The Book of Tea", "epub")
   addBook("A Room of One’s Own", "pdf")
   setPreviewLibrary(previewLibrary)
+  enableReaderPreview()
 }

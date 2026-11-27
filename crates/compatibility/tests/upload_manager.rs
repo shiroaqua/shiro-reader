@@ -56,6 +56,8 @@ fn desktop_caps(default_root: PathBuf) -> PlatformCapabilities {
         retain_completed_uploads: false,
         default_library_root: default_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+        font_url_base: "shiro-font://localhost/font/".to_owned(),
+        can_enumerate_system_fonts: true,
         epub_cache_max_bytes: 64 * 1024 * 1024,
     }
 }
@@ -68,6 +70,8 @@ fn android_caps(private_root: PathBuf) -> PlatformCapabilities {
         retain_completed_uploads: true,
         default_library_root: private_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+        font_url_base: "http://shiro-font.localhost/font/".to_owned(),
+        can_enumerate_system_fonts: false,
         epub_cache_max_bytes: 24 * 1024 * 1024,
     }
 }
@@ -80,6 +84,8 @@ fn unsupported_platform_caps(private_root: PathBuf) -> PlatformCapabilities {
         retain_completed_uploads: false,
         default_library_root: private_root,
         cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+        font_url_base: "shiro-font://localhost/font/".to_owned(),
+        can_enumerate_system_fonts: true,
         epub_cache_max_bytes: 64 * 1024 * 1024,
     }
 }
@@ -897,7 +903,7 @@ async fn shutdown_drains_active_uploads_and_checkpoints_sqlite_wal_cleanly() {
 async fn empty_directory_mobile_block_error_relocalization_and_retry_without_global_toast_spam() {
     let tmp = tempfile::tempdir().unwrap();
 
-    // 1. Unsupported platform (e.g. iOS) blocks upload enqueue with ImportNotSupportedOnPlatform (3030).
+    // 1. Unsupported platform (can_import_books = false) blocks upload enqueue with ImportNotSupportedOnPlatform (3030).
     let mobile_sink = Arc::new(RecordingSink::default());
     let mobile_rt = ClientRuntime::initialize(
         tmp.path().join("mobile_cfg"),

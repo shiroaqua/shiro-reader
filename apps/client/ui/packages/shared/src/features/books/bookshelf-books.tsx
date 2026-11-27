@@ -61,10 +61,18 @@ export function BookshelfBooks({
   headerOverlay = null,
   search = "",
   onSearchChange,
+  onOpenBook,
+  onOpenBookInNewWindow,
+  onOpenBookInBackground,
+  onBooksDeleted,
 }: {
   headerOverlay?: HTMLElement | null
   search?: string
   onSearchChange?: (search: string) => void
+  onOpenBook?: ((book: Book) => void) | undefined
+  onOpenBookInNewWindow?: ((book: Book) => void) | undefined
+  onOpenBookInBackground?: ((book: Book) => void) | undefined
+  onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
 }) {
   const { t, locale } = useTranslation()
   const queryClient = useQueryClient()
@@ -265,6 +273,7 @@ export function BookshelfBooks({
       )
       clearSelection()
       setBatchDeleteOpen(false)
+      onBooksDeleted?.(ids)
     },
     onSettled: () =>
       Promise.all([
@@ -464,6 +473,10 @@ export function BookshelfBooks({
                     }
                   : undefined
               }
+              onOpenBook={onOpenBook}
+              onOpenBookInNewWindow={onOpenBookInNewWindow}
+              onOpenBookInBackground={onOpenBookInBackground}
+              onBooksDeleted={onBooksDeleted}
             />
           ))}
         </ul>

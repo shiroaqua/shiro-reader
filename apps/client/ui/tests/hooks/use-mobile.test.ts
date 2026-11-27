@@ -4,7 +4,7 @@ import { tauriTestHost } from "../support/mock-tauri"
 
 describe("use-mobile", () => {
   describe("isMobilePlatform", () => {
-    it("returns false outside Tauri or on desktop OS, and true on android or ios", () => {
+    it("returns false outside Tauri or on desktop OS, and true only on android", () => {
       tauriTestHost.setTauriRuntime(false)
       tauriTestHost.setPlatform("android")
       expect(isMobilePlatform()).toBe(false)
@@ -20,9 +20,6 @@ describe("use-mobile", () => {
       expect(isMobilePlatform()).toBe(false)
 
       tauriTestHost.setPlatform("android")
-      expect(isMobilePlatform()).toBe(true)
-
-      tauriTestHost.setPlatform("ios")
       expect(isMobilePlatform()).toBe(true)
     })
   })

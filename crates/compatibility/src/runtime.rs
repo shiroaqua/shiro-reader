@@ -12,7 +12,7 @@ use shiro_application::library::{
             PermanentlyDeleteBooksCommand, RenameBookCommand, RestoreBookIdCommand,
         },
         dto::{GetBookOutput, TrashedBookOutput},
-        queries::GetBooksQuery,
+        queries::{GetBookNavigationQuery, GetBooksQuery},
     },
     ports::CoverByteStream,
     tag::{
@@ -53,6 +53,17 @@ use crate::{
     },
     error_sink::{ErrorDispatcher, ErrorSink},
     local_import::{ImportProgressCallback, ImportTarget, import_reader_into_local},
+    reader_config::{
+        CustomFontFormat, ReaderConfigStore, ReaderProfileDto, ReaderProfilePatchDto,
+        ReaderSettingsSnapshotDto,
+    },
+    reader_fonts::{
+        SystemFontFamilyDto, delete_custom_font as delete_stored_custom_font,
+        import_custom_font_bytes as import_stored_custom_font_bytes,
+        import_custom_font_from_reader as import_stored_custom_font_from_reader,
+        list_system_fonts as list_host_system_fonts,
+        read_custom_font_bytes as read_stored_custom_font_bytes,
+    },
     tag_value::TagValueType,
     upload_manager::{
         EnqueueUploadItem, StdFsSourceOpener, UploadManager, UploadSourceOpener,
@@ -91,6 +102,7 @@ struct RuntimeInner {
 /// fixed per-process launch mode, localized error dispatch, and unified local/cloud library operations.
 pub struct ClientRuntime {
     config_store: ConfigStore,
+    reader_config: ReaderConfigStore,
     credential_store: Arc<dyn CredentialStore>,
     cloud_temp_dir: PathBuf,
     capabilities: PlatformCapabilities,
@@ -135,6 +147,8 @@ impl ClientRuntime {
     ) -> Arc<Self> {
         let config_dir = config_dir.into();
         let config_store = ConfigStore::new(&config_dir);
+        let reader_config =
+            ReaderConfigStore::load_or_default(&config_dir, !capabilities.can_enumerate_system_fonts);
         let data_base = capabilities
             .default_library_root
             .parent()
@@ -271,6 +285,7 @@ impl ClientRuntime {
 
         let runtime = Arc::new(Self {
             config_store,
+            reader_config,
             credential_store,
             cloud_temp_dir,
             capabilities,
@@ -1410,6 +1425,27 @@ impl ClientRuntime {
         }
     }
 
+    pub async fn get_book_navigation(
+        &self,
+        id: String,
+    ) -> Result<shiro_application::library::book::dto::BookNavigationOutput, CommandErrorPayload>
+    {
+        match self.require_ready_backend()? {
+            LibraryBackend::Local(lib) => lib
+                .book_service()
+                .get_book_navigation(GetBookNavigationQuery { id })
+                .await
+                .map_err(|err| {
+                    self.error_dispatcher
+                        .dispatch_operation(ErrorCode::from(&err))
+                }),
+            LibraryBackend::Cloud(cloud) => cloud
+                .get_book_navigation(&id)
+                .await
+                .map_err(|code| self.error_dispatcher.dispatch_operation(code)),
+        }
+    }
+
     pub async fn rename_book(&self, id: String, title: String) -> Result<(), CommandErrorPayload> {
         match self.require_ready_backend()? {
             LibraryBackend::Local(lib) => lib
@@ -1678,6 +1714,52 @@ impl ClientRuntime {
         unreachable!("loop always returns within MAX_EVICTION_RETRIES")
     }
 
+    pub fn ensure_reader_ready(&self) -> Result<(), CommandErrorPayload> {
+        self.require_ready_backend().map(|_| ())
+    }
+
+    pub fn validate_reader_open_target(
+        &self,
+        book_id: &str,
+        book_hash: Option<&str>,
+    ) -> Result<Option<String>, CommandErrorPayload> {
+        let _backend = self.require_ready_backend()?;
+        let _ = BookId::parse(book_id)
+            .map_err(|_| self.error_dispatcher.dispatch_operation(ErrorCode::BookInvalidId))?;
+        match book_hash {
+            Some(raw) => {
+                let normalized = crate::reader_config::normalize_book_hash(raw)
+                    .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+                Ok(Some(normalized))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub async fn attach_or_open_epub(
+        &self,
+        book_id: String,
+        session_id: Option<EpubSessionId>,
+    ) -> Result<OpenEpubResponseDto, CommandErrorPayload> {
+        let _backend = self.require_ready_backend()?;
+        let _ = BookId::parse(&book_id)
+            .map_err(|_| self.error_dispatcher.dispatch_operation(ErrorCode::BookInvalidId))?;
+
+        if let Some(sid) = session_id
+            && let Some(session) = self.epub_sessions.get(sid)
+            && session.book_id.as_ref() == book_id.as_str()
+        {
+            return Ok(OpenEpubResponseDto {
+                session_id: session.session_id,
+                book_id,
+                file_size: session.source.total_size(),
+                entries: session.index.export_entry_sizes(),
+            });
+        }
+
+        self.open_epub(book_id).await
+    }
+
     pub async fn read_epub_entry(
         &self,
         session_id: EpubSessionId,
@@ -1698,6 +1780,117 @@ impl ClientRuntime {
     pub async fn close_epub(&self, session_id: EpubSessionId) -> Result<(), CommandErrorPayload> {
         self.epub_sessions.remove(session_id);
         Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Pure-Local Reader Preferences & Fonts (Mode-Independent)
+    // -------------------------------------------------------------------------
+
+    fn reader_font_url_base(&self) -> String {
+        self.capabilities.font_url_base.clone()
+    }
+
+    fn reader_can_enumerate_system_fonts(&self) -> bool {
+        self.capabilities.can_enumerate_system_fonts
+    }
+
+    pub fn get_reader_settings(&self) -> ReaderSettingsSnapshotDto {
+        self.reader_config.snapshot(
+            self.reader_font_url_base(),
+            self.reader_can_enumerate_system_fonts(),
+        )
+    }
+
+    pub fn update_reader_global_settings(
+        &self,
+        settings: ReaderProfileDto,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        self.reader_config
+            .update_global(
+                settings,
+                self.reader_font_url_base(),
+                self.reader_can_enumerate_system_fonts(),
+            )
+            .map_err(|err| {
+                warn!(error = %err, "failed to save global reader settings");
+                self.error_dispatcher
+                    .dispatch_operation(ErrorCode::ConfigSaveFailed)
+            })
+    }
+
+    pub fn set_reader_book_override(
+        &self,
+        book_hash: String,
+        patch: ReaderProfilePatchDto,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        self.reader_config
+            .set_book_override(
+                &book_hash,
+                patch,
+                self.reader_font_url_base(),
+                self.reader_can_enumerate_system_fonts(),
+            )
+            .map_err(|code| self.error_dispatcher.dispatch_operation(code))
+    }
+
+    pub fn reset_reader_book_override(
+        &self,
+        book_hash: String,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        self.reader_config
+            .reset_book_override(
+                &book_hash,
+                self.reader_font_url_base(),
+                self.reader_can_enumerate_system_fonts(),
+            )
+            .map_err(|code| self.error_dispatcher.dispatch_operation(code))
+    }
+
+    pub async fn list_system_fonts(&self) -> Vec<SystemFontFamilyDto> {
+        list_host_system_fonts(self.reader_can_enumerate_system_fonts()).await
+    }
+
+    pub fn import_custom_font_bytes(
+        &self,
+        file_name: String,
+        bytes: Vec<u8>,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        import_stored_custom_font_bytes(&self.reader_config, &file_name, &bytes)
+            .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+        Ok(self.get_reader_settings())
+    }
+
+    pub async fn import_custom_font_stream<R: AsyncRead + Unpin>(
+        &self,
+        file_name: String,
+        reader: R,
+        expected_size: Option<u64>,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        import_stored_custom_font_from_reader(
+            &self.reader_config,
+            &file_name,
+            reader,
+            expected_size,
+        )
+        .await
+        .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+        Ok(self.get_reader_settings())
+    }
+
+    pub async fn read_custom_font(
+        &self,
+        font_id: &str,
+    ) -> Result<(Vec<u8>, CustomFontFormat), ErrorCode> {
+        read_stored_custom_font_bytes(&self.reader_config, font_id).await
+    }
+
+    pub fn delete_custom_font(
+        &self,
+        font_id: String,
+    ) -> Result<ReaderSettingsSnapshotDto, CommandErrorPayload> {
+        delete_stored_custom_font(&self.reader_config, &font_id)
+            .map_err(|code| self.error_dispatcher.dispatch_operation(code))?;
+        Ok(self.get_reader_settings())
     }
 
     pub async fn get_cover_stream(

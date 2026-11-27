@@ -14,6 +14,7 @@ tauri-build.workspace = true
 
 [dependencies]
 futures-util.workspace = true
+serde.workspace = true
 shiro-compatibility = { path = "../../../crates/compatibility" }
 shiro-error-catalog = { path = "../../../crates/error-catalog" }
 shiro-infrastructure = { path = "../../../crates/infrastructure" }
@@ -29,6 +30,7 @@ url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]

@@ -79,6 +79,8 @@ pub struct PlatformCapabilities {
     pub retain_completed_uploads: bool,
     pub default_library_root: PathBuf,
     pub cover_url_base: String,
+    pub font_url_base: String,
+    pub can_enumerate_system_fonts: bool,
     pub epub_cache_max_bytes: usize,
 }
 
@@ -91,27 +93,16 @@ impl PlatformCapabilities {
             can_import_books,
             retain_completed_uploads,
             cover_url_base,
+            font_url_base,
+            can_enumerate_system_fonts,
         ) = (
             false,
             false,
             true,
             true,
             "http://shiro-cover.localhost/book/".to_owned(),
-        );
-
-        #[cfg(target_os = "ios")]
-        let (
-            can_pick_library_dir,
-            can_configure_log_level,
-            can_import_books,
-            retain_completed_uploads,
-            cover_url_base,
-        ) = (
+            "http://shiro-font.localhost/font/".to_owned(),
             false,
-            false,
-            false,
-            false,
-            "shiro-cover://localhost/book/".to_owned(),
         );
 
         #[cfg(target_os = "windows")]
@@ -121,12 +112,16 @@ impl PlatformCapabilities {
             can_import_books,
             retain_completed_uploads,
             cover_url_base,
+            font_url_base,
+            can_enumerate_system_fonts,
         ) = (
             true,
             true,
             true,
             false,
             "http://shiro-cover.localhost/book/".to_owned(),
+            "http://shiro-font.localhost/font/".to_owned(),
+            true,
         );
 
         #[cfg(target_os = "macos")]
@@ -136,17 +131,20 @@ impl PlatformCapabilities {
             can_import_books,
             retain_completed_uploads,
             cover_url_base,
+            font_url_base,
+            can_enumerate_system_fonts,
         ) = (
             true,
             true,
             true,
             false,
             "shiro-cover://localhost/book/".to_owned(),
+            "shiro-font://localhost/font/".to_owned(),
+            true,
         );
 
         #[cfg(not(any(
             target_os = "android",
-            target_os = "ios",
             target_os = "windows",
             target_os = "macos"
         )))]
@@ -156,12 +154,16 @@ impl PlatformCapabilities {
             can_import_books,
             retain_completed_uploads,
             cover_url_base,
+            font_url_base,
+            can_enumerate_system_fonts,
         ) = (
             true,
             true,
             true,
             false,
             "shiro-cover://localhost/book/".to_owned(),
+            "shiro-font://localhost/font/".to_owned(),
+            true,
         );
 
         let epub_cache_max_bytes = if cfg!(target_os = "android") {
@@ -177,6 +179,8 @@ impl PlatformCapabilities {
             retain_completed_uploads,
             default_library_root,
             cover_url_base,
+            font_url_base,
+            can_enumerate_system_fonts,
             epub_cache_max_bytes,
         }
     }
@@ -399,6 +403,8 @@ mod tests {
             retain_completed_uploads: false,
             default_library_root: default_root.clone(),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            font_url_base: "shiro-font://localhost/font/".to_owned(),
+            can_enumerate_system_fonts: true,
             epub_cache_max_bytes: 64 * 1024 * 1024,
         };
         let mut cfg = ClientConfig::initial(AppLocale::En);
@@ -425,6 +431,8 @@ mod tests {
             retain_completed_uploads: true,
             default_library_root: default_root.clone(),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            font_url_base: "http://shiro-font.localhost/font/".to_owned(),
+            can_enumerate_system_fonts: false,
             epub_cache_max_bytes: 24 * 1024 * 1024,
         };
         assert_eq!(cfg.effective_local_root(&android), default_root);
@@ -462,6 +470,8 @@ mod tests {
             retain_completed_uploads: false,
             default_library_root: PathBuf::from("/default/library"),
             cover_url_base: "http://shiro-cover.localhost/book/".to_owned(),
+            font_url_base: "shiro-font://localhost/font/".to_owned(),
+            can_enumerate_system_fonts: true,
             epub_cache_max_bytes: 64 * 1024 * 1024,
         };
         assert_eq!(loaded.effective_log_level(&desktop), expected_default);

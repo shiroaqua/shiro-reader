@@ -68,7 +68,7 @@ impl LocalBookFileStorage {
 
     fn book_file_path(&self, hash: &Hash) -> PathBuf {
         self.dir
-            .join(hash.to_hex().to_string())
+            .join(hash.to_hex().as_str())
             .with_extension(&self.ext)
     }
 
@@ -451,13 +451,12 @@ fn extract_book_navigation_from_file(
     }
 }
 
-fn scan_book_storage(
-    dir: &Path,
-    ext: &str,
-) -> io::Result<(
+type ScannedBookStorage = (
     DashMap<Hash, BookFileMetadata>,
     DashMap<Hash, (PathBuf, ImageFormat)>,
-)> {
+);
+
+fn scan_book_storage(dir: &Path, ext: &str) -> io::Result<ScannedBookStorage> {
     let files = Arc::new(DashMap::new());
     std::fs::read_dir(dir)?
         .filter_map(|entry| {

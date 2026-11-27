@@ -4,19 +4,16 @@ import { triggerLongPressHaptic } from "@shiro/ui-shared/lib/haptics"
 import { tauriTestHost } from "../../support/mock-tauri"
 
 describe("triggerLongPressHaptic", () => {
-  it("invokes the native command on Android and iOS inside Tauri", async () => {
+  it("invokes the native command on Android inside Tauri", async () => {
     tauriTestHost.onInvoke("trigger_long_press_haptic", () => undefined)
 
     tauriTestHost.setPlatform("android")
     triggerLongPressHaptic()
 
-    tauriTestHost.setPlatform("ios")
-    triggerLongPressHaptic()
-
     await Promise.resolve()
 
     expect(tauriTestHost.invokeCalls("trigger_long_press_haptic")).toHaveLength(
-      2
+      1
     )
   })
 

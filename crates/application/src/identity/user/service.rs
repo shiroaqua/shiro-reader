@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use derive_new::new;
 use shiro_domain::identity::user::{
     entity::User,
     value_objects::{UserId, UserName, UserPasswordHash},
@@ -20,11 +19,20 @@ use crate::identity::{
     },
 };
 
-#[derive(new)]
 pub struct UserService<R, P, C> {
     repository: R,
     library_provisioner: Arc<P>,
     crypto: Arc<C>,
+}
+
+impl<R, P, C> UserService<R, P, C> {
+    pub fn new(repository: R, library_provisioner: Arc<P>, crypto: Arc<C>) -> Self {
+        Self {
+            repository,
+            library_provisioner,
+            crypto,
+        }
+    }
 }
 
 impl<R, P, C> UserService<R, P, C>

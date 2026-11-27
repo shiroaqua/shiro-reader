@@ -19,7 +19,8 @@ use flate2::{Compression, Crc, write::DeflateEncoder};
 use futures_util::future::join_all;
 use shiro_compatibility::{
     BootstrapStateDto, ClientRuntime, ErrorSink, InitialSetupRequest, LaunchMode,
-    PlatformCapabilities, StartupPhase,
+    PlatformCapabilities, ReaderProfilePatchDto, ReaderSurfacePreset, ReaderTypographyPatchDto,
+    StartupPhase, UpdateSettingsRequest,
 };
 use shiro_error_catalog::{AppLocale, ErrorCode, ErrorEventPayload};
 use shiro_reader_server::{
@@ -363,7 +364,9 @@ async fn local_epub_reader_reads_entries_blocks_pdf_evicts_deleted_and_enforces_
         .await
         .unwrap();
 
-    // 1. Open smoke_cover.epub and concurrently read every entry.
+    // 1. Open smoke_cover.epub and concurrently read every entry + verify navigation forwarding.
+    let local_nav = rt.get_book_navigation(epub_book.id.clone()).await.unwrap();
+    assert!(!local_nav.linear_units.is_empty());
     let opened = rt.open_epub(epub_book.id.clone()).await.unwrap();
     assert_eq!(opened.book_id, epub_book.id);
     assert_eq!(opened.file_size, epub_bytes.len() as u64);
@@ -388,6 +391,48 @@ async fn local_epub_reader_reads_entries_blocks_pdf_evicts_deleted_and_enforces_
             .unwrap()
             .contains("rootfile")
     );
+
+    // Also verify attach_or_open_epub reuses live session O(1) for the same book
+    // and transparently reopens on mismatched book_id or missing session.
+    let attached_same = rt
+        .attach_or_open_epub(epub_book.id.clone(), Some(opened.session_id))
+        .await
+        .unwrap();
+    assert_eq!(attached_same.session_id, opened.session_id);
+    assert_eq!(attached_same.entries, opened.entries);
+
+    let fallback_mismatch = rt
+        .attach_or_open_epub(multi_book.id.clone(), Some(opened.session_id))
+        .await
+        .unwrap();
+    assert_ne!(fallback_mismatch.session_id, opened.session_id);
+    assert_eq!(fallback_mismatch.book_id, multi_book.id);
+    let closed_sid = fallback_mismatch.session_id;
+    rt.close_epub(closed_sid).await.unwrap();
+
+    // Attaching with a closed/evicted session_id transparently reopens a fresh live session.
+    let reopened_after_close = rt
+        .attach_or_open_epub(multi_book.id.clone(), Some(closed_sid))
+        .await
+        .unwrap();
+    assert_ne!(reopened_after_close.session_id, closed_sid);
+    assert_eq!(reopened_after_close.book_id, multi_book.id);
+    assert_eq!(
+        rt.read_epub_entry(reopened_after_close.session_id, "mimetype")
+            .await
+            .unwrap()
+            .as_ref(),
+        b"application/epub+zip"
+    );
+    rt.close_epub(reopened_after_close.session_id).await.unwrap();
+
+    // Attaching with None opens a fresh live session cleanly.
+    let opened_from_none = rt
+        .attach_or_open_epub(multi_book.id.clone(), None)
+        .await
+        .unwrap();
+    assert_eq!(opened_from_none.book_id, multi_book.id);
+    rt.close_epub(opened_from_none.session_id).await.unwrap();
 
     // Also verify multi-chunk EPUB matches every original entry byte-for-byte.
     let opened_multi = rt.open_epub(multi_book.id.clone()).await.unwrap();
@@ -564,6 +609,8 @@ async fn cloud_epub_reader_streams_ranges_reuses_chunk_cache_avoids_error_storms
         .unwrap();
 
     // 1. Open smoke_cover.epub (< 256 KiB): HEAD once + 1 chunk GET covers open AND all entries!
+    let cloud_nav = rt.get_book_navigation(smoke_book.id.clone()).await.unwrap();
+    assert!(!cloud_nav.linear_units.is_empty());
     file_head_count.store(0, Ordering::SeqCst);
     file_get_count.store(0, Ordering::SeqCst);
     let opened_smoke = rt.open_epub(smoke_book.id.clone()).await.unwrap();
@@ -636,7 +683,44 @@ async fn cloud_epub_reader_streams_ranges_reuses_chunk_cache_avoids_error_storms
     );
 
     let multi_uncached_session = rt.open_epub(multi_book.id.clone()).await.unwrap();
+    let mut custom_global = rt.get_reader_settings().global;
+    custom_global.appearance.surface = ReaderSurfacePreset::NightDark;
+    custom_global.typography.font_size_px = 22.0;
+    rt.update_reader_global_settings(custom_global.clone()).unwrap();
+    let book_hash = blake3::hash(b"smoke-book").to_hex().to_string();
+    rt.set_reader_book_override(
+        book_hash.clone(),
+        ReaderProfilePatchDto {
+            typography: Some(ReaderTypographyPatchDto {
+                line_height: Some(2.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
     rt.cloud_logout().await.unwrap();
+    let after_logout_reader = rt.get_reader_settings();
+    assert_eq!(after_logout_reader.global, custom_global);
+    assert_eq!(
+        after_logout_reader
+            .book_overrides
+            .get(&book_hash)
+            .and_then(|p| p.typography.as_ref())
+            .and_then(|t| t.line_height),
+        Some(2.0)
+    );
+    rt.update_settings(UpdateSettingsRequest {
+        mode: Some(LaunchMode::Local),
+        locale: None,
+        local_library_root: None,
+        cloud_origin: None,
+    })
+    .await
+    .unwrap();
+    assert_eq!(rt.get_reader_settings().global, custom_global);
+    assert!(rt.get_reader_settings().book_overrides.contains_key(&book_hash));
     assert_eq!(
         rt.read_epub_entry(multi_uncached_session.session_id, "mimetype")
             .await
@@ -953,4 +1037,119 @@ async fn open_epub_rejects_zombie_session_on_concurrent_delete_and_logout_but_al
             .code,
         ErrorCode::ReaderSessionNotFound.code()
     );
+}
+
+#[tokio::test]
+async fn reader_settings_persist_independently_before_setup_and_across_restart() {
+    let app_root = tempfile::tempdir().unwrap();
+    let config_dir = app_root.path().join("config");
+    let sink = Arc::new(RecordingSink::default());
+
+    let rt = ClientRuntime::initialize(
+        &config_dir,
+        PlatformCapabilities::current_host(app_root.path().join("library")),
+        AppLocale::En,
+        None,
+        sink.clone(),
+    )
+    .await;
+    assert_eq!(rt.bootstrap_state().phase, StartupPhase::SetupRequired);
+
+    // Pure-local reader settings work before library setup is completed.
+    let mut next_global = rt.get_reader_settings().global;
+    next_global.appearance.surface = ReaderSurfacePreset::SepiaWarm;
+    next_global.typography.font_size_px = 24.0;
+    let updated = rt.update_reader_global_settings(next_global.clone()).unwrap();
+    assert_eq!(updated.global, next_global);
+
+    let book_hash = blake3::hash(b"setup-required-book").to_hex().to_string();
+    rt.set_reader_book_override(
+        book_hash.clone(),
+        ReaderProfilePatchDto {
+            typography: Some(ReaderTypographyPatchDto {
+                line_height: Some(1.9),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    drop(rt);
+
+    let reloaded = ClientRuntime::initialize(
+        &config_dir,
+        PlatformCapabilities::current_host(app_root.path().join("library")),
+        AppLocale::Zh,
+        None,
+        sink,
+    )
+    .await;
+    let reloaded_snap = reloaded.get_reader_settings();
+    assert_eq!(reloaded_snap.global, next_global);
+    assert_eq!(
+        reloaded_snap
+            .book_overrides
+            .get(&book_hash)
+            .and_then(|p| p.typography.as_ref())
+            .and_then(|t| t.line_height),
+        Some(1.9)
+    );
+    let reset = reloaded.reset_reader_book_override(book_hash).unwrap();
+    assert!(reset.book_overrides.is_empty());
+}
+
+#[tokio::test]
+async fn validate_reader_open_target_checks_readiness_uuid_and_normalizes_hash() {
+    let app_root = tempfile::tempdir().unwrap();
+    let config_dir = app_root.path().join("config");
+    let lib_dir = app_root.path().join("library");
+    let sink = Arc::new(RecordingSink::default());
+
+    let rt = ClientRuntime::initialize(
+        &config_dir,
+        PlatformCapabilities::current_host(lib_dir.clone()),
+        AppLocale::En,
+        None,
+        sink,
+    )
+    .await;
+    let valid_id = uuid::Uuid::new_v4().to_string();
+    let upper_hash = blake3::hash(b"target-book").to_hex().to_string().to_uppercase();
+
+    // 1. SetupRequired -> rejected as not ready
+    assert!(rt
+        .validate_reader_open_target(&valid_id, Some(&upper_hash))
+        .is_err());
+
+    // 2. Complete local setup -> ready
+    rt.complete_initial_setup(shiro_compatibility::InitialSetupRequest {
+        mode: shiro_compatibility::LaunchMode::Local,
+        locale: AppLocale::En,
+        local_library_root: Some(lib_dir.to_string_lossy().to_string()),
+        cloud_origin: None,
+    })
+    .await
+    .unwrap();
+
+    // Invalid book_id -> rejected
+    assert_eq!(
+        rt.validate_reader_open_target("not-a-uuid", Some(&upper_hash))
+            .unwrap_err()
+            .code,
+        ErrorCode::BookInvalidId.code()
+    );
+
+    // Invalid hash -> rejected with BookFileInvalidHashFormat
+    assert_eq!(
+        rt.validate_reader_open_target(&valid_id, Some("not-a-blake3-hash"))
+            .unwrap_err()
+            .code,
+        ErrorCode::BookFileInvalidHashFormat.code()
+    );
+
+    // Valid id + uppercase hash -> normalized lowercase
+    let normalized = rt
+        .validate_reader_open_target(&valid_id, Some(&upper_hash))
+        .unwrap();
+    assert_eq!(normalized.as_deref(), Some(upper_hash.to_lowercase().as_str()));
 }

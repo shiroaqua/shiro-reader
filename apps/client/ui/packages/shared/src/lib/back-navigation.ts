@@ -7,6 +7,8 @@ export const BACK_PRIORITY = {
   navigation: 10,
   selection: 30,
   search: 40,
+  readerWorkspace: 42,
+  readerSelection: 46,
   uploadOverlay: 50,
 } as const
 

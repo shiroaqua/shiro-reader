@@ -1,4 +1,3 @@
-use derive_new::new;
 use shiro_domain::library::{
     book::value_objects::BookId,
     tag::{
@@ -23,9 +22,14 @@ use crate::library::{
     },
 };
 
-#[derive(new)]
 pub struct TagService<R> {
     repository: R,
+}
+
+impl<R> TagService<R> {
+    pub fn new(repository: R) -> Self {
+        Self { repository }
+    }
 }
 
 impl<R: TagRepository> TagService<R> {

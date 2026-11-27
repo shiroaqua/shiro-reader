@@ -7,5 +7,5 @@
       "@shiro/mobile-ui/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../shared/src/features/reader/types/foliate-js.d.ts"]
 }

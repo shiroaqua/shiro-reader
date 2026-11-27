@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use derive_new::new;
 use shiro_domain::identity::{
     session::{AuthAccessToken, AuthSession},
     user::value_objects::{UserId, UserName},
@@ -18,11 +17,20 @@ use crate::identity::{
     ports::{IdentityCrypto, SessionRepository, UserRepository},
 };
 
-#[derive(new)]
 pub struct AuthenticationService<U, S, C> {
     user_repository: U,
     session_repository: S,
     crypto: Arc<C>,
+}
+
+impl<U, S, C> AuthenticationService<U, S, C> {
+    pub fn new(user_repository: U, session_repository: S, crypto: Arc<C>) -> Self {
+        Self {
+            user_repository,
+            session_repository,
+            crypto,
+        }
+    }
 }
 
 impl<U, S, C> AuthenticationService<U, S, C>

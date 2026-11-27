@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { useRef, useState } from "react"
+import { Suspense, lazy, useCallback, useRef, useState } from "react"
 import {
   ChevronsUpDown,
   Clock,
@@ -13,6 +13,7 @@ import {
   Trash,
   User,
 } from "lucide-react"
+import { readerBridge } from "@shiro/ui-shared/api/reader-bridge"
 import { Avatar, AvatarFallback } from "@shiro/ui-shared/components/ui/avatar"
 import {
   DropdownMenu,
@@ -40,8 +41,16 @@ import { BookSearch } from "@shiro/ui-shared/features/books/book-search"
 import { BookshelfBooks } from "@shiro/ui-shared/features/books/bookshelf-books"
 import { DesktopDropUploadOverlay } from "../components/desktop-drop-upload-overlay"
 import { TrashList } from "@shiro/ui-shared/features/books/trash-list"
+import { assertBookSupportedInReader } from "@shiro/ui-shared/features/reader/workspace/book-launch"
 import { SettingsDialog } from "@shiro/ui-shared/features/settings/settings-dialog"
 import { useTranslation } from "@shiro/ui-shared/lib/i18n"
+import type { Book } from "@shiro/ui-shared/lib/types"
+
+const LazyDesktopReaderChrome = lazy(() =>
+  import("../reader/DesktopReaderChrome").then((mod) => ({
+    default: mod.DesktopReaderChrome,
+  }))
+)
 
 export function DesktopDashboardScreen() {
   const { t } = useTranslation()
@@ -52,6 +61,30 @@ export function DesktopDashboardScreen() {
   )
   const [bookSearch, setBookSearch] = useState("")
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [previewReaderWindowId, setPreviewReaderWindowId] = useState<
+    string | null
+  >(null)
+
+  const openDesktopBook = useCallback(
+    async (book: Book, newWindow: boolean) => {
+      if (!assertBookSupportedInReader(book)) return
+      try {
+        const snapshot = await readerBridge.readerOpenBook({
+          bookId: book.id,
+          bookHash: book.hash,
+          title: book.title,
+          format: "EPUB",
+          newWindow,
+        })
+        if (!isTauri) {
+          setPreviewReaderWindowId(snapshot.windowId)
+        }
+      } catch {
+        // Error notification handled by bridge / global error stream.
+      }
+    },
+    [isTauri]
+  )
 
   const menus: DashboardMenu[] = [
     {
@@ -169,6 +202,12 @@ export function DesktopDashboardScreen() {
               headerOverlay={headerOverlay}
               search={bookSearch}
               onSearchChange={setBookSearch}
+              onOpenBook={(book) => {
+                void openDesktopBook(book, false)
+              }}
+              onOpenBookInNewWindow={(book) => {
+                void openDesktopBook(book, true)
+              }}
             />
           )}
           {activeMenu === "trash" && <TrashList />}
@@ -176,6 +215,21 @@ export function DesktopDashboardScreen() {
       </main>
       {isTauri && (
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      )}
+      {!isTauri && previewReaderWindowId && (
+        <div className="fixed inset-0 z-50 bg-background">
+          <Suspense fallback={null}>
+            <LazyDesktopReaderChrome
+              key={previewReaderWindowId}
+              windowId={previewReaderWindowId}
+              embedded={true}
+              onCloseWindowFallback={() => setPreviewReaderWindowId(null)}
+              onSwitchPreviewWindow={(nextWindowId) =>
+                setPreviewReaderWindowId(nextWindowId)
+              }
+            />
+          </Suspense>
+        </div>
       )}
       <DesktopDropUploadOverlay
         enabled={

@@ -98,4 +98,45 @@ describe("back-navigation", () => {
       overlay.remove()
     }
   })
+
+  it("orders reader selection (46) above reader workspace (42) above search (40)", () => {
+    const calls: string[] = []
+    const unsubSearch = registerBackHandler(BACK_PRIORITY.search, () => {
+      calls.push("search")
+      return true
+    })
+    const unsubWorkspace = registerBackHandler(
+      BACK_PRIORITY.readerWorkspace,
+      () => {
+        calls.push("readerWorkspace")
+        return true
+      }
+    )
+    const unsubSelection = registerBackHandler(
+      BACK_PRIORITY.readerSelection,
+      () => {
+        calls.push("readerSelection")
+        return true
+      }
+    )
+
+    try {
+      expect(dispatchBack()).toBe(true)
+      expect(calls).toEqual(["readerSelection"])
+
+      unsubSelection()
+      calls.length = 0
+      expect(dispatchBack()).toBe(true)
+      expect(calls).toEqual(["readerWorkspace"])
+
+      unsubWorkspace()
+      calls.length = 0
+      expect(dispatchBack()).toBe(true)
+      expect(calls).toEqual(["search"])
+    } finally {
+      unsubSearch()
+      unsubWorkspace()
+      unsubSelection()
+    }
+  })
 })

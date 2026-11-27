@@ -27,11 +27,11 @@ blake3 = "1.8.7"
 bytes = "1.12.2"
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
 dashmap = "6.2.1"
-derive-new = "0.7.0"
 derive_more = { version = "2.1.1", features = ["as_ref", "deref", "display", "from", "into"] }
 dotenvy = "0.15.7"
 entity-derive = { path = "crates/entity-derive" }
 flate2 = "1.1.11"
+fontdb = "0.24.0"
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 image = "0.25.10"
@@ -66,6 +66,7 @@ tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["trace", "request-id", "timeout"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+ttf-parser = "0.25.1"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
 zeroize = { version = "1.9.2", features = ["derive"] }

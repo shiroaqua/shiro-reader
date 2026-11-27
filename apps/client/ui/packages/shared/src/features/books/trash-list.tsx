@@ -59,7 +59,11 @@ function sortTrash(
   return [...books].sort(compare)
 }
 
-export function TrashList() {
+export interface TrashListProps {
+  readonly onBooksPermanentlyDeleted?: ((ids: string[]) => void) | undefined
+}
+
+export function TrashList({ onBooksPermanentlyDeleted }: TrashListProps = {}) {
   const { t, locale } = useTranslation()
   const queryClient = useQueryClient()
   const [selectedDraft, setSelectedDraft] = useState<ReadonlySet<string>>(
@@ -123,6 +127,7 @@ export function TrashList() {
     mutationFn: (ids: string[]) =>
       library.bookshelf.trash.permanentlyDeleteBatch(ids),
     onSuccess: (_, ids) => {
+      onBooksPermanentlyDeleted?.(ids)
       const deleted = new Set(ids)
       updateTrash((current) => current.filter((item) => !deleted.has(item.id)))
       setSelectedDraft(

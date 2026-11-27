@@ -28,9 +28,13 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
 tokio-util.workspace = true
 tracing.workspace = true
+ttf-parser.workspace = true
 url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+fontdb.workspace = true
 
 [dev-dependencies]
 axum.workspace = true

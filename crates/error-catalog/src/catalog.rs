@@ -169,12 +169,15 @@ define_error_catalog! {
     ImportNoSupportedBooksFound => (3031, "client.import.no_supported_books_found", "所选文件夹中未找到受支持的电子书文件（PDF / EPUB）。", "No supported e-book files (PDF / EPUB) were found in the selected folder."),
     ImportNotificationPermissionRequired => (3032, "client.import.notification_permission_required", "需要授予通知权限才能在移动端上传书籍，请在系统设置中开启通知后重试。", "Notification permission is required to upload books on mobile. Please enable notifications and try again."),
 
-    // Client EPUB reader (3101..3105)
+    // Client EPUB reader (3101..3108)
     ReaderSessionNotFound => (3101, "client.reader.session_not_found", "阅读会话不存在或已关闭。", "The reader session was not found or has been closed."),
     ReaderEntryNotFound => (3102, "client.reader.entry_not_found", "书籍内部找不到指定资源路径。", "The requested entry was not found in the book archive."),
     ReaderUnsupportedFormat => (3103, "client.reader.unsupported_format", "当前阅读器仅支持打开 EPUB 格式书籍。", "The reader currently only supports EPUB books."),
     ReaderCorruptedEpub => (3104, "client.reader.corrupted_epub", "EPUB 文件结构损坏或包含不支持的压缩格式。", "The EPUB archive is corrupted or uses an unsupported compression method."),
     ReaderEntryTooLarge => (3105, "client.reader.entry_too_large", "书籍内部条目或目录体积超过安全限制。", "An archive entry or directory exceeds the safety size limit."),
+    ReaderInvalidFontFile => (3106, "client.reader.invalid_font_file", "字体文件格式无效或已损坏。", "The font file format is invalid or corrupted."),
+    ReaderFontTooLarge => (3107, "client.reader.font_too_large", "字体文件体积超过大小限制（最大 64 MiB）。", "The font file exceeds the maximum size limit (64 MiB)."),
+    ReaderFontNotFound => (3108, "client.reader.font_not_found", "找不到指定的自定义字体。", "The specified custom font was not found."),
 
     // Common (9001, 9002, 9999)
     CommonPayloadTooLarge => (9001, "common.payload_too_large", "上传内容过大。", "The upload is too large."),

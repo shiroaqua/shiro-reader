@@ -198,6 +198,21 @@ mod tests {
                 3105,
                 "client.reader.entry_too_large",
             ),
+            (
+                ErrorCode::ReaderInvalidFontFile,
+                3106,
+                "client.reader.invalid_font_file",
+            ),
+            (
+                ErrorCode::ReaderFontTooLarge,
+                3107,
+                "client.reader.font_too_large",
+            ),
+            (
+                ErrorCode::ReaderFontNotFound,
+                3108,
+                "client.reader.font_not_found",
+            ),
         ];
         for (variant, expected_code, expected_key) in reader_and_range_cases {
             let entry = variant.entry();
