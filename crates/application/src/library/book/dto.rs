@@ -61,7 +61,7 @@ impl From<(Book, BookFileType)> for CreateBookOutput {
         let book = book.into_inner();
         Self {
             id: book.id.to_string(),
-            title: book.title.into(),
+            title: book.title.into_inner(),
             hash: book.hash.as_hash().to_hex().to_string(),
             file_type: file_type.to_string(),
             created_at: book.created_at.to_string(),
@@ -75,7 +75,7 @@ impl From<(Book, BookFileType)> for GetBookOutput {
         let book = book.into_inner();
         Self {
             id: book.id.to_string(),
-            title: book.title.into(),
+            title: book.title.into_inner(),
             hash: book.hash.as_hash().to_hex().to_string(),
             file_type: file_type.to_string(),
             created_at: book.created_at.to_string(),
@@ -348,6 +348,20 @@ impl From<&EpubNavTarget> for EpubNavTargetDto {
     }
 }
 
+impl From<EpubNavTarget> for EpubNavTargetDto {
+    fn from(target: EpubNavTarget) -> Self {
+        match target {
+            EpubNavTarget::Start => Self::Start,
+            EpubNavTarget::Fragment(fragment) => Self::Fragment {
+                fragment: fragment.into_inner(),
+            },
+            EpubNavTarget::Cfi(cfi) => Self::Cfi {
+                cfi: cfi.into_inner(),
+            },
+        }
+    }
+}
+
 impl From<&EpubPointTarget> for EpubPointTargetDto {
     fn from(target: &EpubPointTarget) -> Self {
         match target {
@@ -361,10 +375,31 @@ impl From<&EpubPointTarget> for EpubPointTargetDto {
     }
 }
 
+impl From<EpubPointTarget> for EpubPointTargetDto {
+    fn from(target: EpubPointTarget) -> Self {
+        match target {
+            EpubPointTarget::Cfi(cfi) => Self::Cfi {
+                cfi: cfi.into_inner(),
+            },
+            EpubPointTarget::UnitOffset(offset) => Self::UnitOffset {
+                offset: offset.value(),
+            },
+        }
+    }
+}
+
 impl From<&EpubRangeCfi> for EpubRangeTargetDto {
     fn from(cfi: &EpubRangeCfi) -> Self {
         Self {
             cfi: cfi.as_str().to_owned(),
+        }
+    }
+}
+
+impl From<EpubRangeCfi> for EpubRangeTargetDto {
+    fn from(cfi: EpubRangeCfi) -> Self {
+        Self {
+            cfi: cfi.into_inner(),
         }
     }
 }
@@ -413,6 +448,12 @@ impl From<&NormalizedRect> for NormalizedRectDto {
     }
 }
 
+impl From<NormalizedRect> for NormalizedRectDto {
+    fn from(rect: NormalizedRect) -> Self {
+        Self::from(&rect)
+    }
+}
+
 impl From<&PdfPageRects> for PdfPageRectsDto {
     fn from(page: &PdfPageRects) -> Self {
         Self {
@@ -422,11 +463,31 @@ impl From<&PdfPageRects> for PdfPageRectsDto {
     }
 }
 
+impl From<PdfPageRects> for PdfPageRectsDto {
+    fn from(page: PdfPageRects) -> Self {
+        let (page_index, rects) = page.into_inner();
+        Self {
+            page_index,
+            rects: rects.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<&PdfSelectionTarget> for PdfSelectionTargetDto {
     fn from(selection: &PdfSelectionTarget) -> Self {
         Self {
             rects: selection.rects().iter().map(Into::into).collect(),
             extra_pages: selection.extra_pages().iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<PdfSelectionTarget> for PdfSelectionTargetDto {
+    fn from(selection: PdfSelectionTarget) -> Self {
+        let (rects, extra_pages) = selection.into_inner();
+        Self {
+            rects: rects.into_iter().map(Into::into).collect(),
+            extra_pages: extra_pages.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -451,40 +512,63 @@ where
     }
 }
 
-impl From<&ReadingUnit> for LinearUnitOutput {
-    fn from(unit: &ReadingUnit) -> Self {
-        Self {
-            index: unit.index(),
-            is_linear: unit.is_linear(),
-            weight: unit.weight(),
-            cumulative_weight: unit.cumulative_weight(),
-            display_label: unit.display_label().map(str::to_owned),
+impl<E, P, EDto, PDto> From<BookAnchor<E, P>> for BookAnchorDto<EDto, PDto>
+where
+    EDto: From<E>,
+    PDto: From<P>,
+{
+    fn from(anchor: BookAnchor<E, P>) -> Self {
+        match anchor {
+            BookAnchor::Epub(epub) => Self::Epub {
+                spine_index: epub.spine_index,
+                href: epub.href.into_inner(),
+                target: epub.target.into(),
+            },
+            BookAnchor::Pdf(pdf) => Self::Pdf {
+                page_index: pdf.page_index,
+                target: pdf.target.into(),
+            },
         }
     }
 }
 
-impl From<&TocEntry> for TocNodeOutput {
-    fn from(node: &TocEntry) -> Self {
+impl From<ReadingUnit> for LinearUnitOutput {
+    fn from(unit: ReadingUnit) -> Self {
+        let unit = unit.into_inner();
         Self {
-            parent: node.parent(),
-            depth: node.depth(),
-            subtree_end: node.subtree_end(),
-            title: node.title().to_owned(),
-            locator: node.locator().map(Into::into),
-            unit_index: node.unit_index(),
-            unit_offset: node.unit_offset().value(),
-            start_progression: node.start_progression().map(|p| p.value()),
-            flags: node.flags().bits(),
+            index: unit.index,
+            is_linear: unit.is_linear,
+            weight: unit.weight,
+            cumulative_weight: unit.cumulative_weight,
+            display_label: unit.display_label,
+        }
+    }
+}
+
+impl From<TocEntry> for TocNodeOutput {
+    fn from(node: TocEntry) -> Self {
+        let node = node.into_inner();
+        Self {
+            parent: node.parent,
+            depth: node.depth,
+            subtree_end: node.subtree_end,
+            title: node.title,
+            locator: node.locator.map(Into::into),
+            unit_index: node.unit_index,
+            unit_offset: node.unit_offset.value(),
+            start_progression: node.start_progression.map(|p| p.value()),
+            flags: node.flags.bits(),
         }
     }
 }
 
 impl From<BookNavigation> for BookNavigationOutput {
     fn from(nav: BookNavigation) -> Self {
+        let nav = nav.into_inner();
         Self {
-            toc: nav.toc().iter().map(Into::into).collect(),
-            linear_units: nav.reading_units().iter().map(Into::into).collect(),
-            total_weight: nav.total_weight(),
+            toc: nav.toc.into_iter().map(Into::into).collect(),
+            linear_units: nav.reading_units.into_iter().map(Into::into).collect(),
+            total_weight: nav.total_weight,
         }
     }
 }

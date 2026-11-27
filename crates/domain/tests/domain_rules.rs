@@ -10,13 +10,13 @@ use shiro_domain::library::{
             PdfPageRects, PdfSelectionTarget, ReadingUnitOffset, SectionKey,
         },
         navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{BookId, BookStatus, BookTitle, TocEntryFlags},
+        value_objects::{BookHash, BookId, BookStatus, BookTitle, TocEntryFlags},
     },
     tag::{
         entity::TagDefinition,
         errors::TagDomainError,
         tree::TagTree,
-        value_objects::{TagColor, TagDeleteStrategy, TagName, TagValueRule},
+        value_objects::{TagColor, TagDeleteStrategy, TagId, TagName, TagValueRule},
     },
 };
 
@@ -26,9 +26,8 @@ fn book_lifecycle_tracks_dirty_fields_and_enforces_state_invariants() {
     let mut book = Book::new(
         BookId::new(),
         BookTitle::parse("Initial Title").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     assert_eq!(book.status(), BookStatus::Active);
 
     // Renaming to the same title is rejected.
@@ -79,9 +78,17 @@ fn book_lifecycle_tracks_dirty_fields_and_enforces_state_invariants() {
     );
     assert_eq!(book.status(), BookStatus::Active);
 
-    // Entity inner round-trip preserves every field without any ORM coupling.
+    // Entity inner round-trip via reconstruct preserves every field without any ORM coupling.
     let cloned = book.clone();
-    let reconstructed = Book::from_inner(book.into_inner());
+    let inner = book.into_inner();
+    let reconstructed = Book::reconstruct(
+        inner.id,
+        inner.title,
+        inner.hash,
+        inner.created_at,
+        inner.updated_at,
+        inner.deleted_at,
+    );
     assert_eq!(reconstructed, cloned);
 }
 
@@ -826,4 +833,190 @@ fn book_anchor_validates_cfi_variants_pdf_selections_and_conversions() {
     })
     .map_targets(|n| n + 1, |n| n);
     assert!(matches!(mapped, BookAnchor::Epub(EpubAnchor { target: 2, .. })));
+}
+
+#[test]
+fn tag_definition_reconstruct_validates_self_parent_and_preserves_fields() {
+    let tag_id = TagId::new();
+    let parent_id = TagId::new();
+    let name = TagName::parse("Fiction").unwrap();
+    let color = TagColor::parse("#112233").unwrap();
+    let rule = TagValueRule::new(true, Some("^[a-z]+$".to_owned())).unwrap();
+    let created_at = jiff::Timestamp::from_second(1_700_000_000).unwrap();
+    let updated_at = jiff::Timestamp::from_second(1_700_000_100).unwrap();
+
+    assert_eq!(
+        TagDefinition::reconstruct(
+            tag_id.clone(),
+            name.clone(),
+            Some(tag_id.clone()),
+            color.clone(),
+            rule.clone(),
+            created_at,
+            updated_at,
+        )
+        .unwrap_err(),
+        TagDomainError::InvalidTree
+    );
+
+    let reconstructed = TagDefinition::reconstruct(
+        tag_id.clone(),
+        name.clone(),
+        Some(parent_id.clone()),
+        color.clone(),
+        rule.clone(),
+        created_at,
+        updated_at,
+    )
+    .unwrap();
+    assert_eq!(reconstructed.id(), &tag_id);
+    assert_eq!(reconstructed.name(), &name);
+    assert_eq!(reconstructed.parent_id(), Some(&parent_id));
+    assert_eq!(reconstructed.color(), &color);
+    assert_eq!(reconstructed.value_rule(), &rule);
+    assert_eq!(reconstructed.created_at(), created_at);
+    assert_eq!(reconstructed.updated_at(), updated_at);
+}
+
+#[test]
+fn zero_copy_value_objects_and_navigation_preserve_string_buffers() {
+    let raw_title = String::from("Zero Copy Title");
+    let raw_title_ptr = raw_title.as_ptr();
+    let title_out = BookTitle::parse(raw_title).unwrap().into_inner();
+    assert_eq!(title_out.as_ptr(), raw_title_ptr);
+
+    let raw_tag_name = String::from("tag.zero.copy");
+    let raw_tag_name_ptr = raw_tag_name.as_ptr();
+    let tag_name_out = TagName::parse(raw_tag_name).unwrap().into_inner();
+    assert_eq!(tag_name_out.as_ptr(), raw_tag_name_ptr);
+
+    let raw_tag_color = String::from("#AABBCC");
+    let raw_tag_color_ptr = raw_tag_color.as_ptr();
+    let tag_color_out = TagColor::parse(raw_tag_color).unwrap().into_inner();
+    assert_eq!(tag_color_out.as_ptr(), raw_tag_color_ptr);
+
+    let raw_regex = String::from("^[0-9]+$");
+    let raw_regex_ptr = raw_regex.as_ptr();
+    let (allows_value, regex_out) = TagValueRule::new(true, Some(raw_regex)).unwrap().into_inner();
+    assert!(allows_value);
+    let regex_out = regex_out.unwrap();
+    assert_eq!(regex_out.as_ptr(), raw_regex_ptr);
+
+    let raw_path = String::from("OEBPS/ch1.xhtml");
+    let raw_path_ptr = raw_path.as_ptr();
+    let path_vo = EpubResourcePath::parse(raw_path).unwrap();
+
+    let raw_fragment = String::from("sec-1");
+    let raw_fragment_ptr = raw_fragment.as_ptr();
+    let fragment_vo = EpubFragment::parse(raw_fragment).unwrap();
+
+    let raw_point_cfi = String::from("epubcfi(/6/4!/4/2/1:0)");
+    let raw_point_cfi_ptr = raw_point_cfi.as_ptr();
+    let point_cfi_out = EpubPointCfi::parse(raw_point_cfi).unwrap().into_inner();
+    assert_eq!(point_cfi_out.as_ptr(), raw_point_cfi_ptr);
+
+    let raw_range_cfi = String::from("epubcfi(/6/4!/4/2,/1:0,/1:5)");
+    let raw_range_cfi_ptr = raw_range_cfi.as_ptr();
+    let range_cfi_out = EpubRangeCfi::parse(raw_range_cfi).unwrap().into_inner();
+    assert_eq!(range_cfi_out.as_ptr(), raw_range_cfi_ptr);
+
+    let raw_cfi = String::from("epubcfi(/6/4!/4/2)");
+    let raw_cfi_ptr = raw_cfi.as_ptr();
+    let cfi_out = EpubCfi::parse(raw_cfi).unwrap().into_inner();
+    assert_eq!(cfi_out.as_ptr(), raw_cfi_ptr);
+
+    let nav = BookNavigation::build(
+        vec![TocEntryDraft {
+            title: "Chapter 1".to_owned(),
+            locator: Some(
+                NavigationLocator::epub(Some(0), path_vo, EpubNavTarget::Fragment(fragment_vo))
+                    .unwrap(),
+            ),
+            unit_offset: ReadingUnitOffset::ZERO,
+            flags: TocEntryFlags::empty(),
+            children: vec![],
+        }],
+        vec![ReadingUnitDraft {
+            is_linear: true,
+            weight: 10,
+            display_label: Some("OEBPS/ch1.xhtml".to_owned()),
+        }],
+    )
+    .unwrap();
+    let toc_title_ptr = nav.toc()[0].title().as_ptr();
+    let unit_label_ptr = nav.reading_units()[0].display_label().unwrap().as_ptr();
+    let mut nav_inner = nav.into_inner();
+    let toc_inner = nav_inner.toc.remove(0).into_inner();
+    let unit_inner = nav_inner.reading_units.remove(0).into_inner();
+    let unit_label_out = unit_inner.display_label.unwrap();
+    assert_eq!(toc_inner.title.as_ptr(), toc_title_ptr);
+    assert_eq!(unit_label_out.as_ptr(), unit_label_ptr);
+    match toc_inner.locator.unwrap() {
+        BookAnchor::Epub(epub) => {
+            let href_out = epub.href.into_inner();
+            assert_eq!(href_out.as_ptr(), raw_path_ptr);
+            match epub.target {
+                EpubNavTarget::Fragment(fragment) => {
+                    let fragment_out = fragment.into_inner();
+                    assert_eq!(fragment_out.as_ptr(), raw_fragment_ptr);
+                }
+                other => panic!("unexpected target: {other:?}"),
+            }
+        }
+        other => panic!("unexpected locator: {other:?}"),
+    }
+}
+
+#[cfg(feature = "identity")]
+#[test]
+fn identity_token_hash_and_password_hash_validate_and_preserve_buffers() {
+    use shiro_domain::identity::{
+        session::{SessionDomainError, TokenHash},
+        user::{
+            entity::User,
+            value_objects::{UserId, UserName, UserPasswordHash},
+        },
+    };
+
+    assert_eq!(
+        TokenHash::parse("").unwrap_err(),
+        SessionDomainError::MissingTokenHash
+    );
+    assert_eq!(
+        TokenHash::parse("abc").unwrap_err(),
+        SessionDomainError::InvalidTokenHash
+    );
+    assert_eq!(
+        TokenHash::parse("g".repeat(64)).unwrap_err(),
+        SessionDomainError::InvalidTokenHash
+    );
+
+    let raw_token_hash = "0123456789abcdef".repeat(4);
+    let raw_token_hash_ptr = raw_token_hash.as_ptr();
+    let token_hash_out = TokenHash::parse(raw_token_hash).unwrap().into_inner();
+    assert_eq!(token_hash_out.as_ptr(), raw_token_hash_ptr);
+
+    let raw_phc = String::from(
+        "$argon2id$v=19$m=1024,t=1,p=1$c2FsdHNhbHRzYWx0$YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE",
+    );
+    let raw_phc_ptr = raw_phc.as_ptr();
+    let password_hash = UserPasswordHash::parse(raw_phc).unwrap();
+
+    let user_id = UserId::new();
+    let user_name = UserName::parse("Alice").unwrap();
+    let created_at = jiff::Timestamp::from_second(1_700_000_000).unwrap();
+    let updated_at = jiff::Timestamp::from_second(1_700_000_100).unwrap();
+    let user = User::reconstruct(
+        user_id.clone(),
+        user_name.clone(),
+        password_hash,
+        created_at,
+        updated_at,
+    );
+    assert_eq!(user.id(), &user_id);
+    assert_eq!(user.name(), &user_name);
+    assert_eq!(user.created_at(), created_at);
+    assert_eq!(user.updated_at(), updated_at);
+    let password_hash_out = user.into_inner().password_hash.into_inner();
+    assert_eq!(password_hash_out.as_ptr(), raw_phc_ptr);
 }

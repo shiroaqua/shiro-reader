@@ -28,6 +28,22 @@ impl User {
         }
     }
 
+    pub const fn reconstruct(
+        id: UserId,
+        name: UserName,
+        password_hash: UserPasswordHash,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            password_hash,
+            created_at,
+            updated_at,
+        }
+    }
+
     pub fn id(&self) -> &UserId {
         &self.id
     }

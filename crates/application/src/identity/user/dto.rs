@@ -15,7 +15,7 @@ impl From<User> for GetUserOutput {
         let user = user.into_inner();
         Self {
             id: user.id.to_string(),
-            name: user.name.into(),
+            name: user.name.into_inner(),
             created_at: user.created_at.to_string(),
             updated_at: user.updated_at.to_string(),
         }

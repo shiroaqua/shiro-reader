@@ -37,6 +37,10 @@ impl BookHash {
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
+
+    pub const fn into_inner(self) -> blake3::Hash {
+        self.0
+    }
 }
 
 impl From<blake3::Hash> for BookHash {
@@ -58,6 +62,10 @@ impl BookId {
         self.0
     }
 
+    pub const fn into_inner(self) -> Uuid {
+        self.0
+    }
+
     pub fn parse(value: impl AsRef<str>) -> Result<Self, BookDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
@@ -76,7 +84,7 @@ impl Default for BookId {
 }
 
 impl BookTitle {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, BookDomainError> {
+    pub fn parse(value: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
         let raw = value.as_ref();
         if raw.is_empty() {
             return Err(BookDomainError::MissingTitle);
@@ -86,11 +94,15 @@ impl BookTitle {
             return Err(BookDomainError::InvalidTitleFormat);
         }
 
-        Ok(Self(raw.to_string()))
+        Ok(Self(value.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 

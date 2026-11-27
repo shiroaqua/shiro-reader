@@ -72,37 +72,35 @@ impl<R: TagRepository> TagService<R> {
                 }
             }
         }
-        let target_name = tree
-            .definition(&id)
-            .ok_or(TagDomainError::NotFound)?
-            .name()
-            .clone();
-        let target_parent_id = tree
-            .definition(&id)
-            .ok_or(TagDomainError::NotFound)?
-            .parent_id()
-            .cloned();
-        let collides_with_deleted_parent = deletion.promoted_children().iter().any(|change| {
-            tree.definition(change.id())
-                .is_some_and(|child| child.name() == &target_name)
-        });
+        let collides_with_deleted_parent = {
+            let target_name = tree.definition(&id).ok_or(TagDomainError::NotFound)?.name();
+            deletion.promoted_children().iter().any(|change| {
+                tree.definition(change.id())
+                    .is_some_and(|child| child.name() == target_name)
+            })
+        };
         let (deleted_ids, promoted_children) = deletion.into_parts();
         if collides_with_deleted_parent {
             // `tag_definitions.parent_id` uses `ON DELETE RESTRICT`, so children must be re-parented
             // before deleting the parent. Vacate the parent's `(parent_id, name)` unique-index slot
             // inside this transaction so a same-named child can be promoted without a constraint error.
-            let temp_name = loop {
-                let candidate =
-                    TagName::parse(format!("deleted.{}", TagId::new().as_uuid().simple()))
-                        .expect("temporary tag name is valid");
-                if candidate != target_name
-                    && !tree.has_sibling_name(target_parent_id.as_ref(), &candidate, Some(&id))
-                    && !promoted_children.iter().any(|change| {
-                        tree.definition(change.id())
-                            .is_some_and(|child| child.name() == &candidate)
-                    })
-                {
-                    break candidate;
+            let temp_name = {
+                let target = tree.definition(&id).ok_or(TagDomainError::NotFound)?;
+                let target_name = target.name();
+                let target_parent_id = target.parent_id();
+                loop {
+                    let candidate =
+                        TagName::parse(format!("deleted.{}", TagId::new().as_uuid().simple()))
+                            .expect("temporary tag name is valid");
+                    if &candidate != target_name
+                        && !tree.has_sibling_name(target_parent_id, &candidate, Some(&id))
+                        && !promoted_children.iter().any(|change| {
+                            tree.definition(change.id())
+                                .is_some_and(|child| child.name() == &candidate)
+                        })
+                    {
+                        break candidate;
+                    }
                 }
             };
             let target = tree.definition_mut(&id).ok_or(TagDomainError::NotFound)?;

@@ -75,8 +75,7 @@ impl Default for BookProgression {
 pub struct EpubResourcePath(String);
 
 impl EpubResourcePath {
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
-        let s = raw.as_ref();
+    fn validate_str(s: &str) -> Result<(), BookDomainError> {
         if s.is_empty()
             || s.starts_with('/')
             || s.ends_with('/')
@@ -88,7 +87,12 @@ impl EpubResourcePath {
         if s.split('/').any(|seg| seg.is_empty() || seg == "." || seg == "..") {
             return Err(BookDomainError::InvalidEpubResourcePath);
         }
-        Ok(Self(s.to_owned()))
+        Ok(())
+    }
+
+    pub fn parse(raw: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
+        Self::validate_str(raw.as_ref())?;
+        Ok(Self(raw.into()))
     }
 
     pub fn normalize(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
@@ -117,6 +121,10 @@ impl EpubResourcePath {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
 }
 
 /// URL anchor ID within an EPUB XHTML document (without leading `'#'`).
@@ -124,8 +132,7 @@ impl EpubResourcePath {
 pub struct EpubFragment(String);
 
 impl EpubFragment {
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
-        let s = raw.as_ref();
+    fn validate_str(s: &str) -> Result<(), BookDomainError> {
         if s.is_empty()
             || s != s.trim()
             || s.starts_with('#')
@@ -133,11 +140,20 @@ impl EpubFragment {
         {
             return Err(BookDomainError::InvalidEpubFragment);
         }
-        Ok(Self(s.to_owned()))
+        Ok(())
+    }
+
+    pub fn parse(raw: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
+        Self::validate_str(raw.as_ref())?;
+        Ok(Self(raw.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 
@@ -245,16 +261,24 @@ fn parse_cfi_structure(raw: &str) -> Result<CfiStructure, BookDomainError> {
 pub struct EpubPointCfi(String);
 
 impl EpubPointCfi {
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
-        let s = raw.as_ref();
+    fn validate_str(s: &str) -> Result<(), BookDomainError> {
         match parse_cfi_structure(s)? {
-            CfiStructure::Point => Ok(Self(s.to_owned())),
+            CfiStructure::Point => Ok(()),
             CfiStructure::Range { .. } => Err(BookDomainError::InvalidEpubCfi),
         }
     }
 
+    pub fn parse(raw: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
+        Self::validate_str(raw.as_ref())?;
+        Ok(Self(raw.into()))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 
@@ -263,16 +287,24 @@ impl EpubPointCfi {
 pub struct EpubRangeCfi(String);
 
 impl EpubRangeCfi {
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
-        let s = raw.as_ref();
+    fn validate_str(s: &str) -> Result<(), BookDomainError> {
         match parse_cfi_structure(s)? {
-            CfiStructure::Range { .. } => Ok(Self(s.to_owned())),
+            CfiStructure::Range { .. } => Ok(()),
             CfiStructure::Point => Err(BookDomainError::InvalidEpubCfi),
         }
     }
 
+    pub fn parse(raw: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
+        Self::validate_str(raw.as_ref())?;
+        Ok(Self(raw.into()))
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 
     pub fn start_point(&self) -> EpubPointCfi {
@@ -309,14 +341,17 @@ impl EpubRangeCfi {
 pub struct EpubCfi(String);
 
 impl EpubCfi {
-    pub fn parse(raw: impl AsRef<str>) -> Result<Self, BookDomainError> {
-        let s = raw.as_ref();
-        parse_cfi_structure(s)?;
-        Ok(Self(s.to_owned()))
+    pub fn parse(raw: impl AsRef<str> + Into<String>) -> Result<Self, BookDomainError> {
+        parse_cfi_structure(raw.as_ref())?;
+        Ok(Self(raw.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 
     pub fn is_point(&self) -> bool {
@@ -547,6 +582,10 @@ impl PdfPageRects {
     pub fn rects(&self) -> &[NormalizedRect] {
         &self.rects
     }
+
+    pub fn into_inner(self) -> (u32, Vec<NormalizedRect>) {
+        (self.page_index, self.rects)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -584,6 +623,10 @@ impl PdfSelectionTarget {
 
     pub fn extra_pages(&self) -> &[PdfPageRects] {
         &self.extra_pages
+    }
+
+    pub fn into_inner(self) -> (Vec<NormalizedRect>, Vec<PdfPageRects>) {
+        (self.rects, self.extra_pages)
     }
 
     pub fn start_destination(&self) -> PdfDestination {
@@ -661,14 +704,8 @@ impl ValidateEpubTarget for EpubNavTarget {
     fn validate(&self) -> Result<(), BookDomainError> {
         match self {
             Self::Start => Ok(()),
-            Self::Fragment(fragment) => {
-                EpubFragment::parse(fragment.as_str())?;
-                Ok(())
-            }
-            Self::Cfi(cfi) => {
-                EpubPointCfi::parse(cfi.as_str())?;
-                Ok(())
-            }
+            Self::Fragment(fragment) => EpubFragment::validate_str(fragment.as_str()),
+            Self::Cfi(cfi) => EpubPointCfi::validate_str(cfi.as_str()),
         }
     }
 }
@@ -676,10 +713,7 @@ impl ValidateEpubTarget for EpubNavTarget {
 impl ValidateEpubTarget for EpubPointTarget {
     fn validate(&self) -> Result<(), BookDomainError> {
         match self {
-            Self::Cfi(cfi) => {
-                EpubPointCfi::parse(cfi.as_str())?;
-                Ok(())
-            }
+            Self::Cfi(cfi) => EpubPointCfi::validate_str(cfi.as_str()),
             Self::UnitOffset(offset) => {
                 ReadingUnitOffset::new(offset.value())?;
                 Ok(())
@@ -690,8 +724,7 @@ impl ValidateEpubTarget for EpubPointTarget {
 
 impl ValidateEpubTarget for EpubRangeCfi {
     fn validate(&self) -> Result<(), BookDomainError> {
-        EpubRangeCfi::parse(self.as_str())?;
-        Ok(())
+        EpubRangeCfi::validate_str(self.as_str())
     }
 }
 
@@ -798,7 +831,7 @@ impl<E: ValidateEpubTarget, P: ValidatePdfTarget> BookAnchor<E, P> {
     pub fn validate(&self) -> Result<(), BookDomainError> {
         match self {
             Self::Epub(anchor) => {
-                EpubResourcePath::parse(anchor.href.as_str())?;
+                EpubResourcePath::validate_str(anchor.href.as_str())?;
                 anchor.target.validate()
             }
             Self::Pdf(anchor) => anchor.target.validate_for_page(anchor.page_index),

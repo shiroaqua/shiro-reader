@@ -1,4 +1,7 @@
-use shiro_domain::identity::user::errors::UserDomainError;
+use shiro_domain::identity::{
+    session::SessionDomainError,
+    user::errors::UserDomainError,
+};
 use thiserror::Error;
 
 use crate::identity::{
@@ -65,6 +68,18 @@ impl From<SessionRepositoryError> for AuthenticationApplicationError {
 
 impl From<SessionRepositoryError> for IdentityApplicationError {
     fn from(error: SessionRepositoryError) -> Self {
+        Self::Authentication(error.into())
+    }
+}
+
+impl From<SessionDomainError> for AuthenticationApplicationError {
+    fn from(error: SessionDomainError) -> Self {
+        Self::Storage(error.into())
+    }
+}
+
+impl From<SessionDomainError> for IdentityApplicationError {
+    fn from(error: SessionDomainError) -> Self {
         Self::Authentication(error.into())
     }
 }

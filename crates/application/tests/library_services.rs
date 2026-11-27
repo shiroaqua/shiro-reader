@@ -15,9 +15,9 @@ use shiro_application::library::{
             GetBookFileMetaCommand, OpenBookFileRangeCommand, RestoreBookIdCommand,
         },
         dto::{
-            BookFileDescriptor, BookmarkLocatorDto, EpubNavTargetDto, EpubPointTargetDto,
-            EpubRangeTargetDto, HighlightLocatorDto, NavigationLocatorDto, NormalizedRectDto,
-            PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto,
+            BookFileDescriptor, BookNavigationOutput, BookmarkLocatorDto, EpubNavTargetDto,
+            EpubPointTargetDto, EpubRangeTargetDto, HighlightLocatorDto, NavigationLocatorDto,
+            NormalizedRectDto, PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto,
         },
         errors::BookApplicationError,
         file::{
@@ -45,7 +45,7 @@ use shiro_domain::library::{
             EpubResourcePath, NavigationLocator, ReadingUnitOffset,
         },
         navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{BookId, BookTitle, TocEntryFlags},
+        value_objects::{BookHash, BookId, BookTitle, TocEntryFlags},
     },
     tag::{
         entity::{BookTag, BookTagChange, TagDefinition, TagDefinitionChange},
@@ -660,17 +660,15 @@ async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_exi
     let active = Book::new(
         BookId::new(),
         BookTitle::parse("Active Book").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let active_id = active.id().to_string();
 
     let mut trashed = Book::new(
         BookId::new(),
         BookTitle::parse("Trashed Book").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let trashed_id = trashed.id().to_string();
     let _ = trashed.mark_deleted().unwrap();
 
@@ -678,9 +676,8 @@ async fn book_service_get_file_meta_and_open_range_enforce_active_status_and_exi
     let orphan_book = Book::new(
         BookId::new(),
         BookTitle::parse("Missing File Book").unwrap(),
-        missing_file_hash,
-    )
-    .unwrap();
+        BookHash::new(missing_file_hash),
+    );
     let orphan_id = orphan_book.id().to_string();
 
     let repo = MockBookRepository {
@@ -778,9 +775,8 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
     let mut trashed = Book::new(
         BookId::new(),
         BookTitle::parse("Title").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let trashed_id = trashed.id().to_string();
     let _ = trashed.mark_deleted().unwrap();
 
@@ -817,9 +813,8 @@ async fn book_service_restore_exhausted_suffixes_and_missing_file_type_map_to_ap
     let active = Book::new(
         BookId::new(),
         BookTitle::parse("ActiveNoType").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let active_repo = MockBookRepository {
         books: Arc::new(Mutex::new(vec![active])),
         occupied_titles: Arc::new(Mutex::new(HashSet::new())),
@@ -1210,17 +1205,15 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
     let active = Book::new(
         BookId::new(),
         BookTitle::parse("Active Book").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let active_id = active.id().to_string();
 
     let mut trashed = Book::new(
         BookId::new(),
         BookTitle::parse("Trashed Book").unwrap(),
-        hash,
-    )
-    .unwrap();
+        BookHash::new(hash),
+    );
     let trashed_id = trashed.id().to_string();
     let _ = trashed.mark_deleted().unwrap();
 
@@ -1228,9 +1221,8 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
     let orphan_book = Book::new(
         BookId::new(),
         BookTitle::parse("Missing File Book").unwrap(),
-        missing_file_hash,
-    )
-    .unwrap();
+        BookHash::new(missing_file_hash),
+    );
     let orphan_id = orphan_book.id().to_string();
 
     let nav = BookNavigation::build(
@@ -1504,4 +1496,59 @@ fn book_anchor_dtos_round_trip_normalize_paths_and_reject_invalid_payloads() {
             ..
         } if offset == 0.0
     ));
+}
+
+#[test]
+fn book_navigation_output_conversion_is_zero_copy() {
+    let raw_href = String::from("OEBPS/ch1.xhtml");
+    let raw_href_ptr = raw_href.as_ptr();
+    let raw_fragment = String::from("sec-1");
+    let raw_fragment_ptr = raw_fragment.as_ptr();
+
+    let nav = BookNavigation::build(
+        vec![TocEntryDraft {
+            title: "Chapter 1".to_owned(),
+            locator: Some(
+                NavigationLocator::epub(
+                    Some(0),
+                    EpubResourcePath::parse(raw_href).unwrap(),
+                    EpubNavTarget::Fragment(EpubFragment::parse(raw_fragment).unwrap()),
+                )
+                .unwrap(),
+            ),
+            unit_offset: ReadingUnitOffset::ZERO,
+            flags: TocEntryFlags::empty(),
+            children: vec![],
+        }],
+        vec![ReadingUnitDraft {
+            is_linear: true,
+            weight: 42,
+            display_label: Some("OEBPS/ch1.xhtml".to_owned()),
+        }],
+    )
+    .unwrap();
+    let title_ptr = nav.toc()[0].title().as_ptr();
+    let label_ptr = nav.reading_units()[0].display_label().unwrap().as_ptr();
+
+    let output = BookNavigationOutput::from(nav);
+    assert_eq!(output.toc[0].title.as_ptr(), title_ptr);
+    assert_eq!(
+        output.linear_units[0]
+            .display_label
+            .as_ref()
+            .unwrap()
+            .as_ptr(),
+        label_ptr
+    );
+    match &output.toc[0].locator {
+        Some(NavigationLocatorDto::Epub {
+            href,
+            target: EpubNavTargetDto::Fragment { fragment },
+            ..
+        }) => {
+            assert_eq!(href.as_ptr(), raw_href_ptr);
+            assert_eq!(fragment.as_ptr(), raw_fragment_ptr);
+        }
+        other => panic!("unexpected locator dto: {other:?}"),
+    }
 }

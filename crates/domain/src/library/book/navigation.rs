@@ -30,7 +30,26 @@ pub struct ReadingUnit {
     display_label: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadingUnitInner {
+    pub index: u32,
+    pub is_linear: bool,
+    pub weight: u64,
+    pub cumulative_weight: u64,
+    pub display_label: Option<String>,
+}
+
 impl ReadingUnit {
+    pub fn into_inner(self) -> ReadingUnitInner {
+        ReadingUnitInner {
+            index: self.index,
+            is_linear: self.is_linear,
+            weight: self.weight,
+            cumulative_weight: self.cumulative_weight,
+            display_label: self.display_label,
+        }
+    }
+
     pub const fn index(&self) -> u32 {
         self.index
     }
@@ -66,7 +85,34 @@ pub struct TocEntry {
     flags: TocEntryFlags,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TocEntryInner {
+    pub parent: Option<u32>,
+    pub depth: u16,
+    pub subtree_end: u32,
+    pub title: String,
+    pub locator: Option<NavigationLocator>,
+    pub unit_index: Option<u32>,
+    pub unit_offset: ReadingUnitOffset,
+    pub start_progression: Option<BookProgression>,
+    pub flags: TocEntryFlags,
+}
+
 impl TocEntry {
+    pub fn into_inner(self) -> TocEntryInner {
+        TocEntryInner {
+            parent: self.parent,
+            depth: self.depth,
+            subtree_end: self.subtree_end,
+            title: self.title,
+            locator: self.locator,
+            unit_index: self.unit_index,
+            unit_offset: self.unit_offset,
+            start_progression: self.start_progression,
+            flags: self.flags,
+        }
+    }
+
     pub const fn parent(&self) -> Option<u32> {
         self.parent
     }
@@ -112,7 +158,22 @@ pub struct BookNavigation {
     total_weight: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BookNavigationInner {
+    pub toc: Vec<TocEntry>,
+    pub reading_units: Vec<ReadingUnit>,
+    pub total_weight: u64,
+}
+
 impl BookNavigation {
+    pub fn into_inner(self) -> BookNavigationInner {
+        BookNavigationInner {
+            toc: self.toc,
+            reading_units: self.reading_units,
+            total_weight: self.total_weight,
+        }
+    }
+
     pub fn empty() -> Self {
         Self::default()
     }

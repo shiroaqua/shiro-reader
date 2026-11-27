@@ -22,6 +22,10 @@ impl UserId {
         self.0
     }
 
+    pub const fn into_inner(self) -> Uuid {
+        self.0
+    }
+
     pub fn parse(value: impl AsRef<str>) -> Result<Self, UserDomainError> {
         let parsed = Uuid::parse_str(value.as_ref()).map_err(|_| UserDomainError::InvalidId)?;
         Ok(Self(parsed))
@@ -38,7 +42,7 @@ impl Default for UserId {
 pub struct UserName(String);
 
 impl UserName {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, UserDomainError> {
+    pub fn parse(value: impl AsRef<str> + Into<String>) -> Result<Self, UserDomainError> {
         let raw = value.as_ref();
 
         if raw.is_empty() {
@@ -51,11 +55,15 @@ impl UserName {
             return Err(UserDomainError::InvalidUserNameFormat);
         }
 
-        Ok(Self(raw.to_owned()))
+        Ok(Self(value.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 
@@ -64,7 +72,7 @@ impl UserName {
 pub struct UserPasswordHash(String);
 
 impl UserPasswordHash {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, UserDomainError> {
+    pub fn parse(value: impl AsRef<str> + Into<String>) -> Result<Self, UserDomainError> {
         let raw = value.as_ref();
 
         let phc = PasswordHash::new(raw).map_err(|_| UserDomainError::InvalidPasswordHash)?;
@@ -97,11 +105,15 @@ impl UserPasswordHash {
         }
 
         Params::try_from(&phc).map_err(|_| UserDomainError::InvalidPasswordHash)?;
-        Ok(Self(raw.to_owned()))
+        Ok(Self(value.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 

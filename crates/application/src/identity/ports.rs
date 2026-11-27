@@ -1,7 +1,7 @@
 use std::future::Future;
 
 use shiro_domain::identity::{
-    session::{AuthAccessToken, AuthSession},
+    session::{AuthAccessToken, AuthSession, TokenHash},
     user::{
         entity::{User, UserChange},
         value_objects::{UserId, UserName},
@@ -92,13 +92,13 @@ pub trait SessionRepository: Clone + Send + Sync + 'static {
 
     fn contains_access_token(
         &self,
-        access_hash: String,
+        access_hash: TokenHash,
     ) -> impl Future<Output = Result<bool, SessionRepositoryError>> + Send;
 
     fn revoke(
         &self,
         user_id: &UserId,
-        refresh_hash: String,
+        refresh_hash: TokenHash,
     ) -> impl Future<Output = Result<(), SessionRepositoryError>> + Send;
 }
 

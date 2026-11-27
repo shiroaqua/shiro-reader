@@ -29,31 +29,17 @@ pub struct TagDefinitionOutput {
     pub updated_at: String,
 }
 
-impl From<&TagDefinition> for TagDefinitionOutput {
-    fn from(definition: &TagDefinition) -> Self {
-        Self {
-            id: definition.id().to_string(),
-            name: definition.name().to_string(),
-            parent_id: definition.parent_id().map(ToString::to_string),
-            color: definition.color().to_string(),
-            allows_value: definition.value_rule().allows_value(),
-            value_regex: definition.value_rule().value_regex().map(str::to_owned),
-            created_at: definition.created_at().to_string(),
-            updated_at: definition.updated_at().to_string(),
-        }
-    }
-}
-
 impl From<TagDefinition> for TagDefinitionOutput {
     fn from(definition: TagDefinition) -> Self {
         let definition = definition.into_inner();
+        let (allows_value, value_regex) = definition.value_rule.into_inner();
         Self {
             id: definition.id.to_string(),
-            name: definition.name.into(),
+            name: definition.name.into_inner(),
             parent_id: definition.parent_id.map(|id| id.to_string()),
-            color: definition.color.into(),
-            allows_value: definition.value_rule.allows_value(),
-            value_regex: definition.value_rule.value_regex().map(str::to_owned),
+            color: definition.color.into_inner(),
+            allows_value,
+            value_regex,
             created_at: definition.created_at.to_string(),
             updated_at: definition.updated_at.to_string(),
         }

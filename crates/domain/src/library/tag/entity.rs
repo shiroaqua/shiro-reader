@@ -39,6 +39,29 @@ impl TagDefinition {
         }
     }
 
+    pub fn reconstruct(
+        id: TagId,
+        name: TagName,
+        parent_id: Option<TagId>,
+        color: TagColor,
+        value_rule: TagValueRule,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+    ) -> Result<Self, TagDomainError> {
+        if parent_id.as_ref() == Some(&id) {
+            return Err(TagDomainError::InvalidTree);
+        }
+        Ok(Self {
+            id,
+            name,
+            parent_id,
+            color,
+            value_rule,
+            created_at,
+            updated_at,
+        })
+    }
+
     pub fn id(&self) -> &TagId {
         &self.id
     }
@@ -138,6 +161,24 @@ impl BookTag {
             updated_at: now,
             deleted_at: None,
         })
+    }
+
+    pub const fn reconstruct(
+        tag_id: TagId,
+        book_id: BookId,
+        value: Option<String>,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+        deleted_at: Option<Timestamp>,
+    ) -> Self {
+        Self {
+            tag_id,
+            book_id,
+            value,
+            created_at,
+            updated_at,
+            deleted_at,
+        }
     }
 
     pub fn status(&self) -> BookTagStatus {

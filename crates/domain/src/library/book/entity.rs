@@ -19,16 +19,34 @@ pub struct Book {
 }
 
 impl Book {
-    pub fn new(id: BookId, title: BookTitle, hash: Hash) -> Result<Self, BookDomainError> {
+    pub fn new(id: BookId, title: BookTitle, hash: BookHash) -> Self {
         let created_at = Timestamp::now();
-        Ok(Self {
+        Self {
             id,
             title,
-            hash: BookHash::new(hash),
+            hash,
             created_at,
             updated_at: created_at,
             deleted_at: None,
-        })
+        }
+    }
+
+    pub const fn reconstruct(
+        id: BookId,
+        title: BookTitle,
+        hash: BookHash,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+        deleted_at: Option<Timestamp>,
+    ) -> Self {
+        Self {
+            id,
+            title,
+            hash,
+            created_at,
+            updated_at,
+            deleted_at,
+        }
     }
 
     pub fn id(&self) -> &BookId {

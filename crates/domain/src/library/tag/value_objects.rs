@@ -29,6 +29,10 @@ impl TagId {
         self.0
     }
 
+    pub const fn into_inner(self) -> Uuid {
+        self.0
+    }
+
     pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
         Uuid::parse_str(value.as_ref())
             .map(Self)
@@ -46,23 +50,27 @@ impl Default for TagId {
 pub struct TagName(String);
 
 impl TagName {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
+    pub fn parse(value: impl AsRef<str> + Into<String>) -> Result<Self, TagDomainError> {
         static NAME_REGEX: LazyLock<Regex> =
             LazyLock::new(|| Regex::new(r"\A[\p{L}\p{N}.]+\z").expect("valid tag name regex"));
 
-        let value = value.as_ref();
-        if value.is_empty() {
+        let raw = value.as_ref();
+        if raw.is_empty() {
             return Err(TagDomainError::MissingName);
         }
         // 不修剪空白；除用于翻译 key 分段的点号外，符号、标点和空白均不允许。
-        if !NAME_REGEX.is_match(value) {
+        if !NAME_REGEX.is_match(raw) {
             return Err(TagDomainError::InvalidNameFormat);
         }
-        Ok(Self(value.to_owned()))
+        Ok(Self(value.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 
@@ -70,17 +78,21 @@ impl TagName {
 pub struct TagColor(String);
 
 impl TagColor {
-    pub fn parse(value: impl AsRef<str>) -> Result<Self, TagDomainError> {
-        let value = value.as_ref();
-        let bytes = value.as_bytes();
+    pub fn parse(value: impl AsRef<str> + Into<String>) -> Result<Self, TagDomainError> {
+        let raw = value.as_ref();
+        let bytes = raw.as_bytes();
         if bytes.len() != 7 || bytes[0] != b'#' || !bytes[1..].iter().all(u8::is_ascii_hexdigit) {
             return Err(TagDomainError::InvalidColor);
         }
-        Ok(Self(value.to_owned()))
+        Ok(Self(value.into()))
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
     }
 }
 
@@ -133,6 +145,10 @@ impl TagValueRule {
 
     pub fn value_regex(&self) -> Option<&str> {
         self.value_regex.as_deref()
+    }
+
+    pub fn into_inner(self) -> (bool, Option<String>) {
+        (self.allows_value, self.value_regex)
     }
 
     pub fn validate(&self, value: Option<&str>) -> Result<(), TagDomainError> {

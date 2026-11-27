@@ -7,7 +7,7 @@ use shiro_domain::library::{
     book::{
         entity::Book,
         errors::BookDomainError,
-        value_objects::{BookId, BookStatus, BookTitle},
+        value_objects::{BookHash, BookId, BookStatus, BookTitle},
     },
     tag::value_objects::BookTagStatus,
 };
@@ -78,7 +78,7 @@ where
             .bookfile
             .get_book_type(&hash)
             .ok_or(BookFileApplicationError::Unsupported)?;
-        let book = Book::new(BookId::new(), title, hash)?;
+        let book = Book::new(BookId::new(), title, BookHash::new(hash));
         let book = self.repository.create(book).await?;
 
         Ok((book, file_type).into())

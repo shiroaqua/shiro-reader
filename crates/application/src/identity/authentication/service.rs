@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use shiro_domain::identity::{
-    session::{AuthAccessToken, AuthSession},
+    session::{AuthAccessToken, AuthSession, SessionDomainError, TokenHash},
     user::value_objects::{UserId, UserName},
 };
 
@@ -62,8 +62,8 @@ where
         let username: String = user.name.into();
         let access_token = self.crypto.issue_access_token(user_id.clone())?;
         let refresh_token = self.crypto.issue_refresh_token(user_id.clone())?;
-        let access_hash = token_hash(&access_token);
-        let refresh_hash = token_hash(&refresh_token);
+        let access_hash = token_hash(&access_token)?;
+        let refresh_hash = token_hash(&refresh_token)?;
 
         let session = AuthSession::new(refresh_hash.clone(), user.id);
         let access = AuthAccessToken::new(access_hash, refresh_hash);
@@ -84,7 +84,7 @@ where
         let user_id = UserId::parse(&user_id)
             .map_err(|error| AuthenticationApplicationError::Storage(error.into()))?;
         self.session_repository
-            .revoke(&user_id, token_hash(&command.token))
+            .revoke(&user_id, token_hash(&command.token)?)
             .await?;
         Ok(())
     }
@@ -96,9 +96,9 @@ where
         let user_id = self.crypto.verify_refresh_token(&command.token)?;
         let parsed_user_id =
             UserId::parse(&user_id).map_err(|_| AuthenticationApplicationError::InvalidToken)?;
-        let refresh_hash = token_hash(&command.token);
+        let refresh_hash = token_hash(&command.token)?;
         let access_token = self.crypto.issue_access_token(user_id)?;
-        let access = AuthAccessToken::new(token_hash(&access_token), refresh_hash);
+        let access = AuthAccessToken::new(token_hash(&access_token)?, refresh_hash);
         if !self
             .session_repository
             .add_access_token(&parsed_user_id, access)
@@ -116,7 +116,7 @@ where
         let user_id = self.crypto.verify_access_token(&command.token)?;
         if !self
             .session_repository
-            .contains_access_token(token_hash(&command.token))
+            .contains_access_token(token_hash(&command.token)?)
             .await?
         {
             return Err(AuthenticationApplicationError::InvalidToken.into());
@@ -125,6 +125,6 @@ where
     }
 }
 
-fn token_hash(token: &str) -> String {
-    blake3::hash(token.as_bytes()).to_hex().to_string()
+fn token_hash(token: &str) -> Result<TokenHash, SessionDomainError> {
+    TokenHash::parse(blake3::hash(token.as_bytes()).to_hex().to_string())
 }

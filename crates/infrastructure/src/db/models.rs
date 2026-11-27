@@ -1,10 +1,10 @@
 use shiro_domain::library::{
     book::{
-        entity::{Book, BookInner},
+        entity::Book,
         value_objects::{BookId, BookTitle},
     },
     tag::{
-        entity::{BookTag, BookTagInner, TagDefinition, TagDefinitionInner},
+        entity::{BookTag, TagDefinition},
         value_objects::{TagColor, TagId, TagName},
     },
 };
@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 #[cfg(feature = "identity")]
 use shiro_domain::identity::{
-    session::{AuthAccessToken, AuthAccessTokenInner, AuthSession, AuthSessionInner},
+    session::{AuthAccessToken, AuthSession},
     user::{
-        entity::{User, UserInner},
+        entity::User,
         value_objects::{UserId, UserName, UserPasswordHash},
     },
 };
@@ -51,7 +51,7 @@ impl From<Book> for BookRecord {
         let inner = book.into_inner();
         Self {
             id: inner.id.as_uuid(),
-            title: inner.title.into(),
+            title: inner.title.into_inner(),
             hash: DbBookHash(inner.hash),
             created_at: DbTimestamp(inner.created_at),
             updated_at: DbTimestamp(inner.updated_at),
@@ -65,14 +65,14 @@ impl TryFrom<BookRecord> for Book {
 
     fn try_from(record: BookRecord) -> Result<Self, Self::Error> {
         let title = BookTitle::parse(record.title)?;
-        Ok(Book::from_inner(BookInner {
-            id: BookId::from_uuid(record.id),
+        Ok(Book::reconstruct(
+            BookId::from_uuid(record.id),
             title,
-            hash: record.hash.into(),
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-            deleted_at: record.deleted_at.map(Into::into),
-        }))
+            record.hash.into(),
+            record.created_at.into(),
+            record.updated_at.into(),
+            record.deleted_at.map(Into::into),
+        ))
     }
 }
 
@@ -108,9 +108,9 @@ impl From<TagDefinition> for TagDefinitionRecord {
         let inner = definition.into_inner();
         Self {
             id: inner.id.as_uuid(),
-            name: inner.name.into(),
+            name: inner.name.into_inner(),
             parent_id: inner.parent_id.map(|id| id.as_uuid()),
-            color: inner.color.into(),
+            color: inner.color.into_inner(),
             value_rule: DbTagValueRule(inner.value_rule),
             created_at: DbTimestamp(inner.created_at),
             updated_at: DbTimestamp(inner.updated_at),
@@ -122,15 +122,15 @@ impl TryFrom<TagDefinitionRecord> for TagDefinition {
     type Error = anyhow::Error;
 
     fn try_from(record: TagDefinitionRecord) -> Result<Self, Self::Error> {
-        Ok(TagDefinition::from_inner(TagDefinitionInner {
-            id: TagId::from_uuid(record.id),
-            name: TagName::parse(record.name)?,
-            parent_id: record.parent_id.map(TagId::from_uuid),
-            color: TagColor::parse(record.color)?,
-            value_rule: record.value_rule.into(),
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-        }))
+        Ok(TagDefinition::reconstruct(
+            TagId::from_uuid(record.id),
+            TagName::parse(record.name)?,
+            record.parent_id.map(TagId::from_uuid),
+            TagColor::parse(record.color)?,
+            record.value_rule.into(),
+            record.created_at.into(),
+            record.updated_at.into(),
+        )?)
     }
 }
 
@@ -175,14 +175,14 @@ impl From<BookTag> for BookTagRecord {
 
 impl From<BookTagRecord> for BookTag {
     fn from(record: BookTagRecord) -> Self {
-        BookTag::from_inner(BookTagInner {
-            tag_id: TagId::from_uuid(record.tag_id),
-            book_id: BookId::from_uuid(record.book_id),
-            value: record.value,
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-            deleted_at: record.deleted_at.map(Into::into),
-        })
+        BookTag::reconstruct(
+            TagId::from_uuid(record.tag_id),
+            BookId::from_uuid(record.book_id),
+            record.value,
+            record.created_at.into(),
+            record.updated_at.into(),
+            record.deleted_at.map(Into::into),
+        )
     }
 }
 
@@ -217,8 +217,8 @@ impl From<User> for UserRecord {
         let inner = user.into_inner();
         Self {
             id: inner.id.as_uuid(),
-            name: inner.name.into(),
-            password_hash: inner.password_hash.as_str().to_owned(),
+            name: inner.name.into_inner(),
+            password_hash: inner.password_hash.into_inner(),
             created_at: DbTimestamp(inner.created_at),
             updated_at: DbTimestamp(inner.updated_at),
         }
@@ -230,13 +230,13 @@ impl TryFrom<UserRecord> for User {
     type Error = anyhow::Error;
 
     fn try_from(record: UserRecord) -> Result<Self, Self::Error> {
-        Ok(User::from_inner(UserInner {
-            id: UserId::from_uuid(record.id),
-            name: UserName::parse(record.name)?,
-            password_hash: UserPasswordHash::parse(record.password_hash)?,
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-        }))
+        Ok(User::reconstruct(
+            UserId::from_uuid(record.id),
+            UserName::parse(record.name)?,
+            UserPasswordHash::parse(record.password_hash)?,
+            record.created_at.into(),
+            record.updated_at.into(),
+        ))
     }
 }
 
@@ -268,23 +268,11 @@ impl From<AuthSession> for AuthSessionRecord {
     fn from(session: AuthSession) -> Self {
         let inner = session.into_inner();
         Self {
-            refresh_hash: inner.refresh_hash,
+            refresh_hash: inner.refresh_hash.into_inner(),
             user_id: inner.user_id.as_uuid(),
             created_at: DbTimestamp(inner.created_at),
             updated_at: DbTimestamp(inner.updated_at),
         }
-    }
-}
-
-#[cfg(feature = "identity")]
-impl From<AuthSessionRecord> for AuthSession {
-    fn from(record: AuthSessionRecord) -> Self {
-        AuthSession::from_inner(AuthSessionInner {
-            refresh_hash: record.refresh_hash,
-            user_id: UserId::from_uuid(record.user_id),
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-        })
     }
 }
 
@@ -316,22 +304,10 @@ impl From<AuthAccessToken> for AuthAccessTokenRecord {
     fn from(token: AuthAccessToken) -> Self {
         let inner = token.into_inner();
         Self {
-            access_hash: inner.access_hash,
-            refresh_hash: inner.refresh_hash,
+            access_hash: inner.access_hash.into_inner(),
+            refresh_hash: inner.refresh_hash.into_inner(),
             created_at: DbTimestamp(inner.created_at),
             updated_at: DbTimestamp(inner.updated_at),
         }
-    }
-}
-
-#[cfg(feature = "identity")]
-impl From<AuthAccessTokenRecord> for AuthAccessToken {
-    fn from(record: AuthAccessTokenRecord) -> Self {
-        AuthAccessToken::from_inner(AuthAccessTokenInner {
-            access_hash: record.access_hash,
-            refresh_hash: record.refresh_hash,
-            created_at: record.created_at.into(),
-            updated_at: record.updated_at.into(),
-        })
     }
 }

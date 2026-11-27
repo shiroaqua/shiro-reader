@@ -8,8 +8,8 @@ use syn::{Data, DeriveInput, Fields, parse_macro_input};
 /// - `<Entity>Fields`: `bitflags` bitmask covering each named field (up to 64 fields).
 /// - `<Entity>Change<'a>`: `#[must_use]` dirty-field patch carrying a reference to the entity
 ///   and the modified `<Entity>Fields` bitmask.
-/// - `<Entity>Inner`: owned plain data representation for DTO mapping and persistence hydration.
-/// - `<Entity>::into_inner` and `<Entity>::from_inner`.
+/// - `<Entity>Inner`: owned plain data representation for zero-copy dismantling into DTOs and persistence records.
+/// - `<Entity>::into_inner`: zero-copy conversion into `<Entity>Inner`.
 #[proc_macro_derive(Entity, attributes(key))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -106,11 +106,6 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
             pub fn into_inner(self) -> #inner_name {
                 let Self { #(#field_names),* } = self;
                 #inner_name { #(#field_names),* }
-            }
-
-            pub fn from_inner(inner: #inner_name) -> Self {
-                let #inner_name { #(#field_names),* } = inner;
-                Self { #(#field_names),* }
             }
         }
     }

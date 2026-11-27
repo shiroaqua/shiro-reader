@@ -52,7 +52,7 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn find_by_name(&self, name: UserName) -> Result<Option<User>, UserRepositoryError> {
-        let record = UserRecord::filter(UserRecord::fields().name().eq(name.as_str().to_owned()))
+        let record = UserRecord::filter(UserRecord::fields().name().eq(name.into_inner()))
             .first()
             .exec(&mut self.db.clone())
             .await

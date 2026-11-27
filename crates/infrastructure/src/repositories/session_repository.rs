@@ -1,6 +1,6 @@
 use shiro_application::identity::ports::{SessionRepository, SessionRepositoryError};
 use shiro_domain::identity::{
-    session::{AuthAccessToken, AuthSession},
+    session::{AuthAccessToken, AuthSession, TokenHash},
     user::value_objects::UserId,
 };
 use toasty::Db;
@@ -49,7 +49,7 @@ impl SessionRepository for SqliteSessionRepository {
         let session = AuthSessionRecord::filter(
             AuthSessionRecord::fields()
                 .refresh_hash()
-                .eq(access_token.refresh_hash().to_owned())
+                .eq(access_token.refresh_hash().as_str().to_owned())
                 .and(AuthSessionRecord::fields().user_id().eq(user_id.as_uuid())),
         )
         .first()
@@ -70,12 +70,12 @@ impl SessionRepository for SqliteSessionRepository {
 
     async fn contains_access_token(
         &self,
-        access_hash: String,
+        access_hash: TokenHash,
     ) -> Result<bool, SessionRepositoryError> {
         let access = AuthAccessTokenRecord::filter(
             AuthAccessTokenRecord::fields()
                 .access_hash()
-                .eq(access_hash),
+                .eq(access_hash.into_inner()),
         )
         .first()
         .exec(&mut self.db.clone())
@@ -87,12 +87,12 @@ impl SessionRepository for SqliteSessionRepository {
     async fn revoke(
         &self,
         user_id: &UserId,
-        refresh_hash: String,
+        refresh_hash: TokenHash,
     ) -> Result<(), SessionRepositoryError> {
         AuthSessionRecord::filter(
             AuthSessionRecord::fields()
                 .refresh_hash()
-                .eq(refresh_hash)
+                .eq(refresh_hash.into_inner())
                 .and(AuthSessionRecord::fields().user_id().eq(user_id.as_uuid())),
         )
         .delete()
