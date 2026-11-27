@@ -116,10 +116,11 @@ describe("BookCard reader launch entrypoints and eviction", () => {
     expect(openBookSpy).toHaveBeenCalledTimes(1)
     expect(screen.getByText("2 selected")).toBeInTheDocument()
 
-    // Exit selection mode -> context menu "Open in New Window" passes newWindow: true
+    // Exit selection mode -> context menu "Open in New Window" passes newWindow: true (and "Open" is omitted)
     await user.click(screen.getByRole("button", { name: "Clear selection" }))
     fireEvent.contextMenu(card1)
     const openNewWindowItem = await screen.findByText("Open in New Window")
+    expect(screen.queryByText("Open")).not.toBeInTheDocument()
     await user.click(openNewWindowItem)
 
     expect(openBookSpy).toHaveBeenCalledTimes(2)
@@ -155,7 +156,7 @@ describe("BookCard reader launch entrypoints and eviction", () => {
     expect(mobileReaderStore.getSnapshot().tabs).toHaveLength(0)
   })
 
-  it("opens background tab on mobile ActionSheet, shows Continue Reading, and evicts deleted books", async () => {
+  it("omits Open and Open in Background Tab from mobile ActionSheet and evicts deleted books", async () => {
     mockLightReaderEngine()
     const epubCloseSpy = vi
       .spyOn(readerBridge, "epubClose")
@@ -171,7 +172,7 @@ describe("BookCard reader launch entrypoints and eviction", () => {
     const h1 = await screen.findByRole("heading", { name: "Moonlight" })
     const card1 = h1.closest("li")!
 
-    // Long press on touch card -> ActionSheet -> "Open in Background Tab"
+    // Long press on touch card -> ActionSheet omits Open, Open in Background Tab, and Open in New Window
     vi.useFakeTimers()
     act(() => {
       fireEvent.pointerDown(card1, {
@@ -189,27 +190,34 @@ describe("BookCard reader launch entrypoints and eviction", () => {
     })
     vi.useRealTimers()
 
-    const bgBtn = await screen.findByRole("button", {
-      name: "Open in Background Tab",
-    })
-    await user.click(bgBtn)
-
-    await waitFor(() => {
-      expect(mobileReaderStore.getSnapshot().tabs).toHaveLength(1)
-    })
-    expect(mobileReaderStore.getSnapshot().isOpen).toBe(false)
+    await screen.findByRole("button", { name: "Rename" })
     expect(
-      screen.queryByTestId("mobile-continue-reading")
+      screen.queryByRole("button", { name: "Open" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Open in Background Tab" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Open in New Window" })
     ).not.toBeInTheDocument()
 
-    // Give tab a live sessionId to verify delete eviction calls epubClose
-    const tab1 = mobileReaderStore.getSnapshot().tabs[0]!
-    act(() => {
-      mobileReaderStore.updateSessionId(tab1.tabId, "sess-mob-1")
-      mobileReaderStore.openBookInBackground(b2)
+    await user.keyboard("{Escape}")
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Rename" })
+      ).not.toBeInTheDocument()
     })
+
+    // Seed two open mobile reader tabs in the background and give them live sessionIds to verify delete eviction calls epubClose
+    act(() => {
+      mobileReaderStore.openBook(b1)
+      mobileReaderStore.openBook(b2)
+      mobileReaderStore.closeOverlay()
+    })
+    const tab1 = mobileReaderStore.getSnapshot().tabs[0]!
     const tab2 = mobileReaderStore.getSnapshot().tabs[1]!
     act(() => {
+      mobileReaderStore.updateSessionId(tab1.tabId, "sess-mob-1")
       mobileReaderStore.updateSessionId(tab2.tabId, "sess-mob-2")
     })
     expect(mobileReaderStore.getSnapshot().tabs).toHaveLength(2)
@@ -260,7 +268,8 @@ describe("BookCard reader launch entrypoints and eviction", () => {
 
     // Seed an active mobile reader tab for the trashed book
     act(() => {
-      mobileReaderStore.openBookInBackground(trashedBook)
+      mobileReaderStore.openBook(trashedBook)
+      mobileReaderStore.closeOverlay()
       const tab = mobileReaderStore.getSnapshot().tabs[0]!
       mobileReaderStore.updateSessionId(tab.tabId, "sess-trash-1")
     })
@@ -337,6 +346,12 @@ describe("BookCard reader launch entrypoints and eviction", () => {
       const openNewWinBtn = await screen.findByRole("button", {
         name: "Open in New Window",
       })
+      expect(
+        screen.queryByRole("button", { name: "Open" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Open in Background Tab" })
+      ).not.toBeInTheDocument()
       await desktopUser.click(openNewWinBtn)
       expect(openBookSpy).toHaveBeenCalledWith({
         bookId: "tablet-1",

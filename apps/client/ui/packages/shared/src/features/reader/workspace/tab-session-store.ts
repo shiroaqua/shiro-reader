@@ -126,26 +126,6 @@ export class InWindowTabStore {
     return { tab: createdTab, created: true }
   }
 
-  openInBackground(book: Book): {
-    readonly tab: ReaderTabSession | null
-    readonly created: boolean
-  } {
-    const existing = this.tabs.find((tab) => tab.bookId === book.id)
-    if (existing) {
-      return { tab: existing, created: false }
-    }
-
-    const createdTab = this.createTabRecord(book)
-    if (!createdTab) return { tab: null, created: false }
-
-    this.tabs = [...this.tabs, createdTab]
-    if (this.activeTabId === null) {
-      this.activeTabId = createdTab.tabId
-    }
-    this.commit()
-    return { tab: createdTab, created: true }
-  }
-
   activate(tabId: string): void {
     if (this.activeTabId === tabId) return
     if (!this.tabs.some((tab) => tab.tabId === tabId)) return

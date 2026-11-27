@@ -72,12 +72,6 @@ class MobileReaderStoreController {
     return true
   }
 
-  openBookInBackground(book: Book): boolean {
-    if (!assertBookSupportedInReader(book)) return false
-    const result = this.tabStore.openInBackground(book)
-    return result.tab !== null
-  }
-
   reopenOverlay(): void {
     const current = this.tabStore.getSnapshot()
     if (current.tabs.length === 0 || this.isOpen) return

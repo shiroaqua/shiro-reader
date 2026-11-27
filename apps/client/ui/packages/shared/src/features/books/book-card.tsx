@@ -1,10 +1,8 @@
 import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
-  BookOpen,
   Check,
   ExternalLink,
-  Layers,
   Pencil,
   Tag,
   Trash2,
@@ -42,7 +40,6 @@ export function BookCard({
   onHoverChange,
   onOpenBook,
   onOpenBookInNewWindow,
-  onOpenBookInBackground,
   onBooksDeleted,
 }: {
   book: Book
@@ -53,7 +50,6 @@ export function BookCard({
   onHoverChange?: ((hovering: boolean) => void) | undefined
   onOpenBook?: ((book: Book) => void) | undefined
   onOpenBookInNewWindow?: ((book: Book) => void) | undefined
-  onOpenBookInBackground?: ((book: Book) => void) | undefined
   onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
 }) {
   const { t } = useTranslation()
@@ -281,18 +277,6 @@ export function BookCard({
         )}
       </ContextMenuTrigger>
       <ContextMenuContent finalFocus={false}>
-        {onOpenBook && (
-          <ContextMenuItem
-            onClick={() => {
-              if (assertBookSupportedInReader(book)) {
-                onOpenBook(book)
-              }
-            }}
-          >
-            <BookOpen aria-hidden="true" />
-            {t("local.reader.action.open")}
-          </ContextMenuItem>
-        )}
         {onOpenBookInNewWindow && (
           <ContextMenuItem
             onClick={() => {
@@ -305,7 +289,7 @@ export function BookCard({
             {t("local.reader.action.open_new_window")}
           </ContextMenuItem>
         )}
-        {(onOpenBook || onOpenBookInNewWindow) && (
+        {onOpenBookInNewWindow && (
           <Separator className="my-1" />
         )}
         <ContextMenuItem onClick={() => setRenaming(true)}>
@@ -331,20 +315,6 @@ export function BookCard({
         onOpenChange={setActionsOpen}
         title={book.title}
         items={[
-          ...(onOpenBook
-            ? [
-                {
-                  key: "open",
-                  label: t("local.reader.action.open"),
-                  icon: <BookOpen aria-hidden="true" />,
-                  onSelect: () => {
-                    if (assertBookSupportedInReader(book)) {
-                      onOpenBook(book)
-                    }
-                  },
-                },
-              ]
-            : []),
           ...(onOpenBookInNewWindow
             ? [
                 {
@@ -354,20 +324,6 @@ export function BookCard({
                   onSelect: () => {
                     if (assertBookSupportedInReader(book)) {
                       onOpenBookInNewWindow(book)
-                    }
-                  },
-                },
-              ]
-            : []),
-          ...(onOpenBookInBackground
-            ? [
-                {
-                  key: "open-background",
-                  label: t("local.reader.action.open_background_tab"),
-                  icon: <Layers aria-hidden="true" />,
-                  onSelect: () => {
-                    if (assertBookSupportedInReader(book)) {
-                      onOpenBookInBackground(book)
                     }
                   },
                 },

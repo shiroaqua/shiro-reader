@@ -279,9 +279,7 @@ export const enLocal: Record<keyof typeof zhLocal, string> = {
   "local.reader.selection.copy": "Copy",
   "local.reader.selection.copied": "Copied",
   "local.reader.selection.toolbar_label": "Selection actions",
-  "local.reader.action.open": "Open",
   "local.reader.action.open_new_window": "Open in New Window",
-  "local.reader.action.open_background_tab": "Open in Background Tab",
   "local.reader.error.unsupported_format":
     "This e-book format is not supported in the reader yet.",
   "local.reader.error.open_failed": "Failed to open e-book. Please try again.",

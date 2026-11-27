@@ -63,7 +63,6 @@ export function BookshelfBooks({
   onSearchChange,
   onOpenBook,
   onOpenBookInNewWindow,
-  onOpenBookInBackground,
   onBooksDeleted,
 }: {
   headerOverlay?: HTMLElement | null
@@ -71,7 +70,6 @@ export function BookshelfBooks({
   onSearchChange?: (search: string) => void
   onOpenBook?: ((book: Book) => void) | undefined
   onOpenBookInNewWindow?: ((book: Book) => void) | undefined
-  onOpenBookInBackground?: ((book: Book) => void) | undefined
   onBooksDeleted?: ((bookIds: readonly string[]) => void) | undefined
 }) {
   const { t, locale } = useTranslation()
@@ -475,7 +473,6 @@ export function BookshelfBooks({
               }
               onOpenBook={onOpenBook}
               onOpenBookInNewWindow={onOpenBookInNewWindow}
-              onOpenBookInBackground={onOpenBookInBackground}
               onBooksDeleted={onBooksDeleted}
             />
           ))}

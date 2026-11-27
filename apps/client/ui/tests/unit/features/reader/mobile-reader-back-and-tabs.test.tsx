@@ -270,8 +270,10 @@ describe("MobileReaderOverlay back stack and multi-tab lifecycle", () => {
 
     act(() => {
       mobileReaderStore.openBook(bookA)
-      mobileReaderStore.openBookInBackground(bookB)
-      mobileReaderStore.openBookInBackground(bookC)
+      const tabAId = mobileReaderStore.getSnapshot().tabs[0]!.tabId
+      mobileReaderStore.openBook(bookB)
+      mobileReaderStore.openBook(bookC)
+      mobileReaderStore.activateTab(tabAId)
     })
 
     await waitFor(() => {

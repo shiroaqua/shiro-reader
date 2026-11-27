@@ -176,9 +176,6 @@ export function MobileDashboardScreen() {
             onOpenBook={(book) => {
               mobileReaderStore.openBook(book)
             }}
-            onOpenBookInBackground={(book) => {
-              mobileReaderStore.openBookInBackground(book)
-            }}
             onBooksDeleted={(ids) => {
               mobileReaderStore.evictBookIds(ids)
             }}
