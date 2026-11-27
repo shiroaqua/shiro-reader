@@ -17,6 +17,8 @@ import type {
   BookFormat,
   EngineCapabilities,
   EphemeralReaderViewState,
+  FixedZoomMode,
+  FootnotePayload,
   NavigationLocator,
   ReaderDocumentInstance,
   RelocationSnapshot,
@@ -40,6 +42,8 @@ import {
   ExternalLinkConfirmDialog,
   type PendingExternalLink,
 } from "./external-link-confirm-dialog"
+import { FixedZoomControls } from "./fixed-zoom-controls"
+import { FootnotePopover } from "./footnote-popover"
 import {
   SelectionToolbar,
   type SelectionToolbarViewportBounds,
@@ -127,6 +131,10 @@ export function ReaderViewport({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [pendingExternalLink, setPendingExternalLink] =
     useState<PendingExternalLink | null>(null)
+  const [activeFootnote, setActiveFootnote] = useState<FootnotePayload | null>(
+    null
+  )
+  const [fixedZoom, setFixedZoom] = useState<FixedZoomMode>("fit-page")
   const [viewportBounds, setViewportBounds] =
     useState<SelectionToolbarViewportBounds | null>(null)
   const [openAttempt, setOpenAttempt] = useState(0)
@@ -244,6 +252,8 @@ export function ReaderViewport({
     setErrorMessage(null)
     setSelection(null)
     setRelocation(null)
+    setActiveFootnote(null)
+    setFixedZoom("fit-page")
     setInstance(null)
     instanceRef.current = null
     callbacksRef.current.onInstanceReady?.(null)
@@ -304,7 +314,12 @@ export function ReaderViewport({
           },
           onInternalLink: (href, before) => {
             if (disposed) return
+            setActiveFootnote(null)
             callbacksRef.current.onInternalLink?.(href, before)
+          },
+          onFootnote: (footnote) => {
+            if (disposed) return
+            setActiveFootnote(footnote)
           },
           onCopySelection: async (ctx) => {
             const reg = selectionRegistryRef.current ?? selectionActionRegistry
@@ -399,6 +414,7 @@ export function ReaderViewport({
       setInstance(null)
       setRelocation(null)
       setSelection(null)
+      setActiveFootnote(null)
       callbacksRef.current.onInstanceReady?.(null)
       callbacksRef.current.onSelectionChange?.(null)
       if (current) {
@@ -496,6 +512,19 @@ export function ReaderViewport({
         </div>
       )}
 
+      {!isLoading &&
+        !errorMessage &&
+        instance?.capabilities.supportsFixedZoom &&
+        instance.setFixedZoom && (
+          <FixedZoomControls
+            zoom={fixedZoom}
+            onChangeZoom={(next) => {
+              setFixedZoom(next)
+              instance.setFixedZoom?.(next)
+            }}
+          />
+        )}
+
       {isLoading && !errorMessage && (
         <div
           data-testid="reader-loading-skeleton"
@@ -529,6 +558,47 @@ export function ReaderViewport({
           </Button>
         </div>
       )}
+
+      <FootnotePopover
+        footnote={activeFootnote}
+        viewportBounds={viewportBounds}
+        safeInsets={safeInsets}
+        viewportCssVars={compiledStyle.viewportCssVars}
+        isDarkSurface={compiledStyle.isDarkSurface}
+        onClose={() => setActiveFootnote(null)}
+        onJumpToSource={(footnote) => {
+          setActiveFootnote(null)
+          callbacksRef.current.onInternalLink?.(footnote.href, relocation)
+          if (footnote.locator && instanceRef.current) {
+            void instanceRef.current.goToLocator(footnote.locator)
+          }
+        }}
+        onNavigateLink={(href) => {
+          setActiveFootnote(null)
+          if (/^(?:https?:|mailto:|tel:)/i.test(href)) {
+            if (callbacksRef.current.onExternalLink) {
+              callbacksRef.current.onExternalLink(href)
+            } else {
+              setPendingExternalLink({ url: href })
+            }
+            return
+          }
+          const hashIdx = href.indexOf("#")
+          const pathPart = hashIdx >= 0 ? href.slice(0, hashIdx) : href
+          const fragment = hashIdx >= 0 ? href.slice(hashIdx + 1) : ""
+          const active = instanceRef.current
+          if (active && pathPart) {
+            void active.goToLocator({
+              kind: "epub",
+              spine_index: null,
+              href: pathPart,
+              target: fragment
+                ? { kind: "fragment", fragment }
+                : { kind: "start" },
+            })
+          }
+        }}
+      />
 
       <ExternalLinkConfirmDialog
         link={pendingExternalLink}

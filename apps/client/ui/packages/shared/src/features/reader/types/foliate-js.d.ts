@@ -32,10 +32,37 @@ declare module "foliate-js/epub.js" {
     type: string | Promise<string>
   }
 
+  export interface EpubManifestItem {
+    id: string
+    href: string
+    mediaType: string
+    properties?: string[] | undefined
+    mediaOverlay?: string | undefined
+  }
+
+  export interface EpubSpineItem {
+    idref: string
+    id?: string | undefined
+    linear?: string | undefined
+    properties?: string[] | undefined
+  }
+
+  export interface EpubResources {
+    manifest?: EpubManifestItem[] | undefined
+    spine?: EpubSpineItem[] | undefined
+    cover?: EpubManifestItem | undefined
+    getItemByID?(id: string): EpubManifestItem | undefined
+    getItemByHref?(href: string): EpubManifestItem | undefined
+  }
+
   export class EPUB {
     constructor(loader: EpubLoader)
     init(): Promise<this>
     transformTarget?: EventTarget | undefined
+    resources?: EpubResources | undefined
+    loadText?: ((name: string) => Promise<string | null>) | undefined
+    loadBlob?: ((name: string) => Promise<Blob | null>) | undefined
+    getCover?: (() => Promise<Blob | null>) | undefined
     metadata?:
       | {
           title?: string | Record<string, string> | undefined

@@ -8,6 +8,7 @@ import type {
 import { TOC_FLAG_EXTERNAL_LINK } from "@shiro/ui-shared/features/reader/contracts/engine"
 import type { CompiledReaderStyle } from "@shiro/ui-shared/features/reader/contracts/settings"
 import {
+  collapseUnicodeWhitespace,
   computeActiveTocIndex,
   computePageStats,
   FoliateEpubEngine,
@@ -1732,6 +1733,164 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
       expect(fakeContinuous.destroy).toHaveBeenCalledTimes(1)
       expect(sectionDoc.body.style.getPropertyValue("background")).toBe("")
     })
+
+    await instance.destroy()
+  })
+
+  it("patches cover fallback without null Blob, collapses Unicode TOC whitespace, sanitizes &nbsp; createDocument, supports fixed zoom, and extracts EPUB3 footnotes", async () => {
+    expect(collapseUnicodeWhitespace("  第一章\u00a0\u3000引言\u2002 ")).toBe(
+      "第一章 引言"
+    )
+
+    const baseBridge = createMockReaderBridge()
+    const coverPng = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer
+    const brokenXhtml = `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>Hello&nbsp;world</p><script>alert(1)</script></body></html>`
+    const notesXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+  <body>
+    <aside id="fn-1" epub:type="footnote">
+      <p>Footnote body text. <a epub:type="backlink" href="ch0.xhtml#ref-1">↩</a></p>
+    </aside>
+  </body>
+</html>`
+
+    const bridge: typeof baseBridge = {
+      ...baseBridge,
+      async epubOpen(bookId) {
+        const opened = await baseBridge.epubOpen(bookId)
+        return {
+          ...opened,
+          entries: {
+            ...opened.entries,
+            "OEBPS/Images/Cover.jpg": coverPng.byteLength,
+            "OEBPS/ch0.xhtml": brokenXhtml.length,
+            "OEBPS/notes.xhtml": notesXhtml.length,
+          },
+        }
+      },
+      async epubReadEntry(sessionId, path) {
+        if (path === "OEBPS/Images/Cover.jpg") return coverPng
+        if (path === "OEBPS/ch0.xhtml") {
+          return new TextEncoder().encode(brokenXhtml).buffer
+        }
+        if (path === "OEBPS/notes.xhtml") {
+          return new TextEncoder().encode(notesXhtml).buffer
+        }
+        return baseBridge.epubReadEntry(sessionId, path)
+      },
+    }
+
+    const view = createFakeView()
+    const book = {
+      transformTarget: new EventTarget(),
+      metadata: { title: "Compat Book", language: "en" },
+      dir: "ltr" as const,
+      rendition: {},
+      resources: {
+        cover: { id: "missing", href: "OEBPS/missing.jpg", mediaType: "image/jpeg" },
+        manifest: [
+          { id: "cov", href: "OEBPS/Images/Cover.jpg", mediaType: "image/jpeg" },
+          { id: "c0", href: "OEBPS/ch0.xhtml", mediaType: "application/xhtml+xml" },
+          { id: "n1", href: "OEBPS/notes.xhtml", mediaType: "application/xhtml+xml" },
+        ],
+        spine: [
+          { idref: "c0", linear: "yes", properties: ["rendition:layout-pre-paginated"] },
+          { idref: "n1", linear: "yes", properties: ["rendition:layout-pre-paginated"] },
+        ],
+      },
+      toc: [{ label: "Preface\u00a0\u30001", href: "OEBPS/ch0.xhtml" }],
+      sections: [
+        { id: "OEBPS/ch0.xhtml", size: 100, cfi: "/6/2!", linear: "yes", createDocument: vi.fn() },
+        { id: "OEBPS/notes.xhtml", size: 100, cfi: "/6/4!", linear: "yes", createDocument: vi.fn() },
+      ],
+      resolveHref: (href: string) => {
+        if (href.startsWith("OEBPS/notes.xhtml")) {
+          const frag = href.split("#")[1] ?? ""
+          return {
+            index: 1,
+            anchor: (doc: Document) => (frag ? doc.getElementById(frag) : 0),
+          }
+        }
+        return { index: 0, anchor: () => 0 }
+      },
+      isExternal: () => false,
+      destroy: vi.fn(),
+    }
+
+    const footnotes: Array<{ readonly text: string; readonly kind: string; readonly html: string }> = []
+    const engine = new FoliateEpubEngine({
+      bridge,
+      loadModules: async () => ({
+        View: FakeViewCtor as never,
+        EPUB: class {
+          async init() {
+            return book
+          }
+        } as never,
+      }),
+      createView: () => view as never,
+    })
+
+    const container = document.createElement("div")
+    const instance = await engine.open({
+      tabId: "t-compat",
+      bookId: "b-compat",
+      bookHash: "d".repeat(64),
+      fallbackTitle: "Fallback",
+      preloadedNavigation: null,
+      initialLocator: undefined,
+      initialStyle: DEFAULT_TEST_STYLE,
+      container,
+      events: {
+        onRelocate: vi.fn(),
+        onSelectionChange: vi.fn(),
+        onViewportTap: vi.fn(),
+        onExternalLink: vi.fn(),
+        onFootnote: (fn) => footnotes.push(fn),
+        onKeyCommand: vi.fn(),
+        onFatalError: vi.fn(),
+      },
+    })
+
+    // Per-section pre-paginated promoted whole book to fixed layout with zoom support
+    expect(instance.metadata.isFixedLayout).toBe(true)
+    expect(instance.capabilities.supportsFixedZoom).toBe(true)
+    expect(view.renderer.getAttribute("zoom")).toBe("fit-page")
+    instance.setFixedZoom?.(1.5)
+    expect(view.renderer.getAttribute("zoom")).toBe("1.5")
+    expect(instance.getFixedZoom?.()).toBe(1.5)
+
+    // TOC Unicode whitespace collapsed
+    expect(book.toc[0]?.label).toBe("Preface 1")
+
+    // Fallback cover resolves Cover.jpg instead of returning 4-byte "null" Blob
+    const coverBlob = await (book as unknown as { getCover(): Promise<Blob | null> }).getCover()
+    expect(coverBlob).not.toBeNull()
+    expect(coverBlob?.size).toBe(coverPng.byteLength)
+
+    // section.createDocument() falls back &nbsp; XHTML cleanly and strips <script>
+    const doc0 = await book.sections[0]!.createDocument!()
+    expect(doc0.querySelector("parsererror")).toBeNull()
+    expect(doc0.querySelector("script")).toBeNull()
+    expect(doc0.body.textContent).toContain("Hello")
+
+    // EPUB3 noteref link intercepts navigation and emits sanitized footnote payload without backlink
+    const linkHost = document.createElement("div")
+    linkHost.innerHTML = '<a id="ref-1" epub:type="noteref" href="notes.xhtml#fn-1">1</a>'
+    const anchor = linkHost.querySelector("a")!
+    const linkEvent = new CustomEvent("link", {
+      cancelable: true,
+      detail: { a: anchor, href: "OEBPS/notes.xhtml#fn-1" },
+    })
+    view.dispatchEvent(linkEvent)
+    expect(linkEvent.defaultPrevented).toBe(true)
+
+    await vi.waitFor(() => {
+      expect(footnotes).toHaveLength(1)
+    })
+    expect(footnotes[0]?.kind).toBe("footnote")
+    expect(footnotes[0]?.text).toContain("Footnote body text.")
+    expect(footnotes[0]?.html).not.toContain("backlink")
 
     await instance.destroy()
   })

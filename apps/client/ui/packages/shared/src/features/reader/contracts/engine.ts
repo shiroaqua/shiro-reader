@@ -159,12 +159,38 @@ export interface ReaderBookMetadata {
   readonly isFixedLayout: boolean
 }
 
+export type FixedZoomMode = "fit-page" | "fit-width" | number
+
+export type FootnoteKind =
+  | "footnote"
+  | "endnote"
+  | "note"
+  | "biblioentry"
+  | "definition"
+
+export interface FootnoteAnchorRect {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+export interface FootnotePayload {
+  readonly href: string
+  readonly locator: NavigationLocator | null
+  readonly kind: FootnoteKind
+  readonly html: string
+  readonly text: string
+  readonly anchorRect: FootnoteAnchorRect | null
+}
+
 export interface ReaderEngineEvents {
   onRelocate: (snapshot: RelocationSnapshot) => void
   onSelectionChange: (selection: SelectionContext | null) => void
   onViewportTap: (normX: number, normY: number) => void
   onExternalLink: (url: string) => void
   onInternalLink?: ((href: string, before: RelocationSnapshot | null) => void) | undefined
+  onFootnote?: ((footnote: FootnotePayload) => void) | undefined
   onCopySelection?: ((ctx: SelectionContext) => Promise<void>) | undefined
   onKeyCommand: (event: KeyboardEvent) => void
   onFatalError: (error: Error) => void
@@ -198,6 +224,8 @@ export interface ReaderDocumentInstance {
 
   applyStyle(style: CompiledReaderStyle): void
   setViewState(state: EphemeralReaderViewState): void
+  readonly getFixedZoom?: (() => FixedZoomMode) | undefined
+  readonly setFixedZoom?: ((zoom: FixedZoomMode) => void) | undefined
 
   goLeft(): Promise<void>
   goRight(): Promise<void>

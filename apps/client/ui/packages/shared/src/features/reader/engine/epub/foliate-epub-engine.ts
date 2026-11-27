@@ -15,6 +15,7 @@ import type {
   BookNavigationData,
   EngineCapabilities,
   EphemeralReaderViewState,
+  FixedZoomMode,
   NavigationLocator,
   OpenDocumentParams,
   ReaderBookMetadata,
@@ -43,10 +44,16 @@ import {
   type ContinuousScrollRendererOptions,
 } from "./continuous-scroll-renderer"
 import { EpubIpcLoader } from "./epub-ipc-loader"
+import {
+  extractFootnotePayload,
+  isFootnoteReference,
+} from "./footnote-extractor"
+import { inferEpubEntryMime } from "./mime"
 import { RelayoutCoordinator } from "./relayout-coordinator"
 import {
   SectionLifecycleBridge,
   attachBookSanitizer,
+  sanitizeMarkupDocumentWithType,
 } from "./section-bridge"
 import { selectionActionRegistry } from "../../selection/action-registry"
 import { SelectionObserver } from "../../selection/selection-observer"
@@ -107,6 +114,211 @@ function createAbortError(): Error {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.min(1, Math.max(0, value))
+}
+
+export function collapseUnicodeWhitespace(value: string): string {
+  return value.replace(/[\p{White_Space}]+/gu, " ").trim()
+}
+
+function normalizeTocEntryLabels(entries: readonly EpubTocEntry[] | undefined): void {
+  if (!entries) return
+  for (const entry of entries) {
+    if (typeof entry.label === "string") {
+      entry.label = collapseUnicodeWhitespace(entry.label)
+    }
+    if (entry.subitems && entry.subitems.length > 0) {
+      normalizeTocEntryLabels(entry.subitems)
+    }
+  }
+}
+
+function isSectionPrePaginated(properties: readonly string[] | undefined): boolean {
+  if (!properties || properties.length === 0) return false
+  return properties.some(
+    (prop) =>
+      prop === "rendition:layout-pre-paginated" || prop === "layout-pre-paginated"
+  )
+}
+
+function extractImageRefsFromDocument(doc: Document): string[] {
+  const refs: string[] = []
+  for (const el of Array.from(doc.querySelectorAll("img, image"))) {
+    const tag = el.localName?.toLowerCase() ?? ""
+    if (tag === "img") {
+      const src = el.getAttribute("src")?.trim()
+      if (src) refs.push(src)
+    } else if (tag === "image") {
+      const href =
+        el.getAttribute("href")?.trim() ||
+        el.getAttribute("xlink:href")?.trim() ||
+        el.getAttributeNS("http://www.w3.org/1999/xlink", "href")?.trim()
+      if (href) refs.push(href)
+    }
+  }
+  return refs
+}
+
+function patchFoliateBookCompat(
+  book: EPUB,
+  loader: Pick<EpubIpcLoader, "loadBlob" | "loadText">
+): ReadonlySet<number> {
+  normalizeTocEntryLabels(book.toc)
+
+  const manifestByHref = new Map<string, string>()
+  for (const item of book.resources?.manifest ?? []) {
+    manifestByHref.set(item.href, item.mediaType)
+  }
+
+  for (const section of book.sections) {
+    const origCreateDocument = section.createDocument?.bind(section)
+    const sectionHref = typeof section.id === "string" ? section.id : null
+    const sectionMediaType =
+      (sectionHref ? manifestByHref.get(sectionHref) : undefined) ??
+      (sectionHref ? inferEpubEntryMime(sectionHref) : "application/xhtml+xml")
+
+    section.createDocument = async () => {
+      if (sectionHref && typeof loader.loadText === "function") {
+        const raw = await loader.loadText(sectionHref)
+        if (raw !== null) {
+          const sanitized = sanitizeMarkupDocumentWithType(raw, sectionMediaType)
+          const parseType: DOMParserSupportedType =
+            sanitized.mediaType === "text/html"
+              ? "text/html"
+              : sanitized.mediaType === "image/svg+xml"
+                ? "image/svg+xml"
+                : "application/xhtml+xml"
+          return new DOMParser().parseFromString(sanitized.markup, parseType)
+        }
+      }
+      if (origCreateDocument) {
+        return origCreateDocument()
+      }
+      return new DOMParser().parseFromString("<html><body></body></html>", "text/html")
+    }
+  }
+
+  const prePaginatedIndices = new Set<number>()
+  const spineItems = book.resources?.spine ?? []
+  let linearCount = 0
+  let prePaginatedLinearCount = 0
+  for (let idx = 0; idx < spineItems.length; idx++) {
+    const item = spineItems[idx]
+    if (!item) continue
+    const isLinear = item.linear !== "no"
+    if (isLinear) linearCount += 1
+    if (isSectionPrePaginated(item.properties)) {
+      prePaginatedIndices.add(idx)
+      if (isLinear) prePaginatedLinearCount += 1
+    }
+  }
+  if (
+    book.rendition?.layout !== "pre-paginated" &&
+    linearCount > 0 &&
+    prePaginatedLinearCount === linearCount
+  ) {
+    book.rendition = {
+      ...book.rendition,
+      layout: "pre-paginated",
+    }
+  }
+
+  const loadCoverBlobSafely = async (
+    href: string,
+    declaredMime?: string | undefined
+  ): Promise<Blob | null> => {
+    const rawBlob =
+      typeof book.loadBlob === "function"
+        ? await book.loadBlob(href).catch(() => null)
+        : await loader.loadBlob(href).catch(() => null)
+    if (!rawBlob || rawBlob.size === 0) {
+      return null
+    }
+    const mime =
+      rawBlob.type && rawBlob.type !== "application/octet-stream"
+        ? rawBlob.type
+        : declaredMime ?? inferEpubEntryMime(href)
+    return new Blob([rawBlob], { type: mime })
+  }
+
+  book.getCover = async () => {
+    const declaredCover = book.resources?.cover
+    if (declaredCover?.href) {
+      const blob = await loadCoverBlobSafely(
+        declaredCover.href,
+        declaredCover.mediaType
+      )
+      if (blob) return blob
+    }
+
+    const manifestImages = (book.resources?.manifest ?? []).filter((item) =>
+      item.mediaType.toLowerCase().startsWith("image/")
+    )
+    const exactCoverImages: typeof manifestImages = []
+    const partialCoverImages: typeof manifestImages = []
+    for (const item of manifestImages) {
+      const decoded = (() => {
+        try {
+          return decodeURIComponent(item.href)
+        } catch {
+          return item.href
+        }
+      })()
+      const fileName = decoded.split("/").pop() ?? decoded
+      const stem = fileName.replace(/\.[^.]+$/, "")
+      if (stem.toLowerCase() === "cover") {
+        exactCoverImages.push(item)
+      } else if (
+        fileName.toLowerCase().includes("cover") ||
+        item.id.toLowerCase().includes("cover")
+      ) {
+        partialCoverImages.push(item)
+      }
+    }
+    for (const item of [...exactCoverImages, ...partialCoverImages]) {
+      const blob = await loadCoverBlobSafely(item.href, item.mediaType)
+      if (blob) return blob
+    }
+
+    const candidateIndices: number[] = []
+    for (let idx = 0; idx < book.sections.length; idx++) {
+      if (candidateIndices.length >= 3) break
+      const sec = book.sections[idx]
+      const secId = typeof sec?.id === "string" ? sec.id.toLowerCase() : ""
+      if (secId.includes("cover") || secId.includes("titlepage")) {
+        candidateIndices.push(idx)
+      }
+    }
+    if (book.sections.length > 0 && !candidateIndices.includes(0) && candidateIndices.length < 3) {
+      candidateIndices.push(0)
+    }
+    for (const idx of candidateIndices) {
+      const section = book.sections[idx]
+      if (!section || typeof section.createDocument !== "function") continue
+      try {
+        const doc = await section.createDocument()
+        for (const ref of extractImageRefsFromDocument(doc)) {
+          const resolvedHref = section.resolveHref?.(ref) ?? ref
+          const cleanHref = resolvedHref.split(/[?#]/)[0] ?? resolvedHref
+          const matchedItem = manifestImages.find(
+            (item) =>
+              item.href === cleanHref ||
+              item.href.toLowerCase() === cleanHref.toLowerCase()
+          )
+          const blob = await loadCoverBlobSafely(
+            matchedItem?.href ?? cleanHref,
+            matchedItem?.mediaType
+          )
+          if (blob) return blob
+        }
+      } catch {
+        // Continue trying remaining candidate cover sections.
+      }
+    }
+
+    return null
+  }
+
+  return prePaginatedIndices
 }
 
 function resolveLanguageMapValue(
@@ -308,7 +520,9 @@ export function flattenFoliateToc(
   ) => {
     for (const entry of entries) {
       const myIndex = nodes.length
-      const title = entry.label?.trim() || "(Untitled)"
+      const title =
+        (entry.label ? collapseUnicodeWhitespace(entry.label) : "") ||
+        "(Untitled)"
       const rawHref = entry.href?.trim() ?? ""
       const isExternal =
         rawHref.length > 0 &&
@@ -527,7 +741,7 @@ function findFirstLinearIndex(sections: readonly EpubSection[]): number {
 }
 
 const PRESERVED_BACKGROUND_SELECTOR =
-  "img, picture, video, canvas, svg, svg *, hr, [data-shiro-synthetic], [data-shiro-synthetic] *"
+  "img, picture, video, canvas, svg, svg *, hr, pre, code, kbd, samp, mark, [data-shiro-synthetic], [data-shiro-synthetic] *"
 
 function clearElementInlineBackground(el: Element | null | undefined): void {
   if (!el) return
@@ -771,10 +985,15 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
       checkNotAborted()
 
       attachBookSanitizer(book, lifecycleController.signal)
+      const prePaginatedSectionIndices = patchFoliateBookCompat(
+        book,
+        openedLoader
+      )
 
       const metadata = extractBookMetadata(book, params.fallbackTitle)
       const isFixedLayout = metadata.isFixedLayout
       const capabilities = buildCapabilities(isFixedLayout)
+      let currentFixedZoom: FixedZoomMode = "fit-page"
 
       const navigation: BookNavigationData = (() => {
         if (backendNav && backendNav.toc.length > 0) {
@@ -1132,8 +1351,24 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
       })
       sectionBridge = bridge
 
+      const applyFixedZoom = (nextZoom: FixedZoomMode): void => {
+        if (destroyed || !isFixedLayout) return
+        const normalized: FixedZoomMode =
+          typeof nextZoom === "number"
+            ? Number.isFinite(nextZoom)
+              ? Math.min(4, Math.max(0.5, Math.round(nextZoom * 100) / 100))
+              : 1
+            : nextZoom
+        currentFixedZoom = normalized
+        if (activeView.renderer) {
+          setAttrIfChanged(activeView.renderer, "zoom", String(normalized))
+        }
+      }
+
       const attachMountedSection = (index: number, doc: Document): void => {
-        if (!isFixedLayout) {
+        const isSectionFixed =
+          isFixedLayout || prePaginatedSectionIndices.has(index)
+        if (!isSectionFixed) {
           clearPublisherInlineBackgrounds(doc, {
             preserveBodyBackground: continuousRenderer !== null,
           })
@@ -1153,13 +1388,29 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
           },
           { signal: sectionSelectionController.signal }
         )
+        if (isFixedLayout) {
+          doc.addEventListener(
+            "wheel",
+            (event: WheelEvent) => {
+              if (destroyed || !(event.ctrlKey || event.metaKey)) return
+              event.preventDefault()
+              const base =
+                typeof currentFixedZoom === "number" ? currentFixedZoom : 1
+              const delta = event.deltaY < 0 ? 0.25 : -0.25
+              applyFixedZoom(base + delta)
+            },
+            { signal: sectionSelectionController.signal, passive: false }
+          )
+        }
         bridge.mountSection(index, doc)
         observer.attachSection(
           index,
           doc,
           resolveSectionBaseCfi(activeBook, index)
         )
-        pipeline.mountSection(index, doc)
+        if (!isSectionFixed) {
+          pipeline.mountSection(index, doc)
+        }
 
         if (currentStyle.customFontFace && currentStyle.usesFontFaceFallback) {
           void ensureDocCustomFont(doc, currentStyle.customFontFace)
@@ -1362,30 +1613,54 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
               params.events.onExternalLink(url)
             }
           },
-          onInternalLink: (href) => {
+          onInternalLink: (href, anchorEl) => {
             if (destroyed || continuousRenderer !== renderer) return
-            params.events.onInternalLink?.(href, lastEmittedRelocation)
-            const resolved = activeBook.resolveHref?.(href) ?? null
-            if (
-              resolved &&
-              Number.isFinite(resolved.index) &&
-              resolved.index >= 0 &&
-              resolved.index < activeBook.sections.length
-            ) {
-              const resolvedAnchor = resolved.anchor
-              void renderer
-                .goTo({
-                  index: resolved.index,
-                  anchor: resolvedAnchor
-                    ? (targetDoc: Document) =>
-                        this.resolver.resolveVisualTarget(
-                          targetDoc,
-                          resolvedAnchor(targetDoc)
-                        )
-                    : undefined,
-                })
-                .catch(() => {})
+            const navigateContinuous = () => {
+              if (destroyed || continuousRenderer !== renderer) return
+              params.events.onInternalLink?.(href, lastEmittedRelocation)
+              const resolved = activeBook.resolveHref?.(href) ?? null
+              if (
+                resolved &&
+                Number.isFinite(resolved.index) &&
+                resolved.index >= 0 &&
+                resolved.index < activeBook.sections.length
+              ) {
+                const resolvedAnchor = resolved.anchor
+                void renderer
+                  .goTo({
+                    index: resolved.index,
+                    anchor: resolvedAnchor
+                      ? (targetDoc: Document) =>
+                          this.resolver.resolveVisualTarget(
+                            targetDoc,
+                            resolvedAnchor(targetDoc)
+                          )
+                      : undefined,
+                  })
+                  .catch(() => {})
+              }
             }
+            if (
+              params.events.onFootnote &&
+              anchorEl &&
+              isFootnoteReference(anchorEl, href)
+            ) {
+              void extractFootnotePayload({
+                book: activeBook,
+                resolvedHref: href,
+                anchorEl,
+                viewportContainer: params.container,
+              }).then((payload) => {
+                if (destroyed || continuousRenderer !== renderer) return
+                if (payload) {
+                  params.events.onFootnote?.(payload)
+                } else {
+                  navigateContinuous()
+                }
+              })
+              return
+            }
+            navigateContinuous()
           },
           hasSectionSelection: (sectionIndex) => {
             const doc = mountedDocs.get(sectionIndex)
@@ -1491,6 +1766,9 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
         const renderer = activeView.renderer
         if (renderer) {
           applyPaginatorAttributes(renderer, style, isFixedLayout)
+          if (isFixedLayout) {
+            setAttrIfChanged(renderer, "zoom", String(currentFixedZoom))
+          }
           if (style.chapterCss !== lastAppliedChapterCss) {
             lastAppliedChapterCss = style.chapterCss
             renderer.setStyles?.(style.chapterCss)
@@ -1553,36 +1831,67 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
           if (destroyed) return
           const detail = (event as CustomEvent<FoliateLinkDetail>).detail
           if (detail?.href) {
-            params.events.onInternalLink?.(detail.href, lastEmittedRelocation)
-            // In translated_only mode, host fragment targets are display:none and raw
-            // foliate-js navigation silently aborts on empty rects; wrap with visual handoff.
-            if (
-              pipeline.getViewState().translationMode === "translated_only" &&
-              activeView.renderer?.goTo
-            ) {
-              const resolved = activeBook.resolveHref?.(detail.href) ?? null
+            const navigateViewLink = (forceProgrammatic: boolean) => {
+              if (destroyed) return
+              params.events.onInternalLink?.(detail.href, lastEmittedRelocation)
+              // In translated_only mode, host fragment targets are display:none and raw
+              // foliate-js navigation silently aborts on empty rects; wrap with visual handoff.
+              const shouldVisualHandoff =
+                pipeline.getViewState().translationMode === "translated_only"
               if (
-                resolved &&
-                Number.isFinite(resolved.index) &&
-                resolved.index >= 0 &&
-                resolved.index < activeBook.sections.length
+                (shouldVisualHandoff || forceProgrammatic) &&
+                activeView.renderer?.goTo
               ) {
-                event.preventDefault()
-                const resolvedAnchor = resolved.anchor
-                void activeView.renderer
-                  .goTo({
-                    index: resolved.index,
-                    anchor: resolvedAnchor
-                      ? (targetDoc: Document) =>
-                          this.resolver.resolveVisualTarget(
-                            targetDoc,
-                            resolvedAnchor(targetDoc)
-                          )
-                      : undefined,
-                  })
-                  .catch(() => {})
+                const resolved = activeBook.resolveHref?.(detail.href) ?? null
+                if (
+                  resolved &&
+                  Number.isFinite(resolved.index) &&
+                  resolved.index >= 0 &&
+                  resolved.index < activeBook.sections.length
+                ) {
+                  event.preventDefault()
+                  const resolvedAnchor = resolved.anchor
+                  void activeView.renderer
+                    .goTo({
+                      index: resolved.index,
+                      anchor: resolvedAnchor
+                        ? (targetDoc: Document) =>
+                            shouldVisualHandoff
+                              ? this.resolver.resolveVisualTarget(
+                                  targetDoc,
+                                  resolvedAnchor(targetDoc)
+                                )
+                              : resolvedAnchor(targetDoc)
+                        : undefined,
+                    })
+                    .catch(() => {})
+                }
               }
             }
+
+            if (
+              params.events.onFootnote &&
+              detail.a &&
+              isFootnoteReference(detail.a, detail.href)
+            ) {
+              event.preventDefault()
+              void extractFootnotePayload({
+                book: activeBook,
+                resolvedHref: detail.href,
+                anchorEl: detail.a,
+                viewportContainer: params.container,
+              }).then((payload) => {
+                if (destroyed) return
+                if (payload) {
+                  params.events.onFootnote?.(payload)
+                } else {
+                  navigateViewLink(true)
+                }
+              })
+              return
+            }
+
+            navigateViewLink(false)
           }
         },
         { signal: lifecycleController.signal }
@@ -1731,6 +2040,12 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
             relayout.scheduleRelayout()
           }
         },
+        ...(isFixedLayout
+          ? {
+              getFixedZoom: () => currentFixedZoom,
+              setFixedZoom: applyFixedZoom,
+            }
+          : {}),
         goLeft: async () => {
           if (destroyed) return
           if (continuousRenderer) {

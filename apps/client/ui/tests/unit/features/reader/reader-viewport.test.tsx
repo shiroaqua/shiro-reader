@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ReaderViewport } from "@shiro/ui-shared/features/reader/components/reader-viewport"
-import type { ReaderDocumentInstance } from "@shiro/ui-shared/features/reader/contracts/engine"
+import type {
+  FootnotePayload,
+  ReaderDocumentInstance,
+} from "@shiro/ui-shared/features/reader/contracts/engine"
 import { readerEngineRegistry } from "@shiro/ui-shared/features/reader/engine/engine-registry"
 import { UnsupportedFormatError } from "@shiro/ui-shared/features/reader/engine/unsupported-pdf-engine"
 import { getDefaultReaderProfile } from "@shiro/ui-shared/features/reader/settings/defaults"
@@ -257,5 +260,113 @@ describe("input-commands and ReaderViewport states", () => {
     expect(
       screen.queryByTestId("reader-page-number-overlay")
     ).not.toBeInTheDocument()
+  })
+
+  it("renders fixed-layout zoom controls and EPUB3 footnote popover with jump & Escape dismissal", async () => {
+    const setFixedZoom = vi.fn()
+    const fixedInstance: ReaderDocumentInstance = {
+      ...makeFakeInstance("FXL & Footnote Book"),
+      capabilities: {
+        ...makeFakeInstance("x").capabilities,
+        supportsFixedZoom: true,
+      },
+      metadata: {
+        title: "FXL & Footnote Book",
+        author: null,
+        language: "en",
+        direction: "ltr",
+        isFixedLayout: true,
+      },
+      getFixedZoom: () => "fit-page",
+      setFixedZoom,
+    }
+
+    let capturedOnFootnote: ((fn: FootnotePayload) => void) | undefined
+    const onInternalLink = vi.fn()
+
+    const spy = vi
+      .spyOn(readerEngineRegistry, "open")
+      .mockImplementation(async (_format, params) => {
+        capturedOnFootnote = params.events.onFootnote as typeof capturedOnFootnote
+        return fixedInstance
+      })
+
+    render(
+      <ReaderViewport
+        tabId="vp-fxl-fn"
+        bookId="book-fxl-fn"
+        bookHash={"f".repeat(64)}
+        format="EPUB"
+        title="FXL & Footnote Book"
+        compiledStyle={makeCompiledStyle()}
+        onInternalLink={onInternalLink}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("reader-fixed-zoom-controls")).toBeInTheDocument()
+    })
+
+    // Fixed zoom controls drive setFixedZoom
+    const fitToggle = screen.getByRole("button", { name: "Fit width" })
+    expect(fitToggle).toHaveTextContent("Fit page")
+    fireEvent.click(fitToggle)
+    expect(setFixedZoom).toHaveBeenCalledWith("fit-width")
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }))
+    expect(setFixedZoom).toHaveBeenCalledWith(1.25)
+
+    // Footnote popover displays sanitized HTML and jumps on action click
+    act(() => {
+      capturedOnFootnote?.({
+        href: "OEBPS/notes.xhtml#fn-1",
+        locator: {
+          kind: "epub",
+          spine_index: 2,
+          href: "OEBPS/notes.xhtml",
+          target: { kind: "fragment", fragment: "fn-1" },
+        },
+        kind: "footnote",
+        html: "<p>Detailed explanation here.</p>",
+        text: "Detailed explanation here.",
+        anchorRect: { left: 100, top: 80, width: 14, height: 18 },
+      })
+    })
+
+    expect(screen.getByTestId("reader-footnote-popover")).toBeInTheDocument()
+    expect(screen.getByTestId("reader-footnote-content")).toHaveTextContent(
+      "Detailed explanation here."
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Jump to note/i }))
+    expect(onInternalLink).toHaveBeenCalledWith("OEBPS/notes.xhtml#fn-1", null)
+    expect(fixedInstance.goToLocator).toHaveBeenCalledWith({
+      kind: "epub",
+      spine_index: 2,
+      href: "OEBPS/notes.xhtml",
+      target: { kind: "fragment", fragment: "fn-1" },
+    })
+    expect(screen.queryByTestId("reader-footnote-popover")).not.toBeInTheDocument()
+
+    // Escape key dismisses open footnote popover
+    act(() => {
+      capturedOnFootnote?.({
+        href: "OEBPS/notes.xhtml#fn-2",
+        locator: {
+          kind: "epub",
+          spine_index: 2,
+          href: "OEBPS/notes.xhtml",
+          target: { kind: "fragment", fragment: "fn-2" },
+        },
+        kind: "footnote",
+        html: "<p>Second note.</p>",
+        text: "Second note.",
+        anchorRect: null,
+      })
+    })
+    expect(screen.getByTestId("reader-footnote-popover")).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(screen.queryByTestId("reader-footnote-popover")).not.toBeInTheDocument()
+
+    spy.mockRestore()
   })
 })
