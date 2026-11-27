@@ -25,6 +25,26 @@ const URI_ATTRIBUTES = [
   "poster",
 ] as const
 
+const EMBEDDED_CONTAINER_TAGS = new Set(["iframe", "object", "embed"])
+
+const ACTIVE_SUBRESOURCE_TAGS = new Set([
+  "img",
+  "image",
+  "source",
+  "track",
+  "video",
+  "audio",
+  "link",
+  "input",
+  "use",
+  "feimage",
+  "form",
+])
+
+const XHTML_NS = "http://www.w3.org/1999/xhtml"
+const READER_DOCUMENT_CSP =
+  "default-src 'self' blob: data: shiro-font: http://shiro-font.localhost 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob: data:; font-src 'self' blob: data: shiro-font: http://shiro-font.localhost; style-src 'self' blob: data: 'unsafe-inline'; script-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'self' blob:; form-action 'none';"
+
 const SMIL_ANIMATION_TAGS = new Set([
   "set",
   "animate",
@@ -71,7 +91,7 @@ function decodeBasicNumericEntities(value: string): string {
   })
 }
 
-function isDangerousUriValue(rawValue: string): boolean {
+function normalizeUriForPolicyCheck(rawValue: string): string {
   const decoded = decodeBasicNumericEntities(rawValue)
   let stripped = ""
   for (let i = 0; i < decoded.length; i++) {
@@ -80,7 +100,11 @@ function isDangerousUriValue(rawValue: string): boolean {
       stripped += decoded[i]
     }
   }
-  const normalized = stripped.toLowerCase()
+  return stripped.toLowerCase()
+}
+
+function isDangerousUriValue(rawValue: string): boolean {
+  const normalized = normalizeUriForPolicyCheck(rawValue)
   return (
     normalized.startsWith("javascript:") ||
     normalized.startsWith("vbscript:") ||
@@ -91,6 +115,58 @@ function isDangerousUriValue(rawValue: string): boolean {
     normalized.startsWith("data:text/xml") ||
     /^data:[^,;]+\+xml(?:[;,]|$)/.test(normalized)
   )
+}
+
+function isExternalNetworkUri(rawValue: string): boolean {
+  const normalized = normalizeUriForPolicyCheck(rawValue)
+  return (
+    normalized.startsWith("http:") ||
+    normalized.startsWith("https:") ||
+    normalized.startsWith("//") ||
+    normalized.startsWith("ws:") ||
+    normalized.startsWith("wss:") ||
+    normalized.startsWith("ftp:")
+  )
+}
+
+function stripExternalCssUrls(rawCss: string): string {
+  const withoutExternalImports = rawCss.replace(
+    /@import\s+(?:url\(\s*)?(['"]?)([^;)'"]+)\1\s*\)?[^;]*;?/gi,
+    (match, _quote: string, inner: string) => {
+      const candidate = inner.trim()
+      if (
+        isExternalNetworkUri(candidate) ||
+        isDangerousUriValue(candidate)
+      ) {
+        return ""
+      }
+      return match
+    }
+  )
+  return withoutExternalImports.replace(
+    /url\(\s*(['"]?)([^)]*?)\1\s*\)/gi,
+    (match, _quote: string, inner: string) => {
+      const candidate = inner.trim()
+      if (
+        isExternalNetworkUri(candidate) ||
+        isDangerousUriValue(candidate)
+      ) {
+        return "none"
+      }
+      return match
+    }
+  )
+}
+
+function hasDisallowedSrcsetCandidate(rawSrcset: string): boolean {
+  for (const part of rawSrcset.split(",")) {
+    const url = part.trim().split(/\s+/)[0] ?? ""
+    if (!url) continue
+    if (isDangerousUriValue(url) || isExternalNetworkUri(url)) {
+      return true
+    }
+  }
+  return false
 }
 
 function isDangerousAttributeTarget(rawAttrName: string): boolean {
@@ -126,9 +202,32 @@ function stripDangerousContainer(root: Document | DocumentFragment): void {
     const el = allElements[i]
     if (!el) continue
     const localName = el.localName.toLowerCase()
-    if (localName === "script" || localName === "base") {
+    if (
+      localName === "script" ||
+      localName === "base" ||
+      localName === "applet" ||
+      localName === "portal" ||
+      localName === "frame" ||
+      localName === "frameset"
+    ) {
       toRemove.push(el)
       continue
+    }
+
+    // Block remote/dangerous/empty embedded containers (e.g. remote https:// iframes).
+    if (EMBEDDED_CONTAINER_TAGS.has(localName)) {
+      const targetRef =
+        (localName === "object"
+          ? el.getAttribute("data") ?? el.getAttribute("src")
+          : el.getAttribute("src"))?.trim() ?? ""
+      if (
+        !targetRef ||
+        isDangerousUriValue(targetRef) ||
+        isExternalNetworkUri(targetRef)
+      ) {
+        toRemove.push(el)
+        continue
+      }
     }
 
     // Unconditionally strip <meta http-equiv="refresh">: prevents both silent external
@@ -139,6 +238,13 @@ function stripDangerousContainer(root: Document | DocumentFragment): void {
     ) {
       toRemove.push(el)
       continue
+    }
+
+    if (localName === "style" && el.textContent) {
+      const cleanedCss = stripExternalCssUrls(el.textContent)
+      if (cleanedCss !== el.textContent) {
+        el.textContent = cleanedCss
+      }
     }
 
     // Strip SVG SMIL elements that animate URI/event attributes or carry dangerous URI values.
@@ -157,6 +263,7 @@ function stripDangerousContainer(root: Document | DocumentFragment): void {
       }
     }
 
+    const isActiveSubresource = ACTIVE_SUBRESOURCE_TAGS.has(localName)
     const attrs = Array.from(el.attributes)
     for (const attr of attrs) {
       const lowerName = attr.name.toLowerCase()
@@ -165,12 +272,28 @@ function stripDangerousContainer(root: Document | DocumentFragment): void {
         el.removeAttributeNode(attr)
         continue
       }
+      if (lowerName === "style") {
+        const cleanedInline = stripExternalCssUrls(attr.value)
+        if (cleanedInline !== attr.value) {
+          el.setAttribute(attr.name, cleanedInline)
+        }
+        continue
+      }
+      if (isActiveSubresource && lowerLocal === "srcset") {
+        if (hasDisallowedSrcsetCandidate(attr.value)) {
+          el.removeAttributeNode(attr)
+        }
+        continue
+      }
       if (
         (URI_ATTRIBUTES as readonly string[]).includes(lowerName) ||
         (URI_ATTRIBUTES as readonly string[]).includes(lowerLocal) ||
         lowerName === "xlink:href"
       ) {
-        if (isDangerousUriValue(attr.value)) {
+        if (
+          isDangerousUriValue(attr.value) ||
+          (isActiveSubresource && isExternalNetworkUri(attr.value))
+        ) {
           el.removeAttributeNode(attr)
         }
       }
@@ -192,6 +315,48 @@ function stripDangerousContainer(root: Document | DocumentFragment): void {
 
 function stripDangerousDomNodes(doc: Document): void {
   stripDangerousContainer(doc)
+}
+
+function injectContentSecurityPolicy(
+  doc: Document,
+  effectiveType: "text/html" | "application/xhtml+xml"
+): void {
+  const root = doc.documentElement
+  if (!root || root.localName.toLowerCase() !== "html") {
+    return
+  }
+
+  for (const existing of Array.from(doc.querySelectorAll("meta[http-equiv]"))) {
+    if (
+      existing.getAttribute("http-equiv")?.trim().toLowerCase() ===
+      "content-security-policy"
+    ) {
+      existing.remove()
+    }
+  }
+
+  const useXhtmlNs =
+    effectiveType === "application/xhtml+xml" && root.namespaceURI === XHTML_NS
+
+  let head =
+    doc.head ??
+    Array.from(root.children).find(
+      (child) => child.localName.toLowerCase() === "head"
+    ) ??
+    null
+  if (!head) {
+    head = useXhtmlNs
+      ? doc.createElementNS(XHTML_NS, "head")
+      : doc.createElement("head")
+    root.insertBefore(head, root.firstChild)
+  }
+
+  const meta = useXhtmlNs
+    ? doc.createElementNS(XHTML_NS, "meta")
+    : doc.createElement("meta")
+  meta.setAttribute("http-equiv", "Content-Security-Policy")
+  meta.setAttribute("content", READER_DOCUMENT_CSP)
+  head.insertBefore(meta, head.firstChild)
 }
 
 function serializeDoctype(doc: Document): string {
@@ -252,6 +417,10 @@ export function sanitizeMarkupDocumentWithType(
   }
 
   stripDangerousDomNodes(doc)
+
+  if (effectiveType === "text/html" || effectiveType === "application/xhtml+xml") {
+    injectContentSecurityPolicy(doc, effectiveType)
+  }
 
   if (effectiveType === "text/html") {
     const html = doc.documentElement?.outerHTML ?? ""

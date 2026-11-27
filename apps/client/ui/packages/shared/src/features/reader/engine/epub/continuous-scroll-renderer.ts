@@ -16,7 +16,10 @@ export interface ContinuousScrollRendererOptions {
   readonly onSectionUnmount: (sectionIndex: number) => void
   readonly onRelocate: (detail: ContinuousScrollRelocateDetail) => void
   readonly onExternalLink: (url: string) => void
-  readonly onInternalLink: (href: string) => void
+  readonly onInternalLink: (
+    href: string,
+    anchorEl?: HTMLAnchorElement
+  ) => void
   readonly hasSectionSelection?: ((sectionIndex: number) => boolean) | undefined
   readonly loadSectionSrc?:
     | ((section: EpubSection, index: number) => Promise<string | null>)
@@ -38,9 +41,13 @@ interface MountedContinuousSlot {
   readonly wrapper: HTMLElement
   readonly iframe: HTMLIFrameElement
   readonly doc: Document
-  readonly styleEl: HTMLStyleElement
+  readonly styleEl: HTMLStyleElement | SVGStyleElement
   readonly controller: AbortController
   readonly resizeObserver: ResizeObserver | null
+  readonly isSvgRoot: boolean
+  isVerticalWriting: boolean
+  verticalMode: "horizontal-tb" | "vertical-rl" | "vertical-lr"
+  initializedVerticalScroll: boolean
   measuredHeight: number
   verticalPaddingPx: number
   totalSlotHeight: number
@@ -49,6 +56,8 @@ interface MountedContinuousSlot {
 const DEFAULT_RELOCATE_DEBOUNCE_MS = 120
 const DEFAULT_MAX_MOUNTED_SECTIONS = 5
 const PRELOAD_MARGIN_MIN_PX = 400
+const MEDIA_CONTAINMENT_CSS =
+  "body :is(img, svg, video, canvas) { max-inline-size: 100% !important; max-width: 100% !important; height: auto !important; object-fit: contain !important; box-sizing: border-box !important; }"
 
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -62,13 +71,86 @@ function parseBlockMarginPx(rawMargin: string): number {
 }
 
 function setStylesImportant(
-  el: HTMLElement,
+  el: { readonly style: CSSStyleDeclaration },
   styles: Readonly<Record<string, string>>
 ): void {
   const { style } = el
   for (const [k, v] of Object.entries(styles)) {
     style.setProperty(k, v, "important")
   }
+}
+
+function hasCssStyle(
+  node: unknown
+): node is { readonly style: CSSStyleDeclaration } {
+  return (
+    typeof node === "object" &&
+    node !== null &&
+    "style" in node &&
+    typeof (node as { readonly style?: CSSStyleDeclaration }).style
+      ?.setProperty === "function"
+  )
+}
+
+function detectDocumentWritingMode(
+  doc: Document
+): "horizontal-tb" | "vertical-rl" | "vertical-lr" {
+  const targets = [doc.body, doc.documentElement].filter(
+    (el): el is HTMLElement => el !== null
+  )
+  for (const target of targets) {
+    const computed = doc.defaultView?.getComputedStyle?.(target)?.writingMode
+    if (computed === "vertical-rl" || computed === "vertical-lr") {
+      return computed
+    }
+    const inlineStyle = target.getAttribute?.("style") ?? ""
+    if (/writing-mode\s*:\s*vertical-rl/i.test(inlineStyle)) {
+      return "vertical-rl"
+    }
+    if (/writing-mode\s*:\s*vertical-lr/i.test(inlineStyle)) {
+      return "vertical-lr"
+    }
+  }
+  const styleNodes = doc.querySelectorAll("style")
+  for (const styleEl of Array.from(styleNodes)) {
+    if (styleEl.hasAttribute("data-shiro-continuous-style")) continue
+    const css = styleEl.textContent ?? ""
+    if (/writing-mode\s*:\s*vertical-rl/i.test(css)) {
+      return "vertical-rl"
+    }
+    if (/writing-mode\s*:\s*vertical-lr/i.test(css)) {
+      return "vertical-lr"
+    }
+  }
+  return "horizontal-tb"
+}
+
+function parseSvgIntrinsicHeight(
+  svgRoot: Element,
+  targetWidthPx: number
+): number | null {
+  const viewBox = svgRoot.getAttribute("viewBox")
+  if (viewBox) {
+    const parts = viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map((part) => Number.parseFloat(part))
+    if (
+      parts.length === 4 &&
+      Number.isFinite(parts[2]) &&
+      Number.isFinite(parts[3]) &&
+      (parts[2] ?? 0) > 0 &&
+      (parts[3] ?? 0) > 0
+    ) {
+      return Math.ceil((targetWidthPx * parts[3]!) / parts[2]!)
+    }
+  }
+  const attrW = Number.parseFloat(svgRoot.getAttribute("width") ?? "")
+  const attrH = Number.parseFloat(svgRoot.getAttribute("height") ?? "")
+  if (Number.isFinite(attrW) && attrW > 0 && Number.isFinite(attrH) && attrH > 0) {
+    return Math.ceil((targetWidthPx * attrH) / attrW)
+  }
+  return null
 }
 
 function defaultLoadSectionSrc(section: EpubSection): Promise<string | null> {
@@ -183,7 +265,10 @@ export class ContinuousScrollRenderer {
   private readonly onSectionUnmount: (sectionIndex: number) => void
   private readonly onRelocate: (detail: ContinuousScrollRelocateDetail) => void
   private readonly onExternalLink: (url: string) => void
-  private readonly onInternalLink: (href: string) => void
+  private readonly onInternalLink: (
+    href: string,
+    anchorEl?: HTMLAnchorElement
+  ) => void
   private readonly hasSectionSelection: ((sectionIndex: number) => boolean) | undefined
   private readonly loadSectionSrc: (
     section: EpubSection,
@@ -304,7 +389,9 @@ export class ContinuousScrollRenderer {
       chapterCss: nextCss,
     }
     for (const slot of this.slots) {
-      slot.styleEl.textContent = nextCss
+      slot.styleEl.textContent = slot.isSvgRoot
+        ? nextCss
+        : `${MEDIA_CONTAINMENT_CSS}\n${nextCss}`
       this.syncSlotHeight(slot)
     }
   }
@@ -531,20 +618,60 @@ export class ContinuousScrollRenderer {
     slot.verticalPaddingPx = verticalPaddingPx
     slot.wrapper.style.paddingBlock = `${verticalPaddingPx}px`
 
-    const gap = attrs.gap || "6%"
     const maxInline = attrs.maxInlineSize || "760px"
+    slot.styleEl.textContent = slot.isSvgRoot
+      ? this.currentStyle.chapterCss
+      : `${MEDIA_CONTAINMENT_CSS}\n${this.currentStyle.chapterCss}`
 
-    if (doc.documentElement) {
+    const writingMode = slot.isSvgRoot
+      ? "horizontal-tb"
+      : detectDocumentWritingMode(doc)
+    slot.verticalMode = writingMode
+    slot.isVerticalWriting = writingMode !== "horizontal-tb"
+
+    if (slot.isVerticalWriting) {
+      const targetHeight = Math.max(
+        320,
+        this.getViewportHeight() - verticalPaddingPx * 2
+      )
+      slot.wrapper.style.overflowX = "auto"
+      slot.wrapper.style.overflowY = "hidden"
+      if (doc.documentElement && hasCssStyle(doc.documentElement)) {
+        setStylesImportant(doc.documentElement, {
+          "box-sizing": "border-box",
+          padding: "0",
+          "column-width": "auto",
+          height: `${targetHeight}px`,
+          width: "auto",
+          overflow: "visible",
+        })
+      }
+      if (doc.body && hasCssStyle(doc.body)) {
+        setStylesImportant(doc.body, {
+          "max-width": "none",
+          height: `${targetHeight}px`,
+          margin: "0",
+          background: "none",
+        })
+      }
+      return
+    }
+
+    slot.wrapper.style.overflowX = "visible"
+    slot.wrapper.style.overflowY = "visible"
+    slot.iframe.style.width = "100%"
+
+    if (doc.documentElement && hasCssStyle(doc.documentElement)) {
       setStylesImportant(doc.documentElement, {
         "box-sizing": "border-box",
-        padding: `0 ${gap}`,
+        padding: "0",
         "column-width": "auto",
         height: "auto",
-        width: "auto",
+        width: slot.isSvgRoot ? "100%" : "auto",
         overflow: "visible",
       })
     }
-    if (doc.body) {
+    if (doc.body && hasCssStyle(doc.body)) {
       setStylesImportant(doc.body, {
         "max-width": maxInline,
         margin: "0 auto",
@@ -553,7 +680,7 @@ export class ContinuousScrollRenderer {
       for (const mediaEl of Array.from(
         doc.body.querySelectorAll("img, svg, video")
       )) {
-        if (mediaEl instanceof HTMLElement) {
+        if (hasCssStyle(mediaEl)) {
           setStylesImportant(mediaEl, {
             "max-width": "100%",
             height: "auto",
@@ -563,17 +690,60 @@ export class ContinuousScrollRenderer {
         }
       }
     }
-    slot.styleEl.textContent = this.currentStyle.chapterCss
   }
 
-  private syncSlotHeight(slot: MountedContinuousSlot): number {
+  private measureSlotDimensions(slot: MountedContinuousSlot): {
+    readonly widthPx: number | null
+    readonly heightPx: number
+  } {
     const doc = slot.doc
+    if (slot.isVerticalWriting) {
+      const targetHeight = Math.max(
+        320,
+        this.getViewportHeight() - slot.verticalPaddingPx * 2
+      )
+      const viewportWidth = Math.max(320, this.scroller.clientWidth || 760)
+      const measuredWidth = Math.max(
+        viewportWidth,
+        doc.documentElement?.scrollWidth ?? 0,
+        doc.body?.scrollWidth ?? 0,
+        Math.ceil(doc.body?.getBoundingClientRect?.().width ?? 0)
+      )
+      return {
+        widthPx: measuredWidth,
+        heightPx: targetHeight,
+      }
+    }
+
+    if (slot.isSvgRoot && !doc.body && doc.documentElement) {
+      const targetWidth = Math.max(320, this.scroller.clientWidth || 760)
+      const intrinsicHeight = parseSvgIntrinsicHeight(
+        doc.documentElement,
+        targetWidth
+      )
+      const rectHeight = Math.ceil(
+        doc.documentElement.getBoundingClientRect?.().height ?? 0
+      )
+      const measured = Math.max(
+        1,
+        intrinsicHeight ?? 0,
+        doc.documentElement.scrollHeight ?? 0,
+        rectHeight
+      )
+      return { widthPx: null, heightPx: measured }
+    }
+
     const measured = Math.max(
       1,
       doc.documentElement?.scrollHeight ?? 0,
       doc.body?.scrollHeight ?? 0,
       Math.ceil(doc.body?.getBoundingClientRect?.().height ?? 0)
     )
+    return { widthPx: null, heightPx: measured }
+  }
+
+  private syncSlotHeight(slot: MountedContinuousSlot): number {
+    const { widthPx, heightPx: measured } = this.measureSlotDimensions(slot)
     const idx = this.slots.indexOf(slot)
     const prevTotal =
       slot.wrapper.offsetHeight > 0
@@ -585,9 +755,26 @@ export class ContinuousScrollRenderer {
       prevTotal > 0 &&
       prevBounds.top + prevBounds.height <= this.scroller.scrollTop + 2
 
+    if (widthPx !== null) {
+      slot.iframe.style.width = `${widthPx}px`
+    } else {
+      slot.iframe.style.width = "100%"
+    }
     slot.iframe.style.height = `${measured}px`
     slot.measuredHeight = measured
     slot.totalSlotHeight = measured + slot.verticalPaddingPx * 2
+
+    if (
+      slot.verticalMode === "vertical-rl" &&
+      !slot.initializedVerticalScroll &&
+      slot.wrapper.scrollWidth > slot.wrapper.clientWidth
+    ) {
+      slot.initializedVerticalScroll = true
+      slot.wrapper.scrollLeft = Math.max(
+        0,
+        slot.wrapper.scrollWidth - slot.wrapper.clientWidth
+      )
+    }
 
     const nextTotal =
       slot.wrapper.offsetHeight > 0
@@ -624,7 +811,7 @@ export class ContinuousScrollRenderer {
         if (isExternal) {
           this.onExternalLink(resolvedHref)
         } else {
-          this.onInternalLink(resolvedHref)
+          this.onInternalLink(resolvedHref, anchor)
         }
       },
       { signal }
@@ -706,18 +893,31 @@ export class ContinuousScrollRenderer {
         return null
       }
 
-      const styleEl = doc.createElement("style")
+      const isSvgRoot =
+        doc.documentElement?.namespaceURI === "http://www.w3.org/2000/svg"
+      const styleEl = isSvgRoot
+        ? doc.createElementNS("http://www.w3.org/2000/svg", "style")
+        : doc.createElement("style")
       styleEl.setAttribute("data-shiro-continuous-style", "")
-      const styleParent = doc.head ?? doc.documentElement
+      const styleParent = isSvgRoot
+        ? doc.documentElement
+        : (doc.head ?? doc.documentElement)
       styleParent?.appendChild(styleEl)
 
-      if (!doc.documentElement.lang && this.book.metadata?.language) {
+      if (doc.documentElement && !doc.documentElement.lang && this.book.metadata?.language) {
         const lang = Array.isArray(this.book.metadata.language)
           ? this.book.metadata.language[0]
           : this.book.metadata.language
         if (typeof lang === "string" && lang.trim()) {
           doc.documentElement.lang = lang.trim()
         }
+      }
+      if (
+        doc.documentElement &&
+        !doc.documentElement.getAttribute("dir") &&
+        this.book.dir === "rtl"
+      ) {
+        doc.documentElement.setAttribute("dir", "rtl")
       }
 
       const slot: MountedContinuousSlot = {
@@ -729,6 +929,10 @@ export class ContinuousScrollRenderer {
         styleEl,
         controller: slotController,
         resizeObserver: null,
+        isSvgRoot,
+        isVerticalWriting: false,
+        verticalMode: "horizontal-tb",
+        initializedVerticalScroll: false,
         measuredHeight: 0,
         verticalPaddingPx,
         totalSlotHeight: 0,
@@ -742,15 +946,25 @@ export class ContinuousScrollRenderer {
 
       this.applyDocStyles(slot)
 
-      const measured = Math.max(
-        1,
-        doc.documentElement?.scrollHeight ?? 0,
-        doc.body?.scrollHeight ?? 0,
-        Math.ceil(doc.body?.getBoundingClientRect?.().height ?? 0)
-      )
+      const { widthPx, heightPx: measured } = this.measureSlotDimensions(slot)
+      if (widthPx !== null) {
+        iframe.style.width = `${widthPx}px`
+      }
       iframe.style.height = `${measured}px`
       slot.measuredHeight = measured
       slot.totalSlotHeight = measured + slot.verticalPaddingPx * 2
+
+      if (
+        slot.verticalMode === "vertical-rl" &&
+        !slot.initializedVerticalScroll &&
+        wrapper.scrollWidth > wrapper.clientWidth
+      ) {
+        slot.initializedVerticalScroll = true
+        wrapper.scrollLeft = Math.max(
+          0,
+          wrapper.scrollWidth - wrapper.clientWidth
+        )
+      }
 
       if (position === "prepend") {
         const addedHeight =
@@ -762,13 +976,14 @@ export class ContinuousScrollRenderer {
       }
 
       let resizeObserver: ResizeObserver | null = null
-      if (typeof ResizeObserver !== "undefined" && doc.body) {
+      const observeTarget = doc.body ?? doc.documentElement
+      if (typeof ResizeObserver !== "undefined" && observeTarget) {
         resizeObserver = new ResizeObserver(() => {
           if (!this.destroyed && this.slots.includes(slot)) {
             this.syncSlotHeight(slot)
           }
         })
-        resizeObserver.observe(doc.body)
+        resizeObserver.observe(observeTarget)
       }
       ;(slot as { resizeObserver: ResizeObserver | null }).resizeObserver =
         resizeObserver

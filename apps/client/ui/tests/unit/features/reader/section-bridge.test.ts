@@ -491,4 +491,67 @@ describe("section-bridge XSS sanitization & coordinate projection", () => {
 
     bridge.dispose()
   })
+
+  it("blocks remote http(s) iframes, objects, embeds, and external subresources while injecting strict CSP and keeping <a> links", () => {
+    const html = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Security-Policy" content="default-src *" />
+    <link rel="stylesheet" href="https://cdn.example.com/theme.css" />
+    <style>
+      @import url("https://cdn.example.com/font.css");
+      .track { background-image: url("https://tracker.example.com/pixel.png"); }
+      .local { background-image: url("images/paper.png"); }
+    </style>
+  </head>
+  <body>
+    <iframe id="remote-frame" src="https://mediaplayer.pearsoncmg.com/embed/123"></iframe>
+    <iframe id="proto-rel-frame" src="//cdn.example.com/player"></iframe>
+    <iframe id="local-frame" src="widgets/local.html"></iframe>
+    <object id="remote-obj" data="https://evil.example/app.swf"></object>
+    <embed id="remote-emb" src="https://evil.example/video.mp4" />
+    <img id="remote-img" src="https://cdn.example.com/pic.jpg" srcset="https://cdn.example.com/pic2x.jpg 2x" />
+    <img id="local-img" src="images/diagram.jpg" />
+    <div id="inline-bg" style="background-image: url(https://tracker.example.com/bg.png); color: red;">ok</div>
+    <a id="ext-anchor" href="https://example.com/reference">Reference</a>
+  </body>
+</html>`
+
+    const cleaned = sanitizeMarkupDocument(html, "application/xhtml+xml")
+    const doc = new DOMParser().parseFromString(cleaned, "application/xhtml+xml")
+
+    expect(doc.getElementById("remote-frame")).toBeNull()
+    expect(doc.getElementById("proto-rel-frame")).toBeNull()
+    expect(doc.getElementById("remote-obj")).toBeNull()
+    expect(doc.getElementById("remote-emb")).toBeNull()
+    expect(doc.getElementById("local-frame")?.getAttribute("src")).toBe("widgets/local.html")
+
+    expect(doc.querySelector('link[rel="stylesheet"]')?.hasAttribute("href")).toBe(false)
+    expect(doc.getElementById("remote-img")?.hasAttribute("src")).toBe(false)
+    expect(doc.getElementById("remote-img")?.hasAttribute("srcset")).toBe(false)
+    expect(doc.getElementById("local-img")?.getAttribute("src")).toBe("images/diagram.jpg")
+
+    const styleText = doc.querySelector("style")?.textContent ?? ""
+    expect(styleText).not.toContain("https://cdn.example.com")
+    expect(styleText).not.toContain("https://tracker.example.com")
+    expect(styleText).toContain("images/paper.png")
+
+    const inlineStyle = doc.getElementById("inline-bg")?.getAttribute("style") ?? ""
+    expect(inlineStyle).not.toContain("https://tracker.example.com")
+    expect(inlineStyle).toContain("color: red")
+
+    // External <a> links must remain intact for ExternalLinkConfirmDialog confirmation
+    expect(doc.getElementById("ext-anchor")?.getAttribute("href")).toBe(
+      "https://example.com/reference"
+    )
+
+    const cspMetas = doc.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')
+    expect(cspMetas).toHaveLength(1)
+    const csp = cspMetas[0]?.getAttribute("content") ?? ""
+    expect(csp).toContain("script-src 'none'")
+    expect(csp).toContain("connect-src 'none'")
+    expect(csp).toContain("frame-src 'self' blob:")
+    expect(csp).toContain("shiro-font:")
+    expect(csp).toContain("http://shiro-font.localhost")
+  })
 })

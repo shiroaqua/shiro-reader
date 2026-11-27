@@ -216,4 +216,111 @@ describe("ContinuousScrollRenderer", () => {
     expect(unmounted).not.toContain(0)
     renderer.destroy()
   })
+
+  it("applies cross-realm safe media containment, eliminates double html padding, supports SVG spine docs, and handles vertical-rl/rtl", async () => {
+    const container = document.createElement("div")
+
+    const svgMediaDoc = new DOMParser().parseFromString(
+      `<?xml version="1.0" encoding="utf-8"?>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+        <head></head>
+        <body>
+          <img id="hero-img" src="big.jpg" />
+          <svg xmlns="http://www.w3.org/2000/svg" id="hero-svg" width="1200" height="800"><rect width="1200" height="800"/></svg>
+        </body>
+      </html>`,
+      "application/xhtml+xml"
+    )
+    Object.defineProperty(svgMediaDoc.body, "scrollHeight", {
+      value: 500,
+      configurable: true,
+    })
+
+    // Simulate cross-realm element whose style is writable even when `instanceof HTMLElement` is false
+    const foreignSvg = svgMediaDoc.getElementById("hero-svg")!
+    expect(foreignSvg instanceof HTMLElement).toBe(false)
+
+    const svgSpineDoc = new DOMParser().parseFromString(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1200"><rect width="800" height="1200"/></svg>`,
+      "image/svg+xml"
+    )
+
+    const verticalDoc = new DOMParser().parseFromString(
+      `<?xml version="1.0" encoding="utf-8"?>
+      <html xmlns="http://www.w3.org/1999/xhtml">
+        <head><style>body { writing-mode: vertical-rl; }</style></head>
+        <body><p>縦書きテスト</p></body>
+      </html>`,
+      "application/xhtml+xml"
+    )
+    Object.defineProperty(verticalDoc.documentElement, "scrollWidth", {
+      value: 1400,
+      configurable: true,
+    })
+
+    const docsByIndex = new Map<number, Document>([
+      [0, svgMediaDoc],
+      [1, svgSpineDoc],
+      [2, verticalDoc],
+    ])
+    const sections = [
+      { id: "ch0.xhtml", size: 100, linear: null },
+      { id: "cover.svg", size: 100, linear: null },
+      { id: "vert.xhtml", size: 100, linear: null },
+    ]
+    const fakeBook = {
+      dir: "rtl",
+      metadata: { language: "ja" },
+      sections,
+    }
+
+    const renderer = new ContinuousScrollRenderer({
+      container,
+      book: fakeBook as never,
+      initialStyle: makeScrolledStyle(true),
+      loadSectionSrc: async (_section, index) => `mock://sec/${index}`,
+      mountIframeDoc: async (_iframe, _src, index) =>
+        docsByIndex.get(index) ?? null,
+      onSectionLoad: vi.fn(),
+      onSectionUnmount: vi.fn(),
+      onRelocate: vi.fn(),
+      onExternalLink: vi.fn(),
+      onInternalLink: vi.fn(),
+      maxMountedSections: 5,
+    })
+
+    Object.defineProperty(renderer.scrollElement, "clientWidth", {
+      value: 800,
+      configurable: true,
+    })
+    Object.defineProperty(renderer.scrollElement, "clientHeight", {
+      value: 600,
+      configurable: true,
+    })
+
+    await renderer.goTo({ index: 0 })
+    await renderer.goTo({ index: 1 })
+    await renderer.goTo({ index: 2 })
+
+    // No double horizontal padding on html root
+    expect(svgMediaDoc.documentElement.style.padding).toMatch(/^0(px)?$/)
+    // Media containment applied both via stylesheet and inline style even for SVGElement
+    const styleText0 =
+      svgMediaDoc.querySelector('style[data-shiro-continuous-style]')?.textContent ?? ""
+    expect(styleText0).toContain("max-width: 100% !important")
+    expect((foreignSvg as unknown as { style: CSSStyleDeclaration }).style.maxWidth).toBe("100%")
+
+    // SVG root spine document got SVG-namespaced <style> and intrinsic viewBox aspect height (800 * 1200/800 = 1200)
+    const svgStyle = svgSpineDoc.querySelector('style[data-shiro-continuous-style]')
+    expect(svgStyle?.namespaceURI).toBe("http://www.w3.org/2000/svg")
+
+    // Vertical-rl + RTL propagated cleanly and wrapper allows horizontal scroll
+    expect(verticalDoc.documentElement.getAttribute("dir")).toBe("rtl")
+    const vertWrapper = container.querySelector('[data-shiro-section-index="2"]') as HTMLElement
+    expect(vertWrapper.style.overflowX).toBe("auto")
+    const vertIframe = vertWrapper.querySelector("iframe") as HTMLIFrameElement
+    expect(vertIframe.style.width).toBe("1400px")
+
+    renderer.destroy()
+  })
 })
