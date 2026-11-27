@@ -16,6 +16,7 @@ import type {
   ReaderSettingsSnapshot,
   SystemFontFamily,
 } from "@shiro/ui-shared/features/reader/contracts/settings"
+import { getDefaultReaderProfile } from "@shiro/ui-shared/features/reader/settings/defaults"
 
 const MAX_MOCK_OPEN_SESSIONS = 8
 
@@ -363,38 +364,7 @@ p { margin-bottom: 0.8em; }
 export function createDefaultMockReaderProfile(
   isMobile = false
 ): ReaderProfile {
-  return {
-    appearance: {
-      surface: "follow_app",
-    },
-    typography: {
-      font: { kind: "publisher" },
-      fontSizePx: 18,
-      fontWeight: "auto",
-      lineHeight: 1.75,
-      letterSpacingEm: 0,
-      wordSpacingEm: 0,
-      textAlign: "auto",
-      hyphenation: "auto",
-      overridePublisherStyles: false,
-    },
-    layout: {
-      paragraphSpacingEm: 0.75,
-      paragraphIndentEm: "auto",
-      pageMarginInlinePx: isMobile ? 20 : 48,
-      pageMarginBlockPx: isMobile ? 20 : 36,
-      maxInlineSizePx: 760,
-      columnCount: isMobile ? 1 : "auto",
-      columnGapPercent: 6,
-    },
-    behavior: {
-      flow: "paginated",
-      animatedPageTurn: true,
-      tapZonesEnabled: false,
-      showPageNumber: true,
-      seamlessScroll: false,
-    },
-  }
+  return getDefaultReaderProfile(isMobile)
 }
 
 function createReaderCommandError(code: number, key: string): CommandError {

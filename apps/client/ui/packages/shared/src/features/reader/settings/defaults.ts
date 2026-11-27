@@ -206,8 +206,8 @@ export function getDefaultReaderProfile(isMobile: boolean): ReaderProfile {
     layout: {
       paragraphSpacingEm: 0.75,
       paragraphIndentEm: "auto",
-      pageMarginInlinePx: isMobile ? 20 : 48,
-      pageMarginBlockPx: isMobile ? 20 : 36,
+      pageMarginInlinePx: READER_SETTING_BOUNDS.pageMarginInlinePx.min,
+      pageMarginBlockPx: READER_SETTING_BOUNDS.pageMarginBlockPx.min,
       maxInlineSizePx: 760,
       columnCount: isMobile ? 1 : "auto",
       columnGapPercent: 6,

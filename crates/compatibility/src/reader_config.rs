@@ -353,8 +353,8 @@ impl ReaderLayoutSettingsDto {
         Self {
             paragraph_spacing_em: 0.75,
             paragraph_indent_em: ReaderParagraphIndentDto::Auto,
-            page_margin_inline_px: if is_mobile { 20.0 } else { 48.0 },
-            page_margin_block_px: if is_mobile { 20.0 } else { 36.0 },
+            page_margin_inline_px: 8.0,
+            page_margin_block_px: 8.0,
             max_inline_size_px: 760.0,
             column_count: if is_mobile {
                 ReaderColumnCountDto::One
@@ -1131,15 +1131,15 @@ mod tests {
     fn default_profile_differs_between_desktop_and_mobile() {
         let desktop = ReaderProfileDto::default_for_platform(false);
         let mobile = ReaderProfileDto::default_for_platform(true);
-        assert_eq!(desktop.layout.page_margin_inline_px, 48.0);
-        assert_eq!(desktop.layout.page_margin_block_px, 36.0);
+        assert_eq!(desktop.layout.page_margin_inline_px, 8.0);
+        assert_eq!(desktop.layout.page_margin_block_px, 8.0);
         assert_eq!(desktop.layout.column_count, ReaderColumnCountDto::Auto);
         assert!(!desktop.behavior.tap_zones_enabled);
         assert!(desktop.behavior.show_page_number);
         assert!(!desktop.behavior.seamless_scroll);
 
-        assert_eq!(mobile.layout.page_margin_inline_px, 20.0);
-        assert_eq!(mobile.layout.page_margin_block_px, 20.0);
+        assert_eq!(mobile.layout.page_margin_inline_px, 8.0);
+        assert_eq!(mobile.layout.page_margin_block_px, 8.0);
         assert_eq!(mobile.layout.column_count, ReaderColumnCountDto::One);
         assert!(!mobile.behavior.tap_zones_enabled);
         assert!(mobile.behavior.show_page_number);

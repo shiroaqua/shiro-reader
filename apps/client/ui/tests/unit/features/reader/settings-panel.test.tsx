@@ -5,7 +5,10 @@ import { createMockReaderBridge } from "@shiro/ui-shared/api/reader-mock"
 import { FontPickerModal } from "@shiro/ui-shared/features/reader/components/settings-panel/FontPickerModal"
 import { ReaderSettingsPanel } from "@shiro/ui-shared/features/reader/components/settings-panel/ReaderSettingsPanel"
 import type { EngineCapabilities } from "@shiro/ui-shared/features/reader/contracts/engine"
-import { getDefaultReaderProfile } from "@shiro/ui-shared/features/reader/settings/defaults"
+import {
+  getDefaultReaderProfile,
+  READER_SETTING_BOUNDS,
+} from "@shiro/ui-shared/features/reader/settings/defaults"
 import {
   ensureReaderSettingsLoaded,
   flushPendingReaderSettingsWrites,
@@ -53,6 +56,18 @@ describe("ReaderSettingsPanel", () => {
     // 1. Global scope edits update global settings
     expect(getDefaultReaderProfile(false).behavior.tapZonesEnabled).toBe(false)
     expect(getDefaultReaderProfile(true).behavior.tapZonesEnabled).toBe(false)
+    expect(getDefaultReaderProfile(false).layout.pageMarginInlinePx).toBe(
+      READER_SETTING_BOUNDS.pageMarginInlinePx.min
+    )
+    expect(getDefaultReaderProfile(false).layout.pageMarginBlockPx).toBe(
+      READER_SETTING_BOUNDS.pageMarginBlockPx.min
+    )
+    expect(getDefaultReaderProfile(true).layout.pageMarginInlinePx).toBe(
+      READER_SETTING_BOUNDS.pageMarginInlinePx.min
+    )
+    expect(getDefaultReaderProfile(true).layout.pageMarginBlockPx).toBe(
+      READER_SETTING_BOUNDS.pageMarginBlockPx.min
+    )
     expect(
       screen.getByRole("checkbox", {
         name: /Tap Edges to Turn Page|轻点左右边缘翻页/i,

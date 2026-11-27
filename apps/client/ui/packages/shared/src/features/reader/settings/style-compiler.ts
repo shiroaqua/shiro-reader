@@ -175,13 +175,13 @@ export function compileReaderStyle(
     profile.layout.pageMarginInlinePx,
     READER_SETTING_BOUNDS.pageMarginInlinePx.min,
     READER_SETTING_BOUNDS.pageMarginInlinePx.max,
-    isMobile ? 20 : 48
+    READER_SETTING_BOUNDS.pageMarginInlinePx.min
   )
   const pageMarginBlockPx = clampNumber(
     profile.layout.pageMarginBlockPx,
     READER_SETTING_BOUNDS.pageMarginBlockPx.min,
     READER_SETTING_BOUNDS.pageMarginBlockPx.max,
-    isMobile ? 20 : 36
+    READER_SETTING_BOUNDS.pageMarginBlockPx.min
   )
   const maxInlineSizePx = Math.round(
     clampNumber(
