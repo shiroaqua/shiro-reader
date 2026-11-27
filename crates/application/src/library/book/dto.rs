@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use shiro_domain::library::book::{
     entity::Book,
     file::entity::*,
-    navigation::{BookLocator, BookNavigation, LinearUnit, PdfDest, TocNode},
+    navigation::{BookNavigation, ReadingUnit, TocEntry},
+    value_objects::{BookLocator, PdfDestination},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,11 +151,11 @@ pub enum PdfDestOutput {
     FitPage,
 }
 
-impl From<PdfDest> for PdfDestOutput {
-    fn from(dest: PdfDest) -> Self {
+impl From<PdfDestination> for PdfDestOutput {
+    fn from(dest: PdfDestination) -> Self {
         match dest {
-            PdfDest::PageOnly => Self::PageOnly,
-            PdfDest::Xyz {
+            PdfDestination::PageOnly => Self::PageOnly,
+            PdfDestination::Xyz {
                 left,
                 top,
                 zoom,
@@ -165,14 +166,14 @@ impl From<PdfDest> for PdfDestOutput {
                 zoom,
                 normalized_top: normalized_top.map(|offset| offset.value()),
             },
-            PdfDest::FitH {
+            PdfDestination::FitH {
                 top,
                 normalized_top,
             } => Self::FitH {
                 top,
                 normalized_top: normalized_top.map(|offset| offset.value()),
             },
-            PdfDest::FitPage => Self::FitPage,
+            PdfDestination::FitPage => Self::FitPage,
         }
     }
 }
@@ -180,18 +181,21 @@ impl From<PdfDest> for PdfDestOutput {
 impl From<&BookLocator> for BookLocatorOutput {
     fn from(locator: &BookLocator) -> Self {
         match locator {
-            BookLocator::Pdf { page_index, dest } => Self::Pdf {
+            BookLocator::Pdf {
+                page_index,
+                destination,
+            } => Self::Pdf {
                 page_index: *page_index,
-                dest: (*dest).into(),
+                dest: (*destination).into(),
             },
             BookLocator::Epub {
                 spine_index,
-                href,
+                path,
                 fragment,
                 cfi,
             } => Self::Epub {
                 spine_index: *spine_index,
-                href: href.as_str().to_owned(),
+                href: path.as_str().to_owned(),
                 fragment: fragment.clone(),
                 cfi: cfi.clone(),
             },
@@ -199,8 +203,8 @@ impl From<&BookLocator> for BookLocatorOutput {
     }
 }
 
-impl From<&LinearUnit> for LinearUnitOutput {
-    fn from(unit: &LinearUnit) -> Self {
+impl From<&ReadingUnit> for LinearUnitOutput {
+    fn from(unit: &ReadingUnit) -> Self {
         Self {
             index: unit.index(),
             is_linear: unit.is_linear(),
@@ -211,8 +215,8 @@ impl From<&LinearUnit> for LinearUnitOutput {
     }
 }
 
-impl From<&TocNode> for TocNodeOutput {
-    fn from(node: &TocNode) -> Self {
+impl From<&TocEntry> for TocNodeOutput {
+    fn from(node: &TocEntry) -> Self {
         Self {
             parent: node.parent(),
             depth: node.depth(),
@@ -231,7 +235,7 @@ impl From<BookNavigation> for BookNavigationOutput {
     fn from(nav: BookNavigation) -> Self {
         Self {
             toc: nav.toc().iter().map(Into::into).collect(),
-            linear_units: nav.linear_units().iter().map(Into::into).collect(),
+            linear_units: nav.reading_units().iter().map(Into::into).collect(),
             total_weight: nav.total_weight(),
         }
     }

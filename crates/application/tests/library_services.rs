@@ -35,11 +35,10 @@ use shiro_domain::library::{
     book::{
         entity::{Book, BookChange},
         file::entity::BookFileType,
-        navigation::{
-            BookLocator, BookNavigation, EpubHref, LinearUnitSpec, NormalizedOffset, TocEntrySpec,
-            TocNodeFlags,
+        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+        value_objects::{
+            BookId, BookLocator, BookTitle, EpubResourcePath, ReadingUnitOffset, TocEntryFlags,
         },
-        value_objects::{BookId, BookTitle},
     },
     tag::{
         entity::{BookTag, BookTagChange, TagDefinition, TagDefinitionChange},
@@ -1231,22 +1230,22 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
     let orphan_id = orphan_book.id().to_string();
 
     let nav = BookNavigation::build(
-        vec![TocEntrySpec {
+        vec![TocEntryDraft {
             title: "  Chapter   One ".to_owned(),
             locator: Some(
                 BookLocator::epub(
                     Some(0),
-                    EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                    EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
                     Some("sec-1".to_owned()),
                     None,
                 )
                 .unwrap(),
             ),
-            unit_offset: NormalizedOffset::new(0.25).unwrap(),
-            flags: TocNodeFlags::empty(),
+            unit_offset: ReadingUnitOffset::new(0.25).unwrap(),
+            flags: TocEntryFlags::empty(),
             children: vec![],
         }],
-        vec![LinearUnitSpec {
+        vec![ReadingUnitDraft {
             is_linear: true,
             weight: 100,
             display_label: Some("EPUB/ch1.xhtml".to_owned()),

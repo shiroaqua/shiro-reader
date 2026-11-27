@@ -5,12 +5,15 @@ use std::{
 
 use anyhow::Context;
 use pdfium_render::prelude::{
-    PdfAction, PdfBookmark, PdfDestination, PdfDestinationViewSettings, PdfPageIndex, Pdfium,
+    PdfAction, PdfBookmark, PdfDestination as PdfiumDestination, PdfDestinationViewSettings,
+    PdfPageIndex, Pdfium,
 };
 use rbook::{Epub, epub::toc::EpubTocEntry};
-use shiro_domain::library::book::navigation::{
-    BookLocator, BookNavigation, EpubHref, LinearUnitSpec, NormalizedOffset, PdfDest, TocEntrySpec,
-    TocNodeFlags,
+use shiro_domain::library::book::{
+    navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+    value_objects::{
+        BookLocator, EpubResourcePath, PdfDestination, ReadingUnitOffset, TocEntryFlags,
+    },
 };
 
 use super::book_file_storage::BookFileContentReader;
@@ -46,7 +49,7 @@ pub(super) fn extract_epub_navigation(
                 .or_insert(spine_idx);
 
             let raw_path = manifest_entry.href().path().as_str();
-            let normalized_href = match EpubHref::normalize(raw_path) {
+            let normalized_href = match EpubResourcePath::normalize(raw_path) {
                 Ok(href) => {
                     href_to_spine
                         .entry(href.as_str().to_owned())
@@ -116,7 +119,7 @@ pub(super) fn extract_epub_navigation(
                 },
             };
 
-            unit_specs.push(LinearUnitSpec {
+            unit_specs.push(ReadingUnitDraft {
                 is_linear,
                 weight,
                 display_label: normalized_href.map(String::from),
@@ -129,7 +132,7 @@ pub(super) fn extract_epub_navigation(
                 idref = entry.idref(),
                 "EPUB spine entry references missing manifest item"
             );
-            unit_specs.push(LinearUnitSpec {
+            unit_specs.push(ReadingUnitDraft {
                 is_linear,
                 weight: 0,
                 display_label: None,
@@ -170,7 +173,7 @@ fn collect_epub_toc_entries(
     href_to_spine: &HashMap<String, u32>,
     decoded_href_to_spine: &HashMap<String, u32>,
     spine_metrics: &[Option<XhtmlMetrics>],
-) -> Vec<TocEntrySpec> {
+) -> Vec<TocEntryDraft> {
     let mut nodes = Vec::new();
     for entry in parent.iter() {
         if *node_count >= MAX_TOC_NODES {
@@ -220,10 +223,10 @@ fn collect_epub_toc_entries(
                     .is_some_and(|href| is_external_href(href.as_str())));
 
         let (flags, locator, unit_offset) = if is_external {
-            (TocNodeFlags::EXTERNAL_LINK, None, NormalizedOffset::ZERO)
+            (TocEntryFlags::EXTERNAL_LINK, None, ReadingUnitOffset::ZERO)
         } else if let Some(href) = entry.href() {
             let raw_path = href.path().as_str();
-            match EpubHref::normalize(raw_path) {
+            match EpubResourcePath::normalize(raw_path) {
                 Ok(normalized_href) => {
                     let spine_index = matched_manifest
                         .and_then(|m| id_to_spine.get(m.id()).copied())
@@ -245,15 +248,15 @@ fn collect_epub_toc_entries(
                             let frag = fragment.as_deref()?;
                             let pos = metrics.anchors.get(frag).copied()?;
                             if metrics.text_chars > 0 {
-                                NormalizedOffset::clamped(pos as f32 / metrics.text_chars as f32)
+                                ReadingUnitOffset::clamped(pos as f32 / metrics.text_chars as f32)
                             } else {
                                 None
                             }
                         })
-                        .unwrap_or(NormalizedOffset::ZERO);
+                        .unwrap_or(ReadingUnitOffset::ZERO);
 
                     match BookLocator::epub(spine_index, normalized_href, fragment, None) {
-                        Ok(locator) => (TocNodeFlags::empty(), Some(locator), unit_offset),
+                        Ok(locator) => (TocEntryFlags::empty(), Some(locator), unit_offset),
                         Err(err) => {
                             tracing::warn!(
                                 hash = hash_hex,
@@ -262,7 +265,7 @@ fn collect_epub_toc_entries(
                                 error = %err,
                                 "failed to construct EPUB TOC locator"
                             );
-                            (TocNodeFlags::empty(), None, NormalizedOffset::ZERO)
+                            (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO)
                         }
                     }
                 }
@@ -274,14 +277,14 @@ fn collect_epub_toc_entries(
                         error = %err,
                         "failed to normalize EPUB TOC href"
                     );
-                    (TocNodeFlags::empty(), None, NormalizedOffset::ZERO)
+                    (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO)
                 }
             }
         } else {
-            (TocNodeFlags::empty(), None, NormalizedOffset::ZERO)
+            (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO)
         };
 
-        nodes.push(TocEntrySpec {
+        nodes.push(TocEntryDraft {
             title: entry.label().to_owned(),
             locator,
             unit_offset,
@@ -770,7 +773,7 @@ pub(super) fn extract_pdf_navigation(
             ),
         };
         page_heights.push(height);
-        unit_specs.push(LinearUnitSpec {
+        unit_specs.push(ReadingUnitDraft {
             is_linear: true,
             weight: 1,
             display_label: label,
@@ -804,7 +807,7 @@ fn collect_pdf_bookmarks<'a>(
     node_count: &mut usize,
     truncated_warned: &mut bool,
     hash_hex: &str,
-) -> Vec<TocEntrySpec> {
+) -> Vec<TocEntryDraft> {
     let mut nodes = Vec::new();
     let mut current = first;
 
@@ -871,14 +874,14 @@ fn build_pdf_toc_entry(
     bookmark: &PdfBookmark<'_>,
     page_count: PdfPageIndex,
     page_heights: &[Option<f32>],
-    children: Vec<TocEntrySpec>,
+    children: Vec<TocEntryDraft>,
     hash_hex: &str,
-) -> TocEntrySpec {
+) -> TocEntryDraft {
     let title = bookmark.title().unwrap_or_default();
     let (locator, unit_offset, flags) =
         resolve_pdf_bookmark_target(bookmark, &title, page_count, page_heights, hash_hex);
 
-    TocEntrySpec {
+    TocEntryDraft {
         title,
         locator,
         unit_offset,
@@ -893,18 +896,18 @@ fn resolve_pdf_bookmark_target(
     page_count: PdfPageIndex,
     page_heights: &[Option<f32>],
     hash_hex: &str,
-) -> (Option<BookLocator>, NormalizedOffset, TocNodeFlags) {
+) -> (Option<BookLocator>, ReadingUnitOffset, TocEntryFlags) {
     if let Some(dest) = bookmark.destination() {
         let (locator, unit_offset) =
             build_pdf_locator(&dest, title, page_count, page_heights, hash_hex);
-        return (locator, unit_offset, TocNodeFlags::empty());
+        return (locator, unit_offset, TocEntryFlags::empty());
     }
     match bookmark.action() {
         Some(PdfAction::LocalDestination(local)) => match local.destination() {
             Ok(dest) => {
                 let (locator, unit_offset) =
                     build_pdf_locator(&dest, title, page_count, page_heights, hash_hex);
-                (locator, unit_offset, TocNodeFlags::empty())
+                (locator, unit_offset, TocEntryFlags::empty())
             }
             Err(err) => {
                 tracing::warn!(
@@ -913,29 +916,29 @@ fn resolve_pdf_bookmark_target(
                     error = %err,
                     "failed to resolve PDF bookmark local destination"
                 );
-                (None, NormalizedOffset::ZERO, TocNodeFlags::empty())
+                (None, ReadingUnitOffset::ZERO, TocEntryFlags::empty())
             }
         },
         Some(
             PdfAction::Uri(_) | PdfAction::RemoteDestination(_) | PdfAction::Launch(_),
-        ) => (None, NormalizedOffset::ZERO, TocNodeFlags::EXTERNAL_LINK),
-        _ => (None, NormalizedOffset::ZERO, TocNodeFlags::empty()),
+        ) => (None, ReadingUnitOffset::ZERO, TocEntryFlags::EXTERNAL_LINK),
+        _ => (None, ReadingUnitOffset::ZERO, TocEntryFlags::empty()),
     }
 }
 
 fn build_pdf_locator(
-    dest: &PdfDestination<'_>,
+    dest: &PdfiumDestination<'_>,
     title: &str,
     page_count: PdfPageIndex,
     page_heights: &[Option<f32>],
     hash_hex: &str,
-) -> (Option<BookLocator>, NormalizedOffset) {
+) -> (Option<BookLocator>, ReadingUnitOffset) {
     match dest.page_index() {
         Ok(idx) if idx >= 0 && idx < page_count => {
             let page_index = idx as u32;
             let page_height = page_heights.get(idx as usize).copied().flatten();
             let pdf_dest = map_pdf_dest(dest, page_height);
-            let unit_offset = pdf_dest.normalized_top().unwrap_or(NormalizedOffset::ZERO);
+            let unit_offset = pdf_dest.normalized_top().unwrap_or(ReadingUnitOffset::ZERO);
             match BookLocator::pdf(page_index, pdf_dest) {
                 Ok(locator) => (Some(locator), unit_offset),
                 Err(err) => {
@@ -946,7 +949,7 @@ fn build_pdf_locator(
                         error = %err,
                         "failed to construct PDF TOC locator"
                     );
-                    (None, NormalizedOffset::ZERO)
+                    (None, ReadingUnitOffset::ZERO)
                 }
             }
         }
@@ -958,7 +961,7 @@ fn build_pdf_locator(
                 page_count,
                 "PDF bookmark points to out-of-bounds page index"
             );
-            (None, NormalizedOffset::ZERO)
+            (None, ReadingUnitOffset::ZERO)
         }
         Err(err) => {
             tracing::warn!(
@@ -967,19 +970,20 @@ fn build_pdf_locator(
                 error = %err,
                 "failed to resolve PDF bookmark target page index"
             );
-            (None, NormalizedOffset::ZERO)
+            (None, ReadingUnitOffset::ZERO)
         }
     }
 }
 
-fn map_pdf_dest(dest: &PdfDestination<'_>, page_height: Option<f32>) -> PdfDest {
+fn map_pdf_dest(dest: &PdfiumDestination<'_>, page_height: Option<f32>) -> PdfDestination {
     match dest.view_settings() {
         Ok(PdfDestinationViewSettings::SpecificCoordinatesAndZoom(left, top, zoom)) => {
             let left = left.map(|p| p.value).filter(|v| v.is_finite());
             let top = top.map(|p| p.value).filter(|v| v.is_finite());
             let zoom = zoom.filter(|v| v.is_finite() && *v > 0.0);
             let normalized_top = pdf_normalized_top(top, page_height);
-            PdfDest::xyz(left, top, zoom, normalized_top).unwrap_or(PdfDest::PageOnly)
+            PdfDestination::xyz(left, top, zoom, normalized_top)
+                .unwrap_or(PdfDestination::PageOnly)
         }
         Ok(
             PdfDestinationViewSettings::FitPageHorizontallyToWindow(top)
@@ -987,7 +991,7 @@ fn map_pdf_dest(dest: &PdfDestination<'_>, page_height: Option<f32>) -> PdfDest 
         ) => {
             let top = top.map(|p| p.value).filter(|v| v.is_finite());
             let normalized_top = pdf_normalized_top(top, page_height);
-            PdfDest::fit_h(top, normalized_top).unwrap_or(PdfDest::PageOnly)
+            PdfDestination::fit_h(top, normalized_top).unwrap_or(PdfDestination::PageOnly)
         }
         Ok(
             PdfDestinationViewSettings::FitPageToWindow
@@ -995,18 +999,18 @@ fn map_pdf_dest(dest: &PdfDestination<'_>, page_height: Option<f32>) -> PdfDest 
             | PdfDestinationViewSettings::FitPageVerticallyToWindow(_)
             | PdfDestinationViewSettings::FitBoundsVerticallyToWindow(_)
             | PdfDestinationViewSettings::FitPageToRectangle(_),
-        ) => PdfDest::FitPage,
-        Ok(PdfDestinationViewSettings::Unknown) | Err(_) => PdfDest::PageOnly,
+        ) => PdfDestination::FitPage,
+        Ok(PdfDestinationViewSettings::Unknown) | Err(_) => PdfDestination::PageOnly,
     }
 }
 
-fn pdf_normalized_top(top: Option<f32>, page_height: Option<f32>) -> Option<NormalizedOffset> {
+fn pdf_normalized_top(top: Option<f32>, page_height: Option<f32>) -> Option<ReadingUnitOffset> {
     let top = top?;
     let height = page_height?;
     if !top.is_finite() || !height.is_finite() || height <= 0.0 {
         return None;
     }
-    NormalizedOffset::clamped(1.0 - (top / height))
+    ReadingUnitOffset::clamped(1.0 - (top / height))
 }
 
 #[cfg(test)]

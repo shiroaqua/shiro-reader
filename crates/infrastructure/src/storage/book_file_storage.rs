@@ -1083,7 +1083,7 @@ mod tests {
             let _ = capture.take_entries();
             let nav = book_navigation::extract_epub_navigation(reader, "empty-toc-hash").unwrap();
             assert!(nav.toc().is_empty());
-            assert_eq!(nav.linear_units().len(), 1);
+            assert_eq!(nav.reading_units().len(), 1);
             assert!(nav.total_weight() > 0);
             let logs = capture.take_entries();
             let warn_or_error: Vec<_> = logs
@@ -1166,21 +1166,21 @@ mod tests {
         assert!(nav.toc()[0].unit_offset().value() > 0.0);
         assert!(matches!(
             nav.toc()[0].locator(),
-            Some(shiro_domain::library::book::navigation::BookLocator::Epub {
+            Some(shiro_domain::library::book::value_objects::BookLocator::Epub {
                 spine_index: Some(0),
-                href,
+                path,
                 fragment: Some(frag),
                 cfi: None,
-            }) if href.as_str() == "EPUB/C%23_Ch1.xhtml" && frag == "sec-1"
+            }) if path.as_str() == "EPUB/C%23_Ch1.xhtml" && frag == "sec-1"
         ));
         assert!(matches!(
             nav.toc()[1].locator(),
-            Some(shiro_domain::library::book::navigation::BookLocator::Epub {
+            Some(shiro_domain::library::book::value_objects::BookLocator::Epub {
                 spine_index: Some(1),
-                href,
+                path,
                 fragment: None,
                 cfi: None,
-            }) if href.as_str() == "EPUB/What%3F.xhtml"
+            }) if path.as_str() == "EPUB/What%3F.xhtml"
         ));
 
         let warn_or_error: Vec<_> = capture
@@ -1196,7 +1196,7 @@ mod tests {
 
     #[test]
     fn extract_epub_navigation_handles_colon_filenames_as_internal_and_uris_as_external() {
-        use shiro_domain::library::book::navigation::{BookLocator, TocNodeFlags};
+        use shiro_domain::library::book::value_objects::{BookLocator, TocEntryFlags};
 
         let capture = LogCapture::default();
         let epub = build_stored_zip(&[
@@ -1254,17 +1254,17 @@ mod tests {
         });
 
         assert_eq!(nav.toc().len(), 2);
-        assert_eq!(nav.toc()[0].flags(), TocNodeFlags::empty());
+        assert_eq!(nav.toc()[0].flags(), TocEntryFlags::empty());
         assert!(matches!(
             nav.toc()[0].locator(),
             Some(BookLocator::Epub {
                 spine_index: Some(0),
-                href,
+                path,
                 fragment: None,
                 cfi: None,
-            }) if href.as_str() == "Ch01:Intro.xhtml"
+            }) if path.as_str() == "Ch01:Intro.xhtml"
         ));
-        assert_eq!(nav.toc()[1].flags(), TocNodeFlags::EXTERNAL_LINK);
+        assert_eq!(nav.toc()[1].flags(), TocEntryFlags::EXTERNAL_LINK);
         assert_eq!(nav.toc()[1].locator(), None);
 
         let warn_or_error: Vec<_> = capture

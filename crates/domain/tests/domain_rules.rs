@@ -2,11 +2,11 @@ use shiro_domain::library::{
     book::{
         entity::{Book, BookFields},
         errors::BookDomainError,
-        navigation::{
-            BookLocator, BookNavigation, BookNavigationError, EpubHref, LinearUnitSpec,
-            NormalizedOffset, PdfDest, Progression, TocEntrySpec, TocNodeFlags,
+        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+        value_objects::{
+            BookId, BookLocator, BookProgression, BookStatus, BookTitle, EpubResourcePath,
+            PdfDestination, ReadingUnitOffset, TocEntryFlags,
         },
-        value_objects::{BookId, BookStatus, BookTitle},
     },
     tag::{
         entity::TagDefinition,
@@ -202,25 +202,25 @@ fn book_navigation_builds_invariants_and_queries() {
     let empty = BookNavigation::empty();
     assert!(empty.is_empty());
     assert!(empty.toc().is_empty());
-    assert!(empty.linear_units().is_empty());
+    assert!(empty.reading_units().is_empty());
     assert_eq!(empty.total_weight(), 0);
-    assert_eq!(empty.progression_at(0, NormalizedOffset::ZERO), None);
-    assert_eq!(empty.active_toc_index(0, NormalizedOffset::ZERO), None);
+    assert_eq!(empty.progression_at(0, ReadingUnitOffset::ZERO), None);
+    assert_eq!(empty.active_toc_index(0, ReadingUnitOffset::ZERO), None);
 
-    let href_cover = EpubHref::normalize("/EPUB/../EPUB/cover.xhtml").unwrap();
+    let href_cover = EpubResourcePath::normalize("/EPUB/../EPUB/cover.xhtml").unwrap();
     assert_eq!(href_cover.as_str(), "EPUB/cover.xhtml");
-    let href_ch1 = EpubHref::parse("EPUB/Text/ch1.xhtml").unwrap();
-    let href_ch2 = EpubHref::parse("EPUB/Text/ch2.xhtml").unwrap();
+    let href_ch1 = EpubResourcePath::parse("EPUB/Text/ch1.xhtml").unwrap();
+    let href_ch2 = EpubResourcePath::parse("EPUB/Text/ch2.xhtml").unwrap();
 
     let nav = BookNavigation::build(
         vec![
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "  Part\tOne \n Overview ".to_owned(),
                 locator: None, // pure grouping node
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::DEFAULT_COLLAPSED,
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::DEFAULT_COLLAPSED,
                 children: vec![
-                    TocEntrySpec {
+                    TocEntryDraft {
                         title: "Chapter 1".to_owned(),
                         locator: Some(
                             BookLocator::epub(
@@ -231,9 +231,9 @@ fn book_navigation_builds_invariants_and_queries() {
                             )
                             .unwrap(),
                         ),
-                        unit_offset: NormalizedOffset::ZERO,
-                        flags: TocNodeFlags::empty(),
-                        children: vec![TocEntrySpec {
+                        unit_offset: ReadingUnitOffset::ZERO,
+                        flags: TocEntryFlags::empty(),
+                        children: vec![TocEntryDraft {
                             title: "Section 1.1".to_owned(),
                             locator: Some(
                                 BookLocator::epub(
@@ -244,42 +244,42 @@ fn book_navigation_builds_invariants_and_queries() {
                                 )
                                 .unwrap(),
                             ),
-                            unit_offset: NormalizedOffset::new(0.5).unwrap(),
-                            flags: TocNodeFlags::empty(),
+                            unit_offset: ReadingUnitOffset::new(0.5).unwrap(),
+                            flags: TocEntryFlags::empty(),
                             children: vec![],
                         }],
                     },
-                    TocEntrySpec {
+                    TocEntryDraft {
                         title: "Chapter 2".to_owned(),
                         locator: Some(
                             BookLocator::epub(Some(2), href_ch2, None, None).unwrap(),
                         ),
-                        unit_offset: NormalizedOffset::ZERO,
-                        flags: TocNodeFlags::empty(),
+                        unit_offset: ReadingUnitOffset::ZERO,
+                        flags: TocEntryFlags::empty(),
                         children: vec![],
                     },
                 ],
             },
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "External Reference".to_owned(),
                 locator: None,
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::EXTERNAL_LINK,
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::EXTERNAL_LINK,
                 children: vec![],
             },
         ],
         vec![
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: false,
                 weight: 999,
                 display_label: Some("  EPUB/cover.xhtml ".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 100,
                 display_label: Some("EPUB/Text/ch1.xhtml".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 300,
                 display_label: Some("   ".to_owned()),
@@ -290,14 +290,17 @@ fn book_navigation_builds_invariants_and_queries() {
 
     assert!(!nav.is_empty());
     assert_eq!(nav.total_weight(), 400);
-    assert_eq!(nav.linear_units().len(), 3);
-    assert_eq!(nav.linear_units()[0].index(), 0);
-    assert!(!nav.linear_units()[0].is_linear());
-    assert_eq!(nav.linear_units()[0].cumulative_weight(), 0);
-    assert_eq!(nav.linear_units()[0].display_label(), Some("EPUB/cover.xhtml"));
-    assert_eq!(nav.linear_units()[1].cumulative_weight(), 0);
-    assert_eq!(nav.linear_units()[2].cumulative_weight(), 100);
-    assert_eq!(nav.linear_units()[2].display_label(), None);
+    assert_eq!(nav.reading_units().len(), 3);
+    assert_eq!(nav.reading_units()[0].index(), 0);
+    assert!(!nav.reading_units()[0].is_linear());
+    assert_eq!(nav.reading_units()[0].cumulative_weight(), 0);
+    assert_eq!(
+        nav.reading_units()[0].display_label(),
+        Some("EPUB/cover.xhtml")
+    );
+    assert_eq!(nav.reading_units()[1].cumulative_weight(), 0);
+    assert_eq!(nav.reading_units()[2].cumulative_weight(), 100);
+    assert_eq!(nav.reading_units()[2].display_label(), None);
 
     // Pre-order TOC: [0: Part One, 1: Ch1, 2: Sec 1.1, 3: Ch2, 4: External]
     assert_eq!(nav.toc().len(), 5);
@@ -305,14 +308,14 @@ fn book_navigation_builds_invariants_and_queries() {
     assert_eq!(nav.toc()[0].parent(), None);
     assert_eq!(nav.toc()[0].depth(), 0);
     assert_eq!(nav.toc()[0].subtree_end(), 4);
-    assert_eq!(nav.toc()[0].flags(), TocNodeFlags::DEFAULT_COLLAPSED);
+    assert_eq!(nav.toc()[0].flags(), TocEntryFlags::DEFAULT_COLLAPSED);
     assert_eq!(nav.toc()[0].start_progression(), None);
 
     assert_eq!(nav.toc()[1].parent(), Some(0));
     assert_eq!(nav.toc()[1].depth(), 1);
     assert_eq!(nav.toc()[1].subtree_end(), 3);
     assert_eq!(nav.toc()[1].unit_index(), Some(1));
-    assert_eq!(nav.toc()[1].start_progression(), Some(Progression::ZERO));
+    assert_eq!(nav.toc()[1].start_progression(), Some(BookProgression::ZERO));
 
     assert_eq!(nav.toc()[2].parent(), Some(1));
     assert_eq!(nav.toc()[2].depth(), 2);
@@ -331,7 +334,7 @@ fn book_navigation_builds_invariants_and_queries() {
     );
 
     assert_eq!(nav.toc()[4].parent(), None);
-    assert_eq!(nav.toc()[4].flags(), TocNodeFlags::EXTERNAL_LINK);
+    assert_eq!(nav.toc()[4].flags(), TocEntryFlags::EXTERNAL_LINK);
 
     // children_of & subtree
     let root_children: Vec<_> = nav
@@ -350,24 +353,24 @@ fn book_navigation_builds_invariants_and_queries() {
     assert_eq!(nav.subtree(1).unwrap().len(), 2);
 
     // progression_at & active_toc_index
-    assert_eq!(nav.progression_at(0, NormalizedOffset::ZERO), None);
+    assert_eq!(nav.progression_at(0, ReadingUnitOffset::ZERO), None);
     assert_eq!(
-        nav.progression_at(2, NormalizedOffset::new(0.5).unwrap())
+        nav.progression_at(2, ReadingUnitOffset::new(0.5).unwrap())
             .unwrap()
             .value(),
         250.0 / 400.0
     );
-    assert_eq!(nav.active_toc_index(0, NormalizedOffset::ZERO), None);
+    assert_eq!(nav.active_toc_index(0, ReadingUnitOffset::ZERO), None);
     assert_eq!(
-        nav.active_toc_index(1, NormalizedOffset::new(0.25).unwrap()),
+        nav.active_toc_index(1, ReadingUnitOffset::new(0.25).unwrap()),
         Some(1)
     );
     assert_eq!(
-        nav.active_toc_index(1, NormalizedOffset::new(0.5).unwrap()),
+        nav.active_toc_index(1, ReadingUnitOffset::new(0.5).unwrap()),
         Some(2)
     );
     assert_eq!(
-        nav.active_toc_index(2, NormalizedOffset::new(0.9).unwrap()),
+        nav.active_toc_index(2, ReadingUnitOffset::new(0.9).unwrap()),
         Some(3)
     );
 }
@@ -375,106 +378,108 @@ fn book_navigation_builds_invariants_and_queries() {
 #[test]
 fn book_navigation_validates_value_objects_and_unit_bounds() {
     assert_eq!(
-        NormalizedOffset::new(-0.01).unwrap_err(),
-        BookNavigationError::InvalidNormalizedOffset
+        ReadingUnitOffset::new(-0.01).unwrap_err(),
+        BookDomainError::InvalidReadingUnitOffset
     );
     assert_eq!(
-        NormalizedOffset::new(1.01).unwrap_err(),
-        BookNavigationError::InvalidNormalizedOffset
+        ReadingUnitOffset::new(1.01).unwrap_err(),
+        BookDomainError::InvalidReadingUnitOffset
     );
     assert_eq!(
-        NormalizedOffset::new(f32::NAN).unwrap_err(),
-        BookNavigationError::InvalidNormalizedOffset
+        ReadingUnitOffset::new(f32::NAN).unwrap_err(),
+        BookDomainError::InvalidReadingUnitOffset
     );
-    assert_eq!(NormalizedOffset::clamped(f32::INFINITY), None);
+    assert_eq!(ReadingUnitOffset::clamped(f32::INFINITY), None);
     assert_eq!(
-        NormalizedOffset::clamped(1.5),
-        Some(NormalizedOffset::ONE)
+        ReadingUnitOffset::clamped(1.5),
+        Some(ReadingUnitOffset::ONE)
     );
 
     assert_eq!(
-        Progression::new(-0.1).unwrap_err(),
-        BookNavigationError::InvalidProgression
+        BookProgression::new(-0.1).unwrap_err(),
+        BookDomainError::InvalidBookProgression
     );
     assert_eq!(
-        Progression::new(1.1).unwrap_err(),
-        BookNavigationError::InvalidProgression
+        BookProgression::new(1.1).unwrap_err(),
+        BookDomainError::InvalidBookProgression
     );
-    assert_eq!(Progression::clamped(f64::NAN), None);
+    assert_eq!(BookProgression::clamped(f64::NAN), None);
 
     assert_eq!(
-        EpubHref::parse("/leading.xhtml").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::parse("/leading.xhtml").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::parse("OEBPS/../ch1.xhtml").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::parse("OEBPS/../ch1.xhtml").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("../../escape.xhtml").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::normalize("../../escape.xhtml").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("a/b#frag").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::normalize("a/b#frag").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::normalize("").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("/").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::normalize("/").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("OEBPS/dir/").unwrap_err(),
-        BookNavigationError::InvalidEpubHref
+        EpubResourcePath::normalize("OEBPS/dir/").unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
     );
     assert_eq!(
-        EpubHref::normalize("/OEBPS/C%23_Ch1.xhtml").unwrap().as_str(),
+        EpubResourcePath::normalize("/OEBPS/C%23_Ch1.xhtml")
+            .unwrap()
+            .as_str(),
         "OEBPS/C%23_Ch1.xhtml"
     );
 
     assert_eq!(
-        PdfDest::xyz(Some(f32::NAN), None, None, None).unwrap_err(),
-        BookNavigationError::InvalidPdfCoordinate
+        PdfDestination::xyz(Some(f32::NAN), None, None, None).unwrap_err(),
+        BookDomainError::InvalidPdfDestination
     );
     assert_eq!(
-        PdfDest::xyz(None, None, Some(0.0), None).unwrap_err(),
-        BookNavigationError::InvalidPdfCoordinate
+        PdfDestination::xyz(None, None, Some(0.0), None).unwrap_err(),
+        BookDomainError::InvalidPdfDestination
     );
     assert_eq!(
-        PdfDest::fit_h(Some(f32::INFINITY), None).unwrap_err(),
-        BookNavigationError::InvalidPdfCoordinate
+        PdfDestination::fit_h(Some(f32::INFINITY), None).unwrap_err(),
+        BookDomainError::InvalidPdfDestination
     );
 
-    let href = EpubHref::parse("ch1.xhtml").unwrap();
+    let href = EpubResourcePath::parse("ch1.xhtml").unwrap();
     assert_eq!(
         BookLocator::epub(None, href.clone(), Some("#sec".to_owned()), None).unwrap_err(),
-        BookNavigationError::InvalidFragment
+        BookDomainError::InvalidEpubFragment
     );
     assert_eq!(
         BookLocator::epub(None, href.clone(), Some(String::new()), None).unwrap_err(),
-        BookNavigationError::InvalidFragment
+        BookDomainError::InvalidEpubFragment
     );
     assert_eq!(
         BookLocator::epub(None, href, None, Some("   ".to_owned())).unwrap_err(),
-        BookNavigationError::InvalidCfi
+        BookDomainError::InvalidEpubCfi
     );
 
-    let pdf_loc = BookLocator::pdf(3, PdfDest::FitPage).unwrap();
+    let pdf_loc = BookLocator::pdf(3, PdfDestination::FitPage).unwrap();
     assert_eq!(pdf_loc.unit_index(), Some(3));
-    assert_eq!(pdf_loc.default_unit_offset(), NormalizedOffset::ZERO);
+    assert_eq!(pdf_loc.default_unit_offset(), ReadingUnitOffset::ZERO);
 
     let oob_err = BookNavigation::build(
-        vec![TocEntrySpec {
+        vec![TocEntryDraft {
             title: "Out of Bounds".to_owned(),
             locator: Some(pdf_loc),
-            unit_offset: NormalizedOffset::ZERO,
-            flags: TocNodeFlags::empty(),
+            unit_offset: ReadingUnitOffset::ZERO,
+            flags: TocEntryFlags::empty(),
             children: vec![],
         }],
-        vec![LinearUnitSpec {
+        vec![ReadingUnitDraft {
             is_linear: true,
             weight: 1,
             display_label: None,
@@ -483,7 +488,7 @@ fn book_navigation_validates_value_objects_and_unit_bounds() {
     .unwrap_err();
     assert_eq!(
         oob_err,
-        BookNavigationError::UnitIndexOutOfBounds {
+        BookDomainError::ReadingUnitOutOfBounds {
             index: 3,
             unit_count: 1
         }
@@ -494,103 +499,103 @@ fn book_navigation_validates_value_objects_and_unit_bounds() {
 fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
     let nav = BookNavigation::build(
         vec![
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "Cover".to_owned(),
                 locator: Some(
                     BookLocator::epub(
                         Some(0),
-                        EpubHref::parse("EPUB/cover.xhtml").unwrap(),
+                        EpubResourcePath::parse("EPUB/cover.xhtml").unwrap(),
                         None,
                         None,
                     )
                     .unwrap(),
                 ),
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::empty(),
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::empty(),
                 children: vec![],
             },
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "Chapter 1".to_owned(),
                 locator: Some(
                     BookLocator::epub(
                         Some(2),
-                        EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                        EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
                         None,
                         None,
                     )
                     .unwrap(),
                 ),
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::empty(),
-                children: vec![TocEntrySpec {
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::empty(),
+                children: vec![TocEntryDraft {
                     title: "Section 1.0".to_owned(),
                     locator: Some(
                         BookLocator::epub(
                             Some(2),
-                            EpubHref::parse("EPUB/ch1.xhtml").unwrap(),
+                            EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
                             Some("top".to_owned()),
                             None,
                         )
                         .unwrap(),
                     ),
-                    unit_offset: NormalizedOffset::ZERO,
-                    flags: TocNodeFlags::empty(),
+                    unit_offset: ReadingUnitOffset::ZERO,
+                    flags: TocEntryFlags::empty(),
                     children: vec![],
                 }],
             },
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "Chapter 2".to_owned(),
                 locator: Some(
                     BookLocator::epub(
                         Some(3),
-                        EpubHref::parse("EPUB/ch2.xhtml").unwrap(),
+                        EpubResourcePath::parse("EPUB/ch2.xhtml").unwrap(),
                         None,
                         None,
                     )
                     .unwrap(),
                 ),
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::empty(),
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::empty(),
                 children: vec![],
             },
-            TocEntrySpec {
+            TocEntryDraft {
                 title: "Frontmatter Note".to_owned(),
                 locator: Some(
                     BookLocator::epub(
                         Some(1),
-                        EpubHref::parse("EPUB/front.xhtml").unwrap(),
+                        EpubResourcePath::parse("EPUB/front.xhtml").unwrap(),
                         None,
                         None,
                     )
                     .unwrap(),
                 ),
-                unit_offset: NormalizedOffset::ZERO,
-                flags: TocNodeFlags::empty(),
+                unit_offset: ReadingUnitOffset::ZERO,
+                flags: TocEntryFlags::empty(),
                 children: vec![],
             },
         ],
         vec![
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: false,
                 weight: 10,
                 display_label: Some("EPUB/cover.xhtml".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 100,
                 display_label: Some("EPUB/front.xhtml".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 100,
                 display_label: Some("EPUB/ch1.xhtml".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 100,
                 display_label: Some("EPUB/ch2.xhtml".to_owned()),
             },
-            LinearUnitSpec {
+            ReadingUnitDraft {
                 is_linear: true,
                 weight: 100,
                 display_label: Some("EPUB/ch3.xhtml".to_owned()),
@@ -600,16 +605,16 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
     .unwrap();
 
     // Non-monotonic trailing frontmatter node (unit 1) must not shadow Chapter 2 (unit 3).
-    assert_eq!(nav.active_toc_index(4, NormalizedOffset::ZERO), Some(3));
+    assert_eq!(nav.active_toc_index(4, ReadingUnitOffset::ZERO), Some(3));
     // Querying unit 1 matches the frontmatter note despite appearing last in TOC.
     assert_eq!(
-        nav.active_toc_index(1, NormalizedOffset::new(0.5).unwrap()),
+        nav.active_toc_index(1, ReadingUnitOffset::new(0.5).unwrap()),
         Some(4)
     );
     // Identical position (2, 0.0) selects deeper/later pre-order node (Section 1.0).
-    assert_eq!(nav.active_toc_index(2, NormalizedOffset::ZERO), Some(2));
+    assert_eq!(nav.active_toc_index(2, ReadingUnitOffset::ZERO), Some(2));
     // Non-linear cover matches only when directly on unit 0.
-    assert_eq!(nav.active_toc_index(0, NormalizedOffset::ZERO), Some(0));
+    assert_eq!(nav.active_toc_index(0, ReadingUnitOffset::ZERO), Some(0));
     // Out-of-bounds unit index returns None.
-    assert_eq!(nav.active_toc_index(99, NormalizedOffset::ZERO), None);
+    assert_eq!(nav.active_toc_index(99, ReadingUnitOffset::ZERO), None);
 }

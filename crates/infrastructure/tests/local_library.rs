@@ -17,7 +17,7 @@ use shiro_application::library::{
 use shiro_domain::library::{
     book::{
         file::entity::BookFileType,
-        navigation::BookLocator,
+        value_objects::BookLocator,
     },
     tag::value_objects::TagDeleteStrategy,
 };
@@ -533,7 +533,7 @@ async fn local_library_extract_navigation_handles_valid_epub_and_returns_empty_o
     assert!(!epub_nav.is_empty());
     assert_eq!(epub_nav.toc().len(), 6);
     assert!(epub_nav.total_weight() > 0);
-    assert!(!epub_nav.linear_units().is_empty());
+    assert!(!epub_nav.reading_units().is_empty());
     assert!(matches!(
         epub_nav.toc()[0].locator(),
         Some(BookLocator::Epub {

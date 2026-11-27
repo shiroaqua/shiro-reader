@@ -37,6 +37,16 @@ impl From<BookDomainError> for BookApplicationError {
             BookDomainError::TitleUnchanged => Self::TitleUnchanged,
             BookDomainError::AlreadyDeleted => Self::AlreadyDeleted,
             BookDomainError::NotDeleted => Self::NotDeleted,
+            BookDomainError::InvalidReadingUnitOffset
+            | BookDomainError::InvalidBookProgression
+            | BookDomainError::InvalidEpubResourcePath
+            | BookDomainError::InvalidEpubFragment
+            | BookDomainError::InvalidEpubCfi
+            | BookDomainError::InvalidPdfDestination
+            | BookDomainError::ReadingUnitOutOfBounds { .. }
+            | BookDomainError::TooManyReadingUnits
+            | BookDomainError::TooManyTocEntries
+            | BookDomainError::TocMaxDepthExceeded => Self::Storage(value.into()),
         }
     }
 }
