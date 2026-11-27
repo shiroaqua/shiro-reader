@@ -48,7 +48,7 @@ async fn refresh_preserves_identity_and_book_access_and_can_be_reused() {
     for _ in 0..2 {
         let refreshed = app.refresh(&reader).await;
         assert_eq!(refreshed.user_id, reader.user_id);
-        assert_eq!(app.books(&refreshed).await, [book.data.clone()]);
+        assert_eq!(app.books(&refreshed).await, std::slice::from_ref(&book.data));
     }
 }
 

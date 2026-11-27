@@ -484,15 +484,14 @@ fn dispatch_request_permission(app: &AppHandle, request_id: i64) -> bool {
                 ) {
                     tracing::warn!(?err, "failed to invoke requestUploadNotificationPermission");
                     check_and_clear_jni_exception(env);
-                    if let Some(controller) = CONTROLLER.get() {
-                        if let Some(tx) = controller
+                    if let Some(controller) = CONTROLLER.get()
+                        && let Some(tx) = controller
                             .pending_permissions
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .remove(&request_id)
-                        {
-                            let _ = tx.send(false);
-                        }
+                    {
+                        let _ = tx.send(false);
                     }
                 }
             });

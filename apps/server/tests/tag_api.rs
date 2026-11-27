@@ -541,7 +541,7 @@ async fn cascade_removes_only_the_selected_subtree_and_all_its_descendants() {
         .await
         .assert_empty(204);
     assert!(app.tag_tree(&reader).await.is_empty());
-    assert_eq!(app.books(&reader).await, [book.data.clone()]);
+    assert_eq!(app.books(&reader).await, std::slice::from_ref(&book.data));
     app.assert_book_tags(&reader, &book.data.id, &[]).await;
 }
 
@@ -718,7 +718,7 @@ async fn deleting_a_bound_book_preserves_the_tag_definition_and_other_books() {
         .await
         .assert_error(HttpError::BookNotFound);
     assert_eq!(app.tag_tree(&reader).await, [tag.node(vec![])]);
-    assert_eq!(app.books(&reader).await, [second.data.clone()]);
+    assert_eq!(app.books(&reader).await, std::slice::from_ref(&second.data));
     app.unbind_tag(&reader, &second.data.id, &tag.id)
         .await
         .assert_empty(204);
@@ -774,7 +774,7 @@ async fn restart_preserves_tag_identity_hierarchy_rules_and_completed_deletions(
         app.tag_tree(&session).await,
         [expected_promoted.node(vec![leaf.node(vec![])])]
     );
-    assert_eq!(app.books(&session).await, [book.clone()]);
+    assert_eq!(app.books(&session).await, std::slice::from_ref(&book));
     app.assert_book_tags(&session, &book.id, &[expected_promoted.binding(Some("7"))])
         .await;
     app.bind_tag(&session, &book.id, &expected_promoted.id, Some("bad"))

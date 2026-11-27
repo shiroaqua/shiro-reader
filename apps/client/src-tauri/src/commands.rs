@@ -1308,7 +1308,7 @@ mod tests {
         assert!(validate_external_url(&format!("https://example.com/{}", "a".repeat(4100))).is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn external_launcher_reaps_child_and_reports_nonzero_exit() {
         let mut ok_cmd = std::process::Command::new("sh");

@@ -1,5 +1,6 @@
+#[cfg(not(target_os = "android"))]
+use std::collections::BTreeSet;
 use std::{
-    collections::BTreeSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -8,10 +9,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use shiro_error_catalog::ErrorCode;
 use tempfile::NamedTempFile;
-use tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    sync::OnceCell,
-};
+use tokio::io::{AsyncRead, AsyncReadExt};
+#[cfg(not(target_os = "android"))]
+use tokio::sync::OnceCell;
 use tracing::warn;
 use ttf_parser::{Language, name_id};
 

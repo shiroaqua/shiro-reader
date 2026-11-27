@@ -17,10 +17,10 @@ async fn restart_preserves_users_independent_books_files_and_existing_sessions()
     for (name, session, book) in [("Alice", alice, alice_book), ("Bob", bob, bob_book)] {
         let login = app.login(name, PASSWORD).await;
         assert_eq!(login.user_id, session.user_id);
-        assert_eq!(app.books(&login).await, [book.clone()]);
-        assert_eq!(app.books(&session).await, [book.clone()]);
+        assert_eq!(app.books(&login).await, std::slice::from_ref(&book));
+        assert_eq!(app.books(&session).await, std::slice::from_ref(&book));
         let refreshed = app.refresh(&session).await;
-        assert_eq!(app.books(&refreshed).await, [book.clone()]);
+        assert_eq!(app.books(&refreshed).await, std::slice::from_ref(&book));
         app.download(&login, &book.id)
             .await
             .assert_file(&SampleFile::Epub);
@@ -40,8 +40,8 @@ async fn multiple_appstates_share_pdfium_but_keep_separate_libraries() {
     let b = second.add_book(&bob, "Second", SampleFile::Pdf).await;
     a.cover().await.assert_png();
     b.cover().await.assert_png();
-    assert_eq!(first.books(&alice).await, [a.data.clone()]);
-    assert_eq!(second.books(&bob).await, [b.data.clone()]);
+    assert_eq!(first.books(&alice).await, std::slice::from_ref(&a.data));
+    assert_eq!(second.books(&bob).await, std::slice::from_ref(&b.data));
     drop(first);
     drop(second);
 

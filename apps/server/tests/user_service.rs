@@ -66,7 +66,7 @@ async fn rename_changes_login_name_but_preserves_identity_and_books() {
         .assert_error(HttpError::InvalidCredentials);
     let renamed = app.login("新名字", PASSWORD).await;
     assert_eq!(renamed.user_id, original.user_id);
-    assert_eq!(app.books(&renamed).await, [book.data.clone()]);
+    assert_eq!(app.books(&renamed).await, std::slice::from_ref(&book.data));
     book.assert_unchanged().await;
 }
 
@@ -85,7 +85,7 @@ async fn password_change_rejects_old_password_and_preserves_identity() {
         .assert_error(HttpError::InvalidCredentials);
     let changed = app.login("Reader", "new-password").await;
     assert_eq!(changed.user_id, original.user_id);
-    assert_eq!(app.books(&changed).await, [book.data.clone()]);
+    assert_eq!(app.books(&changed).await, std::slice::from_ref(&book.data));
     app.change_password(&original.user_id, "new-password")
         .await
         .assert_ok();

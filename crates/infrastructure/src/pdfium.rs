@@ -1,5 +1,7 @@
+#[cfg(not(target_os = "android"))]
+use std::path::PathBuf;
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, OnceLock},
 };
 

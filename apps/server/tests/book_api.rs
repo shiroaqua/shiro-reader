@@ -17,7 +17,7 @@ async fn create_and_filter_books() {
     assert_eq!(app.books(&reader).await.len(), 2);
     assert_eq!(
         app.books_by_ids(&reader, &[&pdf.data.id]).await,
-        [pdf.data.clone()]
+        std::slice::from_ref(&pdf.data)
     );
     assert_eq!(
         app.books_by_ids(&reader, &[&pdf.data.id, &epub.data.id])
@@ -89,7 +89,7 @@ async fn rename_and_delete_preserve_shared_file() {
     book.assert_renamed("Renamed").await;
     let shared = app.add_book(&reader, "Shared", Epub).await;
     book.delete().await.assert_empty(204);
-    assert_eq!(app.books(&reader).await, [shared.data.clone()]);
+    assert_eq!(app.books(&reader).await, std::slice::from_ref(&shared.data));
     book.delete().await.assert_error(BookAlreadyDeleted);
     app.download(&reader, &book.data.id)
         .await
@@ -271,7 +271,7 @@ async fn trash_and_batch_edge_cases() {
     app.delete_books(&reader, &[&active.data.id, &active.data.id])
         .await
         .assert_error(BookAlreadyDeleted);
-    assert_eq!(app.books(&reader).await, [active.data.clone()]);
+    assert_eq!(app.books(&reader).await, std::slice::from_ref(&active.data));
 
     app.permanently_delete_books(&reader, &[&trashed.data.id, &trashed.data.id])
         .await

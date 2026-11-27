@@ -22,8 +22,7 @@ async fn main() -> anyhow::Result<()> {
         .user_service
         .get_users(GetUsersQuery { ids: vec![] })
         .await?
-        .len()
-        == 0
+        .is_empty()
     {
         if cfg!(debug_assertions) {
             state
