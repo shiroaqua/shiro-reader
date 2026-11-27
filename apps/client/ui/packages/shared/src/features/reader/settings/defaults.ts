@@ -31,7 +31,7 @@ export const READER_SETTING_BOUNDS = {
 export const READER_FONT_PRESET_STACKS: Readonly<
   Record<ReaderFontPreset, string>
 > = {
-  sans: `'Inter Variable', "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`,
+  sans: `ui-sans-serif, system-ui, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`,
   serif: `"Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "SimSun", Georgia, serif`,
   mono: `ui-monospace, "JetBrains Mono", "Cascadia Mono", "Source Han Sans HW SC", monospace`,
 }
