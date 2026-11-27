@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    io::{self, Cursor, ErrorKind, SeekFrom},
+    io::{self, ErrorKind, SeekFrom},
     path::{Path, PathBuf},
     pin::Pin,
     sync::{
@@ -267,6 +267,29 @@ pub fn is_opaque_book_file_name(file_name: &str) -> bool {
     !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit())
 }
 
+/// Sanitizes an embedded document title (e.g. EPUB `<dc:title>`) without applying
+/// filesystem path splitting or extension stripping.
+pub(crate) fn sanitize_embedded_book_title(raw: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(raw.len());
+    let mut prev_space = true;
+    for ch in raw.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            if !prev_space {
+                normalized.push(' ');
+                prev_space = true;
+            }
+        } else {
+            normalized.push(ch);
+            prev_space = false;
+        }
+    }
+    if normalized.ends_with(' ') {
+        normalized.pop();
+    }
+    use shiro_domain::library::book::value_objects::BookTitle;
+    BookTitle::parse(normalized).ok().map(BookTitle::into_inner)
+}
+
 /// Resolves the final book title for a staged import:
 /// - Normal file names keep their filename-derived title.
 /// - Opaque Android SAF identifiers (such as `"100001"`) attempt to read embedded book metadata
@@ -302,7 +325,7 @@ pub(crate) async fn resolve_staged_book_title(
         .map_err(|_| ErrorCode::CommonInternalServerError)?;
 
     if let Some(meta_title) = embedded
-        && let Ok(valid) = derive_book_title(&meta_title)
+        && let Some(valid) = sanitize_embedded_book_title(&meta_title)
     {
         return Ok(valid);
     }
@@ -335,8 +358,6 @@ where
     let mut hasher = blake3::Hasher::new();
     let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
     let mut size: u64 = 0;
-    // The EPUB magic header spans 58 bytes. Retain up to 64 for both formats.
-    let mut header = Vec::with_capacity(64);
 
     loop {
         let n = tokio::select! {
@@ -357,7 +378,6 @@ where
 
         let chunk = &buf[..n];
         hasher.update(chunk);
-        header.extend_from_slice(&chunk[..chunk.len().min(64 - header.len())]);
         file.write_all(chunk)
             .await
             .map_err(|_| ErrorCode::CommonInternalServerError)?;
@@ -367,10 +387,23 @@ where
         }
     }
 
-    detect_book_file_type(&mut Cursor::new(header)).map_err(|_| ErrorCode::BookFileUnsupported)?;
     file.flush()
         .await
         .map_err(|_| ErrorCode::CommonInternalServerError)?;
+    let std_clone = file
+        .try_clone()
+        .await
+        .map_err(|_| ErrorCode::CommonInternalServerError)?
+        .into_std()
+        .await;
+    let detect_res = tokio::task::spawn_blocking(move || {
+        let mut std_file = std_clone;
+        detect_book_file_type(&mut std_file)
+    })
+    .await
+    .map_err(|_| ErrorCode::CommonInternalServerError)?;
+    detect_res.map_err(|_| ErrorCode::BookFileUnsupported)?;
+
     file.seek(SeekFrom::Start(0))
         .await
         .map_err(|_| ErrorCode::CommonInternalServerError)?;
@@ -434,6 +467,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use shiro_http_contract::DEFAULT_MAX_UPLOAD_BYTES;
 
     use super::*;
@@ -616,5 +651,115 @@ mod tests {
         assert!(library.book_file_service().parse_existing_hash(&epub_hash).is_ok());
         assert!(epub_book_path.exists());
         assert_eq!(cover_files_with_hash(&epub_hash), 1);
+    }
+
+    #[tokio::test]
+    async fn stage_book_accepts_reordered_epub_and_preserves_slash_in_embedded_title() {
+        fn build_reordered_epub_with_slash_title() -> Vec<u8> {
+            fn crc32(data: &[u8]) -> u32 {
+                let mut crc = 0xFFFF_FFFFu32;
+                for &byte in data {
+                    crc ^= u32::from(byte);
+                    for _ in 0..8 {
+                        let mask = (crc & 1).wrapping_neg();
+                        crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+                    }
+                }
+                !crc
+            }
+
+            let container = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#;
+            let opf = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">urn:uuid:77777777-7777-7777-7777-777777777777</dc:identifier>
+    <dc:title>Social Psychology, 10/e</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch1" linear="yes"/></spine>
+</package>"#;
+            let ch1 = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Large leading chapter payload exceeding sixty-four bytes so mimetype appears well past the initial header slice.</p></body></html>"#;
+
+            let entries: [(&str, &[u8]); 4] = [
+                ("OEBPS/ch1.xhtml", ch1),
+                ("META-INF/container.xml", container),
+                ("OEBPS/package.opf", opf),
+                ("mimetype", b"application/epub+zip"),
+            ];
+
+            let mut out = Vec::new();
+            let mut cd = Vec::new();
+            for &(name, data) in &entries {
+                let offset = out.len() as u32;
+                let crc = crc32(data);
+                let size = data.len() as u32;
+                let name_len = name.len() as u16;
+                out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+                out.extend_from_slice(&20u16.to_le_bytes());
+                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(&crc.to_le_bytes());
+                out.extend_from_slice(&size.to_le_bytes());
+                out.extend_from_slice(&size.to_le_bytes());
+                out.extend_from_slice(&name_len.to_le_bytes());
+                out.extend_from_slice(&0u16.to_le_bytes());
+                out.extend_from_slice(name.as_bytes());
+                out.extend_from_slice(data);
+
+                cd.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+                cd.extend_from_slice(&20u16.to_le_bytes());
+                cd.extend_from_slice(&20u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&crc.to_le_bytes());
+                cd.extend_from_slice(&size.to_le_bytes());
+                cd.extend_from_slice(&size.to_le_bytes());
+                cd.extend_from_slice(&name_len.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u16.to_le_bytes());
+                cd.extend_from_slice(&0u32.to_le_bytes());
+                cd.extend_from_slice(&offset.to_le_bytes());
+                cd.extend_from_slice(name.as_bytes());
+            }
+            let cd_offset = out.len() as u32;
+            let cd_size = cd.len() as u32;
+            let count = entries.len() as u16;
+            out.extend_from_slice(&cd);
+            out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
+            out.extend_from_slice(&count.to_le_bytes());
+            out.extend_from_slice(&cd_size.to_le_bytes());
+            out.extend_from_slice(&cd_offset.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = CancellationToken::new();
+        let epub = build_reordered_epub_with_slash_title();
+
+        let mut staged = stage_book(dir.path(), Cursor::new(&epub), None, &cancel, None)
+            .await
+            .expect("reordered EPUB with mimetype beyond 64B must stage");
+
+        let resolved_title = resolve_staged_book_title("100001", &mut staged)
+            .await
+            .expect("resolve title");
+        assert_eq!(resolved_title, "Social Psychology, 10/e");
     }
 }

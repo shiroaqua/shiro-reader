@@ -52,6 +52,7 @@ pub struct ZipEntryMeta {
 #[derive(Debug)]
 pub struct ZipIndex {
     entries: HashMap<Box<str>, ZipEntryMeta>,
+    lowercase_paths: HashMap<Box<str>, Box<str>>,
 }
 
 impl ZipIndex {
@@ -73,7 +74,7 @@ impl ZipIndex {
         let tail_start = total_size - tail_len as u64;
         let tail = source.read_exact_at(tail_start, tail_len).await?;
 
-        let (eocd_rel, eocd) = find_eocd(&tail).ok_or(ErrorCode::ReaderCorruptedEpub)?;
+        let (eocd_rel, eocd) = find_eocd(&tail, tail_start).ok_or(ErrorCode::ReaderCorruptedEpub)?;
         let eocd_offset = tail_start + eocd_rel as u64;
 
         let mut disk_number = u64::from(read_u16_le(&eocd[4..6]));
@@ -152,8 +153,15 @@ impl ZipIndex {
         }
 
         let cd_bytes = source.read_exact_at(cd_offset, cd_size as usize).await?;
-        let entries = parse_central_directory(&cd_bytes, total_entries as usize)?;
-        Ok(Self { entries })
+        if total_entries > 0 && (cd_bytes.len() < 4 || cd_bytes[0..4] != CD_SIG) {
+            return Err(ErrorCode::ReaderCorruptedEpub);
+        }
+        let (entries, lowercase_paths) =
+            parse_central_directory(&cd_bytes, total_entries as usize)?;
+        Ok(Self {
+            entries,
+            lowercase_paths,
+        })
     }
 
     pub(crate) async fn read_entry(
@@ -227,32 +235,50 @@ impl ZipIndex {
     }
 
     fn lookup_entry(&self, raw_path: &str) -> Option<ZipEntryMeta> {
-        if let Some(norm) = normalize_archive_path(raw_path, false)
-            && let Some(meta) = self.entries.get(norm.as_str())
+        let norm_direct = normalize_archive_path(raw_path, false);
+        if let Some(norm) = norm_direct.as_deref()
+            && let Some(meta) = self.entries.get(norm)
         {
             return Some(*meta);
         }
 
         let stripped = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
-        if stripped != raw_path
-            && let Some(norm) = normalize_archive_path(stripped, false)
-            && let Some(meta) = self.entries.get(norm.as_str())
+        let norm_stripped = if stripped != raw_path {
+            normalize_archive_path(stripped, false)
+        } else {
+            None
+        };
+        if let Some(norm) = norm_stripped.as_deref()
+            && let Some(meta) = self.entries.get(norm)
         {
             return Some(*meta);
         }
 
-        if let Some(decoded) = percent_decode_utf8_strict(stripped)
-            && let Some(norm) = normalize_archive_path(&decoded, false)
-            && let Some(meta) = self.entries.get(norm.as_str())
+        let norm_decoded = percent_decode_utf8_strict(stripped)
+            .and_then(|decoded| normalize_archive_path(&decoded, false));
+        if let Some(norm) = norm_decoded.as_deref()
+            && let Some(meta) = self.entries.get(norm)
         {
             return Some(*meta);
+        }
+
+        for candidate in [norm_direct, norm_stripped, norm_decoded]
+            .into_iter()
+            .flatten()
+        {
+            let lower = candidate.to_lowercase();
+            if let Some(canonical) = self.lowercase_paths.get(lower.as_str())
+                && let Some(meta) = self.entries.get(canonical.as_ref())
+            {
+                return Some(*meta);
+            }
         }
 
         None
     }
 }
 
-fn find_eocd(tail: &[u8]) -> Option<(usize, &[u8])> {
+fn find_eocd(tail: &[u8], tail_start: u64) -> Option<(usize, &[u8])> {
     if tail.len() < 22 {
         return None;
     }
@@ -264,14 +290,43 @@ fn find_eocd(tail: &[u8]) -> Option<(usize, &[u8])> {
             }
         }
     }
+    // Second pass: tolerate trailing padding/garbage bytes after EOCD when sanity checks pass.
+    for i in (0..=tail.len() - 22).rev() {
+        if tail[i..i + 4] == EOCD_SIG {
+            let comment_len = usize::from(read_u16_le(&tail[i + 20..i + 22]));
+            if i + 22 + comment_len <= tail.len() {
+                let disk_number = read_u16_le(&tail[i + 4..i + 6]);
+                let cd_disk = read_u16_le(&tail[i + 6..i + 8]);
+                let cd_size = read_u32_le(&tail[i + 12..i + 16]);
+                let cd_offset = read_u32_le(&tail[i + 16..i + 20]);
+                let is_z64_sentinel = disk_number == 0xFFFF
+                    || cd_disk == 0xFFFF
+                    || cd_size == 0xFFFF_FFFF
+                    || cd_offset == 0xFFFF_FFFF;
+                if is_z64_sentinel {
+                    if i >= 20 && tail[i - 20..i - 16] == ZIP64_LOCATOR_SIG {
+                        return Some((i, &tail[i..]));
+                    }
+                } else if disk_number == 0
+                    && cd_disk == 0
+                    && u64::from(cd_offset)
+                        .checked_add(u64::from(cd_size))
+                        .is_some_and(|end| end <= tail_start + i as u64)
+                {
+                    return Some((i, &tail[i..]));
+                }
+            }
+        }
+    }
     None
 }
 
 fn parse_central_directory(
     cd: &[u8],
     total_entries: usize,
-) -> Result<HashMap<Box<str>, ZipEntryMeta>, ErrorCode> {
+) -> Result<(HashMap<Box<str>, ZipEntryMeta>, HashMap<Box<str>, Box<str>>), ErrorCode> {
     let mut entries = HashMap::with_capacity(total_entries.min(1024));
+    let mut lowercase_paths = HashMap::with_capacity(total_entries.min(1024));
     let mut cursor = 0usize;
 
     for _ in 0..total_entries {
@@ -351,8 +406,10 @@ fn parse_central_directory(
             && !decoded.ends_with('\\')
             && let Some(norm) = normalize_archive_path(&decoded, true)
         {
+            let lower = norm.to_lowercase().into_boxed_str();
+            let norm_box = norm.into_boxed_str();
             entries.insert(
-                norm.into_boxed_str(),
+                norm_box.clone(),
                 ZipEntryMeta {
                     compression: ZipCompression::from(method),
                     compressed_size,
@@ -361,12 +418,13 @@ fn parse_central_directory(
                     local_header_offset,
                 },
             );
+            lowercase_paths.insert(lower, norm_box);
         }
 
         cursor = next_cursor;
     }
 
-    Ok(entries)
+    Ok((entries, lowercase_paths))
 }
 
 fn find_zip64_extra_field(extra: &[u8]) -> Option<&[u8]> {
@@ -926,6 +984,34 @@ mod tests {
         assert_eq!(
             ZipIndex::parse(&src).await.unwrap_err(),
             ErrorCode::ReaderCorruptedEpub
+        );
+    }
+
+    #[tokio::test]
+    async fn tolerates_trailing_bytes_after_eocd_and_supports_case_insensitive_fallback() {
+        let entry = RawZipEntrySpec::stored(b"OEBPS/Images/Cover.jpg", b"jpeg-payload");
+        let mut zip_bytes = build_raw_zip(&[entry], false);
+        zip_bytes.extend_from_slice(&[0u8; 16]);
+
+        let source = BookByteSource::Memory(Bytes::from(zip_bytes));
+        let index = ZipIndex::parse(&source)
+            .await
+            .expect("EOCD with trailing padding should still parse");
+
+        assert_eq!(
+            index
+                .read_entry(&source, "oebps/images/cover.jpg")
+                .await
+                .unwrap()
+                .as_ref(),
+            b"jpeg-payload"
+        );
+        assert_eq!(
+            index
+                .read_entry(&source, "OEBPS/../OEBPS/Images/Cover.jpg")
+                .await
+                .unwrap_err(),
+            ErrorCode::ReaderEntryNotFound
         );
     }
 }

@@ -662,11 +662,326 @@ fn extract_pdf_cover(
 
 fn extract_epub_cover(file: BookFileContentReader) -> anyhow::Result<Vec<u8>> {
     let epub = Epub::read(file)?;
-    let cover = epub
-        .manifest()
-        .cover_image()
-        .ok_or_else(|| anyhow::anyhow!("epub does not declare a cover image"))?;
-    Ok(cover.read_bytes()?)
+    if let Some(cover) = epub.manifest().cover_image()
+        && let Ok(bytes) = cover.read_bytes()
+        && image::guess_format(&bytes).is_ok()
+    {
+        return Ok(bytes);
+    }
+
+    // 兜底策略 1：扫描封面 Spine 章节（或前 3 个 Spine 章节）中的首张 <img> / <image>
+    let mut candidate_indices: Vec<usize> = Vec::new();
+    let spine_entries: Vec<_> = epub.spine().iter().collect();
+    for (idx, entry) in spine_entries.iter().enumerate() {
+        if candidate_indices.len() >= 3 {
+            break;
+        }
+        let is_cover_like = entry.idref().to_ascii_lowercase().contains("cover")
+            || entry.manifest_entry().is_some_and(|m| {
+                let path_lower = m.href().path().decode().to_ascii_lowercase();
+                let id_lower = m.id().to_ascii_lowercase();
+                id_lower.contains("cover")
+                    || path_lower.contains("cover")
+                    || path_lower.contains("titlepage")
+            });
+        if is_cover_like {
+            candidate_indices.push(idx);
+        }
+    }
+    if !spine_entries.is_empty() && !candidate_indices.contains(&0) && candidate_indices.len() < 3 {
+        candidate_indices.push(0);
+    }
+    for idx in 0..spine_entries.len().min(3) {
+        if candidate_indices.len() >= 3 {
+            break;
+        }
+        if !candidate_indices.contains(&idx) {
+            candidate_indices.push(idx);
+        }
+    }
+
+    for idx in candidate_indices {
+        let Some(manifest_entry) = spine_entries[idx].manifest_entry() else {
+            continue;
+        };
+        let markup = match manifest_entry.read_str() {
+            Ok(text) => text,
+            Err(_) => match manifest_entry.read_bytes() {
+                Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Err(_) => continue,
+            },
+        };
+        let base_href = manifest_entry.href().path().as_str();
+        for img_ref in extract_markup_image_refs(&markup) {
+            if let Some(resolved) = resolve_epub_relative_path(base_href, &img_ref)
+                && let Some(bytes) = find_manifest_image_bytes(&epub, &resolved)
+            {
+                return Ok(bytes);
+            }
+        }
+    }
+
+    // 兜底策略 2：在 manifest 图片项中按文件名/ID 匹配 cover
+    let mut partial_matches = Vec::new();
+    for image_entry in epub.manifest().images() {
+        let decoded_path = image_entry.href().path().decode();
+        let file_name = decoded_path.rsplit('/').next().unwrap_or(decoded_path.as_ref());
+        let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s);
+        if stem.eq_ignore_ascii_case("cover") {
+            if let Ok(bytes) = image_entry.read_bytes()
+                && image::guess_format(&bytes).is_ok()
+            {
+                return Ok(bytes);
+            }
+        } else if file_name.to_ascii_lowercase().contains("cover")
+            || image_entry.id().to_ascii_lowercase().contains("cover")
+        {
+            partial_matches.push(image_entry);
+        }
+    }
+    for image_entry in partial_matches {
+        if let Ok(bytes) = image_entry.read_bytes()
+            && image::guess_format(&bytes).is_ok()
+        {
+            return Ok(bytes);
+        }
+    }
+
+    anyhow::bail!("epub does not declare a cover image")
+}
+
+fn find_manifest_image_bytes(epub: &Epub, resolved_path: &str) -> Option<Vec<u8>> {
+    let target_norm = normalize_epub_archive_path(resolved_path)?;
+    let target_decoded = percent_decode_utf8_lossy(&target_norm);
+
+    if let Some(entry) = epub.manifest().by_href(&target_norm)
+        && entry.media_type().starts_with("image/")
+        && let Ok(bytes) = entry.read_bytes()
+        && image::guess_format(&bytes).is_ok()
+    {
+        return Some(bytes);
+    }
+
+    for entry in epub.manifest().images() {
+        let raw_path = entry.href().path().as_str();
+        let decoded_path = entry.href().path().decode();
+        let raw_norm = normalize_epub_archive_path(raw_path);
+        let decoded_norm = normalize_epub_archive_path(decoded_path.as_ref());
+
+        let matches = raw_norm
+            .as_deref()
+            .is_some_and(|p| p == target_norm || p.eq_ignore_ascii_case(&target_norm))
+            || decoded_norm
+                .as_deref()
+                .is_some_and(|p| p == target_decoded || p.eq_ignore_ascii_case(&target_decoded));
+
+        if matches
+            && let Ok(bytes) = entry.read_bytes()
+            && image::guess_format(&bytes).is_ok()
+        {
+            return Some(bytes);
+        }
+    }
+
+    None
+}
+
+fn extract_markup_image_refs(markup: &str) -> Vec<String> {
+    let mut refs = Vec::new();
+    let lower = markup.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut cursor = 0usize;
+
+    while let Some(rel_lt) = lower[cursor..].find('<') {
+        let tag_start = cursor + rel_lt;
+        let rest_bytes = &bytes[tag_start + 1..];
+        let is_img = rest_bytes.starts_with(b"img")
+            && rest_bytes.get(3).is_some_and(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'>');
+        let is_svg_image = (rest_bytes.starts_with(b"image")
+            && rest_bytes
+                .get(5)
+                .is_some_and(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'>'))
+            || (rest_bytes.starts_with(b"svg:image")
+                && rest_bytes
+                    .get(9)
+                    .is_some_and(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'>'));
+
+        if !is_img && !is_svg_image {
+            cursor = tag_start + 1;
+            continue;
+        }
+
+        let Some(tag_end) = find_tag_end(markup, tag_start + 1) else {
+            break;
+        };
+        let tag_slice = &markup[tag_start + 1..tag_end];
+        let attr_candidates: &[&str] = if is_img {
+            &["src"]
+        } else {
+            &["href", "xlink:href"]
+        };
+        for attr_name in attr_candidates {
+            if let Some(val) = extract_tag_attr_value(tag_slice, attr_name) {
+                let decoded = val.replace("&amp;", "&");
+                let trimmed = decoded.trim();
+                if !trimmed.is_empty() {
+                    refs.push(trimmed.to_owned());
+                    break;
+                }
+            }
+        }
+        cursor = tag_end + 1;
+    }
+
+    refs
+}
+
+fn find_tag_end(input: &str, start: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = start;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) if b == q => quote = None,
+            Some(_) => {}
+            None if b == b'"' || b == b'\'' => quote = Some(b),
+            None if b == b'>' => return Some(i),
+            None => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn extract_tag_attr_value(tag_slice: &str, target_attr: &str) -> Option<String> {
+    let bytes = tag_slice.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'/' && bytes[i] != b'>' {
+        i += 1;
+    }
+
+    while i < bytes.len() {
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+
+        let name_start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' && bytes[i] != b'/' {
+            i += 1;
+        }
+        let attr_name = &tag_slice[name_start..i];
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'=' {
+            continue;
+        }
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+
+        let value = if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            let val_start = i;
+            while i < bytes.len() && bytes[i] != quote {
+                i += 1;
+            }
+            let val = &tag_slice[val_start..i];
+            if i < bytes.len() {
+                i += 1;
+            }
+            val
+        } else {
+            let val_start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'>' {
+                i += 1;
+            }
+            &tag_slice[val_start..i]
+        };
+
+        if attr_name.eq_ignore_ascii_case(target_attr) {
+            return Some(value.to_owned());
+        }
+    }
+
+    None
+}
+
+fn resolve_epub_relative_path(base_href: &str, relative: &str) -> Option<String> {
+    let clean_rel = relative.split(['?', '#']).next().unwrap_or(relative).trim();
+    if clean_rel.is_empty() {
+        return None;
+    }
+    let lower = clean_rel.to_ascii_lowercase();
+    if lower.starts_with("http:")
+        || lower.starts_with("https:")
+        || lower.starts_with("data:")
+        || lower.starts_with("blob:")
+    {
+        return None;
+    }
+
+    let combined = if clean_rel.starts_with('/') {
+        clean_rel.to_owned()
+    } else {
+        let base_clean = base_href.split(['?', '#']).next().unwrap_or(base_href);
+        let base_norm = base_clean.trim_start_matches('/');
+        match base_norm.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{clean_rel}"),
+            None => clean_rel.to_owned(),
+        }
+    };
+
+    normalize_epub_archive_path(&combined)
+}
+
+fn normalize_epub_archive_path(raw: &str) -> Option<String> {
+    let clean = raw.split(['?', '#']).next().unwrap_or(raw).replace('\\', "/");
+    let mut stack: Vec<&str> = Vec::new();
+    for seg in clean.split('/') {
+        if seg.is_empty() || seg == "." {
+            continue;
+        }
+        if seg == ".." {
+            stack.pop()?;
+            continue;
+        }
+        stack.push(seg);
+    }
+    if stack.is_empty() {
+        None
+    } else {
+        Some(stack.join("/"))
+    }
+}
+
+fn percent_decode_utf8_lossy(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Exposes only the book payload while keeping reads and seeks on the original file.
@@ -763,44 +1078,326 @@ fn blank_cover() -> Bytes {
 
 pub fn detect_book_file_type(file: &mut (impl Read + Seek)) -> io::Result<BookFileType> {
     if compare_bytes_from_file(file, b"PK\x03\x04", 0)? {
-        // 1. 检查压缩方法是否为 0（不压缩，EPUB 对 mimetype 的要求）
-        if let Some(method) = read_u16_le_at(file, 8)?
-            && method == 0
-            && let Some(name_len) = read_u16_le_at(file, 26)?
-            && let Some(extra_len) = read_u16_le_at(file, 28)?
-            && name_len == 8
-            && extra_len == 0
-            && compare_bytes_from_file(file, b"mimetype", 30)?
-            && let Some(uncompressed_size) = read_u32_le_at(file, 18)?
-            && uncompressed_size == b"application/epub+zip".len() as u32
-            && compare_bytes_from_file(file, b"application/epub+zip", 38)?
-        {
+        // 1. 快速路径：偏移 0 为未压缩 `mimetype`（允许非零 extra_len 与 Data Descriptor）。
+        let mut lfh = [0u8; 30];
+        file.seek(SeekFrom::Start(0))?;
+        if file.read_exact(&mut lfh).is_ok() {
+            let flags = u16::from_le_bytes([lfh[6], lfh[7]]);
+            let method = u16::from_le_bytes([lfh[8], lfh[9]]);
+            let uncompressed_size = u32::from_le_bytes([lfh[22], lfh[23], lfh[24], lfh[25]]);
+            let name_len = u16::from_le_bytes([lfh[26], lfh[27]]);
+            let extra_len = u16::from_le_bytes([lfh[28], lfh[29]]);
+
+            if method == 0 && name_len == 8 && compare_bytes_from_file(file, b"mimetype", 30)? {
+                let payload_offset = 30u64 + 8u64 + u64::from(extra_len);
+                if (flags & 0x0008) == 0 && (20..=32).contains(&uncompressed_size) {
+                    let mut payload = vec![0u8; uncompressed_size as usize];
+                    file.seek(SeekFrom::Start(payload_offset))?;
+                    if file.read_exact(&mut payload).is_ok()
+                        && payload.trim_ascii() == b"application/epub+zip"
+                    {
+                        let _ = file.seek(SeekFrom::Start(0));
+                        return Ok(BookFileType::EPUB);
+                    }
+                } else if (flags & 0x0008) != 0
+                    && compare_bytes_from_file(file, b"application/epub+zip", payload_offset)?
+                {
+                    let _ = file.seek(SeekFrom::Start(0));
+                    return Ok(BookFileType::EPUB);
+                }
+            }
+        }
+
+        // 2. 回退路径：扫描 ZIP / ZIP64 Central Directory，兼容重排条目顺序或流式打包的 EPUB。
+        if has_epub_central_directory_markers(file)? {
+            let _ = file.seek(SeekFrom::Start(0));
             return Ok(BookFileType::EPUB);
         }
     } else if compare_bytes_from_file(file, b"%PDF-", 0)? {
+        let _ = file.seek(SeekFrom::Start(0));
         return Ok(BookFileType::PDF);
     }
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 
-fn read_u16_le_at(file: &mut (impl Read + Seek), offset: u64) -> io::Result<Option<u16>> {
-    let mut buf = [0u8; 2];
-    file.seek(SeekFrom::Start(offset))?;
-    match file.read_exact(&mut buf) {
-        Ok(()) => Ok(Some(u16::from_le_bytes(buf))),
-        Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
-        Err(err) => Err(err),
+fn has_epub_central_directory_markers(file: &mut (impl Read + Seek)) -> io::Result<bool> {
+    const ZIP64_LOCATOR_SIG: [u8; 4] = [0x50, 0x4b, 0x06, 0x07];
+    const ZIP64_EOCD_SIG: [u8; 4] = [0x50, 0x4b, 0x06, 0x06];
+    const CD_SIG: [u8; 4] = [0x50, 0x4b, 0x01, 0x02];
+    const MAX_TAIL_WINDOW: u64 = 65_536 + 22;
+    const MAX_CD_BYTES: u64 = 16 * 1024 * 1024;
+    const MAX_ENTRIES: u64 = 50_000;
+
+    let total_size = file.seek(SeekFrom::End(0))?;
+    if total_size < 22 {
+        return Ok(false);
     }
+
+    let tail_len = total_size.min(MAX_TAIL_WINDOW) as usize;
+    let tail_start = total_size - tail_len as u64;
+    let mut tail = vec![0u8; tail_len];
+    file.seek(SeekFrom::Start(tail_start))?;
+    file.read_exact(&mut tail)?;
+
+    let eocd_rel = find_eocd_offset(&tail, tail_start);
+    let Some(eocd_rel) = eocd_rel else {
+        return Ok(false);
+    };
+    let eocd = &tail[eocd_rel..];
+    let eocd_offset = tail_start + eocd_rel as u64;
+
+    let mut disk_number = u64::from(u16::from_le_bytes([eocd[4], eocd[5]]));
+    let mut cd_disk = u64::from(u16::from_le_bytes([eocd[6], eocd[7]]));
+    let mut disk_entries = u64::from(u16::from_le_bytes([eocd[8], eocd[9]]));
+    let mut total_entries = u64::from(u16::from_le_bytes([eocd[10], eocd[11]]));
+    let mut cd_size = u64::from(u32::from_le_bytes([eocd[12], eocd[13], eocd[14], eocd[15]]));
+    let mut cd_offset = u64::from(u32::from_le_bytes([eocd[16], eocd[17], eocd[18], eocd[19]]));
+    let mut cd_upper_bound = eocd_offset;
+
+    let needs_zip64 = disk_number == 0xFFFF
+        || cd_disk == 0xFFFF
+        || disk_entries == 0xFFFF
+        || total_entries == 0xFFFF
+        || cd_size == 0xFFFF_FFFF
+        || cd_offset == 0xFFFF_FFFF;
+
+    if needs_zip64 {
+        if eocd_offset < 20 {
+            return Ok(false);
+        }
+        let locator_offset = eocd_offset - 20;
+        let mut locator = [0u8; 20];
+        file.seek(SeekFrom::Start(locator_offset))?;
+        if file.read_exact(&mut locator).is_err() || locator[0..4] != ZIP64_LOCATOR_SIG {
+            return Ok(false);
+        }
+        let zip64_eocd_disk = u32::from_le_bytes([locator[4], locator[5], locator[6], locator[7]]);
+        let zip64_eocd_offset = u64::from_le_bytes([
+            locator[8], locator[9], locator[10], locator[11], locator[12], locator[13],
+            locator[14], locator[15],
+        ]);
+        let total_disks = u32::from_le_bytes([locator[16], locator[17], locator[18], locator[19]]);
+        if zip64_eocd_disk != 0
+            || total_disks > 1
+            || zip64_eocd_offset
+                .checked_add(56)
+                .is_none_or(|end| end > locator_offset)
+        {
+            return Ok(false);
+        }
+
+        let mut z64 = [0u8; 56];
+        file.seek(SeekFrom::Start(zip64_eocd_offset))?;
+        if file.read_exact(&mut z64).is_err() || z64[0..4] != ZIP64_EOCD_SIG {
+            return Ok(false);
+        }
+        let record_size = u64::from_le_bytes([
+            z64[4], z64[5], z64[6], z64[7], z64[8], z64[9], z64[10], z64[11],
+        ]);
+        if record_size < 44
+            || zip64_eocd_offset
+                .checked_add(12)
+                .and_then(|o| o.checked_add(record_size))
+                .is_none_or(|end| end > locator_offset)
+        {
+            return Ok(false);
+        }
+
+        disk_number = u64::from(u32::from_le_bytes([z64[16], z64[17], z64[18], z64[19]]));
+        cd_disk = u64::from(u32::from_le_bytes([z64[20], z64[21], z64[22], z64[23]]));
+        disk_entries = u64::from_le_bytes([
+            z64[24], z64[25], z64[26], z64[27], z64[28], z64[29], z64[30], z64[31],
+        ]);
+        total_entries = u64::from_le_bytes([
+            z64[32], z64[33], z64[34], z64[35], z64[36], z64[37], z64[38], z64[39],
+        ]);
+        cd_size = u64::from_le_bytes([
+            z64[40], z64[41], z64[42], z64[43], z64[44], z64[45], z64[46], z64[47],
+        ]);
+        cd_offset = u64::from_le_bytes([
+            z64[48], z64[49], z64[50], z64[51], z64[52], z64[53], z64[54], z64[55],
+        ]);
+        cd_upper_bound = zip64_eocd_offset;
+    }
+
+    if disk_number != 0
+        || cd_disk != 0
+        || disk_entries != total_entries
+        || cd_size > MAX_CD_BYTES
+        || total_entries > MAX_ENTRIES
+        || cd_offset
+            .checked_add(cd_size)
+            .is_none_or(|end| end > cd_upper_bound)
+    {
+        return Ok(false);
+    }
+
+    let mut cd = vec![0u8; cd_size as usize];
+    file.seek(SeekFrom::Start(cd_offset))?;
+    file.read_exact(&mut cd)?;
+
+    let mut cursor = 0usize;
+    for _ in 0..total_entries {
+        let Some(header_end) = cursor.checked_add(46).filter(|&end| end <= cd.len()) else {
+            return Ok(false);
+        };
+        let hdr = &cd[cursor..header_end];
+        if hdr[0..4] != CD_SIG {
+            return Ok(false);
+        }
+
+        let method = u16::from_le_bytes([hdr[10], hdr[11]]);
+        let raw_comp_size = u32::from_le_bytes([hdr[20], hdr[21], hdr[22], hdr[23]]);
+        let raw_uncomp_size = u32::from_le_bytes([hdr[24], hdr[25], hdr[26], hdr[27]]);
+        let name_len = usize::from(u16::from_le_bytes([hdr[28], hdr[29]]));
+        let extra_len = usize::from(u16::from_le_bytes([hdr[30], hdr[31]]));
+        let comment_len = usize::from(u16::from_le_bytes([hdr[32], hdr[33]]));
+        let raw_lh_offset = u32::from_le_bytes([hdr[42], hdr[43], hdr[44], hdr[45]]);
+
+        let name_start = header_end;
+        let Some(extra_start) = name_start.checked_add(name_len).filter(|&end| end <= cd.len())
+        else {
+            return Ok(false);
+        };
+        let Some(comment_start) = extra_start.checked_add(extra_len).filter(|&end| end <= cd.len())
+        else {
+            return Ok(false);
+        };
+        let Some(next_cursor) = comment_start
+            .checked_add(comment_len)
+            .filter(|&end| end <= cd.len())
+        else {
+            return Ok(false);
+        };
+
+        let name = String::from_utf8_lossy(&cd[name_start..extra_start]);
+        let norm_cow = name.replace('\\', "/");
+        let mut trimmed = norm_cow.as_str();
+        while let Some(rest) = trimmed.strip_prefix('/').or_else(|| trimmed.strip_prefix("./")) {
+            trimmed = rest;
+        }
+
+        if trimmed.eq_ignore_ascii_case("meta-inf/container.xml") {
+            return Ok(true);
+        }
+
+        if trimmed == "mimetype" && method == 0 {
+            let local_header_offset = if raw_lh_offset == 0xFFFF_FFFF {
+                resolve_zip64_lh_offset(
+                    &cd[extra_start..comment_start],
+                    raw_uncomp_size == 0xFFFF_FFFF,
+                    raw_comp_size == 0xFFFF_FFFF,
+                )
+            } else {
+                Some(u64::from(raw_lh_offset))
+            };
+            if let Some(lh_offset) = local_header_offset
+                && lh_offset.checked_add(30).is_some_and(|end| end <= cd_offset)
+            {
+                let mut lfh = [0u8; 30];
+                file.seek(SeekFrom::Start(lh_offset))?;
+                if file.read_exact(&mut lfh).is_ok() && lfh[0..4] == [0x50, 0x4b, 0x03, 0x04] {
+                    let lfh_name_len = u64::from(u16::from_le_bytes([lfh[26], lfh[27]]));
+                    let lfh_extra_len = u64::from(u16::from_le_bytes([lfh[28], lfh[29]]));
+                    if let Some(payload_offset) = lh_offset
+                        .checked_add(30)
+                        .and_then(|o| o.checked_add(lfh_name_len))
+                        .and_then(|o| o.checked_add(lfh_extra_len))
+                        && compare_bytes_from_file(file, b"application/epub+zip", payload_offset)?
+                    {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+
+        cursor = next_cursor;
+    }
+
+    Ok(false)
 }
 
-fn read_u32_le_at(file: &mut (impl Read + Seek), offset: u64) -> io::Result<Option<u32>> {
-    let mut buf = [0u8; 4];
-    file.seek(SeekFrom::Start(offset))?;
-    match file.read_exact(&mut buf) {
-        Ok(()) => Ok(Some(u32::from_le_bytes(buf))),
-        Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
-        Err(err) => Err(err),
+fn find_eocd_offset(tail: &[u8], tail_start: u64) -> Option<usize> {
+    const EOCD_SIG: [u8; 4] = [0x50, 0x4b, 0x05, 0x06];
+    const ZIP64_LOCATOR_SIG: [u8; 4] = [0x50, 0x4b, 0x06, 0x07];
+
+    if tail.len() < 22 {
+        return None;
     }
+    for i in (0..=tail.len() - 22).rev() {
+        if tail[i..i + 4] == EOCD_SIG {
+            let comment_len = usize::from(u16::from_le_bytes([tail[i + 20], tail[i + 21]]));
+            if i + 22 + comment_len == tail.len() {
+                return Some(i);
+            }
+        }
+    }
+    // 容错匹配：允许 EOCD 之后附带少量尾随字节
+    for i in (0..=tail.len() - 22).rev() {
+        if tail[i..i + 4] == EOCD_SIG {
+            let comment_len = usize::from(u16::from_le_bytes([tail[i + 20], tail[i + 21]]));
+            if i + 22 + comment_len <= tail.len() {
+                let disk_num = u16::from_le_bytes([tail[i + 4], tail[i + 5]]);
+                let cd_disk = u16::from_le_bytes([tail[i + 6], tail[i + 7]]);
+                let cd_size = u32::from_le_bytes([tail[i + 12], tail[i + 13], tail[i + 14], tail[i + 15]]);
+                let cd_offset = u32::from_le_bytes([tail[i + 16], tail[i + 17], tail[i + 18], tail[i + 19]]);
+                let is_z64_sentinel = disk_num == 0xFFFF
+                    || cd_disk == 0xFFFF
+                    || cd_size == 0xFFFF_FFFF
+                    || cd_offset == 0xFFFF_FFFF;
+                if is_z64_sentinel {
+                    if i >= 20 && tail[i - 20..i - 16] == ZIP64_LOCATOR_SIG {
+                        return Some(i);
+                    }
+                } else if disk_num == 0
+                    && cd_disk == 0
+                    && u64::from(cd_offset)
+                        .checked_add(u64::from(cd_size))
+                        .is_some_and(|end| end <= tail_start + i as u64)
+                {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn resolve_zip64_lh_offset(
+    extra: &[u8],
+    skip_uncomp: bool,
+    skip_comp: bool,
+) -> Option<u64> {
+    let mut cursor = 0usize;
+    while cursor + 4 <= extra.len() {
+        let header_id = u16::from_le_bytes([extra[cursor], extra[cursor + 1]]);
+        let field_len = usize::from(u16::from_le_bytes([extra[cursor + 2], extra[cursor + 3]]));
+        let data_start = cursor + 4;
+        let data_end = data_start.checked_add(field_len)?;
+        if data_end > extra.len() {
+            return None;
+        }
+        if header_id == 0x0001 {
+            let z64 = &extra[data_start..data_end];
+            let offset_pos = (usize::from(skip_uncomp) + usize::from(skip_comp)) * 8;
+            let end_pos = offset_pos.checked_add(8)?;
+            if end_pos <= z64.len() {
+                return Some(u64::from_le_bytes([
+                    z64[offset_pos],
+                    z64[offset_pos + 1],
+                    z64[offset_pos + 2],
+                    z64[offset_pos + 3],
+                    z64[offset_pos + 4],
+                    z64[offset_pos + 5],
+                    z64[offset_pos + 6],
+                    z64[offset_pos + 7],
+                ]));
+            }
+            return None;
+        }
+        cursor = data_end;
+    }
+    None
 }
 
 fn compare_bytes_from_file(
@@ -1279,5 +1876,197 @@ mod tests {
             warn_or_error.is_empty(),
             "expected 0 warnings, got {warn_or_error:?}"
         );
+    }
+
+    fn build_custom_stored_zip(entries: &[(&str, &[u8], u16, &[u8], bool)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+
+        for &(name, data, flags, extra, zero_lfh_sizes) in entries {
+            let offset = out.len() as u32;
+            let crc = crc32(data);
+            let size = data.len() as u32;
+            let lfh_crc = if zero_lfh_sizes { 0 } else { crc };
+            let lfh_size = if zero_lfh_sizes { 0 } else { size };
+            let name_bytes = name.as_bytes();
+            let name_len = name_bytes.len() as u16;
+            let extra_len = extra.len() as u16;
+
+            out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes());
+            out.extend_from_slice(&flags.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(&lfh_crc.to_le_bytes());
+            out.extend_from_slice(&lfh_size.to_le_bytes());
+            out.extend_from_slice(&lfh_size.to_le_bytes());
+            out.extend_from_slice(&name_len.to_le_bytes());
+            out.extend_from_slice(&extra_len.to_le_bytes());
+            out.extend_from_slice(name_bytes);
+            out.extend_from_slice(extra);
+            out.extend_from_slice(data);
+            if (flags & 0x0008) != 0 {
+                out.extend_from_slice(&0x0807_4b50u32.to_le_bytes());
+                out.extend_from_slice(&crc.to_le_bytes());
+                out.extend_from_slice(&size.to_le_bytes());
+                out.extend_from_slice(&size.to_le_bytes());
+            }
+
+            central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&flags.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&crc.to_le_bytes());
+            central.extend_from_slice(&size.to_le_bytes());
+            central.extend_from_slice(&size.to_le_bytes());
+            central.extend_from_slice(&name_len.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(name_bytes);
+        }
+
+        let cd_offset = out.len() as u32;
+        let cd_size = central.len() as u32;
+        let count = entries.len() as u16;
+        out.extend_from_slice(&central);
+        out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&cd_size.to_le_bytes());
+        out.extend_from_slice(&cd_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn detect_book_file_type_accepts_reordered_extra_and_data_descriptor_epubs_and_rejects_plain_zip() {
+        let dd_epub = build_custom_stored_zip(&[(
+            "mimetype",
+            b"application/epub+zip",
+            0x0008,
+            &[],
+            true,
+        )]);
+        assert_eq!(
+            detect_book_file_type(&mut Cursor::new(&dd_epub)).unwrap(),
+            BookFileType::EPUB
+        );
+
+        let extra_epub = build_custom_stored_zip(&[(
+            "mimetype",
+            b"application/epub+zip",
+            0,
+            &[0x55; 36],
+            false,
+        )]);
+        assert_eq!(
+            detect_book_file_type(&mut Cursor::new(&extra_epub)).unwrap(),
+            BookFileType::EPUB
+        );
+
+        let reordered_epub = build_custom_stored_zip(&[
+            ("OEBPS/padding.xhtml", &[b'x'; 256], 0, &[], false),
+            ("META-INF/container.xml", b"<container/>", 0, &[], false),
+            ("mimetype", b"application/epub+zip", 0, &[0x11; 16], false),
+        ]);
+        assert_eq!(
+            detect_book_file_type(&mut Cursor::new(&reordered_epub)).unwrap(),
+            BookFileType::EPUB
+        );
+
+        let container_only_epub = build_custom_stored_zip(&[
+            ("OEBPS/ch1.xhtml", b"<html></html>", 0, &[], false),
+            ("META-INF/container.xml", b"<container/>", 0, &[], false),
+        ]);
+        assert_eq!(
+            detect_book_file_type(&mut Cursor::new(&container_only_epub)).unwrap(),
+            BookFileType::EPUB
+        );
+
+        let plain_zip = build_stored_zip(&[("readme.txt", b"not an epub")]);
+        assert_eq!(
+            detect_book_file_type(&mut Cursor::new(&plain_zip))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::Unsupported
+        );
+    }
+
+    #[test]
+    fn extract_epub_cover_falls_back_to_cover_xhtml_and_manifest_cover_image() {
+        let mut png_bytes = Vec::new();
+        let img = ImageBuffer::from_pixel(2, 2, Rgba([12, 34, 56, 255]));
+        DynamicImage::ImageRgba8(img)
+            .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
+            .unwrap();
+
+        let container = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#;
+
+        let opf = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:55555555-5555-5555-5555-555555555555</dc:identifier>
+    <dc:title>Fallback Cover</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="covpage" href="Text/cover.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img1" href="Images/HeroArt.png" media-type="image/png"/>
+  </manifest>
+  <spine><itemref idref="covpage" linear="yes"/></spine>
+</package>"#;
+
+        let cover_xhtml = br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><section><img src="../Images/HeroArt.png" alt="cover"/></section></body></html>"#;
+
+        let epub_via_xhtml = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            ("META-INF/container.xml", container),
+            ("OEBPS/package.opf", opf),
+            ("OEBPS/Text/cover.xhtml", cover_xhtml),
+            ("OEBPS/Images/HeroArt.png", &png_bytes),
+        ]);
+        let mut tmp1 = tempfile::tempfile().unwrap();
+        tmp1.write_all(&epub_via_xhtml).unwrap();
+        let reader1 = BookFileContentReader::new(tmp1, 0, epub_via_xhtml.len() as u64).unwrap();
+        assert_eq!(extract_epub_cover(reader1).unwrap(), png_bytes);
+
+        let opf_manifest_only = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="id">urn:uuid:66666666-6666-6666-6666-666666666666</dc:identifier>
+    <dc:title>Manifest Cover Name</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img-cover" href="Images/Cover.png" media-type="image/png"/>
+  </manifest>
+  <spine><itemref idref="ch1" linear="yes"/></spine>
+</package>"#;
+        let epub_via_manifest = build_stored_zip(&[
+            ("mimetype", b"application/epub+zip"),
+            ("META-INF/container.xml", container),
+            ("OEBPS/package.opf", opf_manifest_only),
+            ("OEBPS/Text/ch1.xhtml", b"<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>Text</p></body></html>"),
+            ("OEBPS/Images/Cover.png", &png_bytes),
+        ]);
+        let mut tmp2 = tempfile::tempfile().unwrap();
+        tmp2.write_all(&epub_via_manifest).unwrap();
+        let reader2 = BookFileContentReader::new(tmp2, 0, epub_via_manifest.len() as u64).unwrap();
+        assert_eq!(extract_epub_cover(reader2).unwrap(), png_bytes);
     }
 }
