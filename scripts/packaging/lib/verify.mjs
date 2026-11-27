@@ -102,7 +102,7 @@ function verifyWindowsArtifact(artifactPath, spec, options = {}) {
 
   // Fallback when 7z is unavailable: strictly require the matching build tree NSIS script and binaries.
   const buildProfileDir = resolveWindowsBuildProfileDir(artifactPath, options)
-  const buildExe = path.join(buildProfileDir, "shiro-reader-desktop.exe")
+  const buildExe = path.join(buildProfileDir, "shiro-reader-client.exe")
   const nsisScript = path.join(buildProfileDir, "nsis/x64/installer.nsi")
   const stagedBin = path.join(TAURI_DIR, "staging/windows-x64", spec.stagedBinaryRelativePath)
   const stagedLic = path.join(TAURI_DIR, "staging/windows-x64", spec.stagedLicenseRelativePath)
@@ -157,7 +157,7 @@ function verifyWindowsArtifact(artifactPath, spec, options = {}) {
 }
 
 function findSingleExe(rootDir) {
-  const direct = path.join(rootDir, "shiro-reader-desktop.exe")
+  const direct = path.join(rootDir, "shiro-reader-client.exe")
   if (fs.existsSync(direct)) return direct
   for (const name of fs.readdirSync(rootDir)) {
     if (name.endsWith(".exe") && !name.toLowerCase().includes("uninstall")) {
@@ -297,7 +297,7 @@ function verifyAabArtifact(aabPath, spec) {
 }
 
 function findLinuxAppExecutable(binDir) {
-  const preferred = path.join(binDir, "shiro-reader-desktop")
+  const preferred = path.join(binDir, "shiro-reader-client")
   if (fs.existsSync(preferred)) return preferred
   if (fs.existsSync(binDir)) {
     const first = fs.readdirSync(binDir).find((name) => !name.startsWith("."))

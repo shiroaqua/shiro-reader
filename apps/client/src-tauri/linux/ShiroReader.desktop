@@ -1,8 +1,8 @@
 [Desktop Entry]
 Categories=
 Comment=ShiroReader Tauri 2 client
-Exec=shiro-reader-desktop
-Icon=shiro-reader-desktop
+Exec=shiro-reader-client
+Icon=shiro-reader-client
 Name=ShiroReader
 Name[zh_CN]=白读
 Terminal=false

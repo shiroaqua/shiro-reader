@@ -125,7 +125,7 @@ test("inspectElfX86_64Buffer validates ELF64 x86_64 ET_DYN/ET_EXEC and rejects w
     elfType: "ET_DYN",
     ptLoadAlignments: [4096],
   })
-  assert.deepEqual(inspectElfX86_64Buffer(buildElf(2), "shiro-reader-desktop"), {
+  assert.deepEqual(inspectElfX86_64Buffer(buildElf(2), "shiro-reader-client"), {
     arch: "x86_64",
     format: "ELF64",
     elfType: "ET_EXEC",

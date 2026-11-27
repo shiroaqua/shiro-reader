@@ -82,6 +82,9 @@ if [[ "$WITH_SERVER" -eq 1 ]]; then
   server_runner=(cargo)
   if [[ "$HOST_OS" == "linux" ]]; then
     server_runner=(cargo-xwin)
+    if [[ "${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS:-}" != *"/ignore:4099"* ]]; then
+      export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS="${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS:+${CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS} }-C link-arg=/ignore:4099"
+    fi
   fi
   server_args=(build -q --locked -p shiro-reader-server --target x86_64-pc-windows-msvc)
   [[ "$DEBUG" -eq 0 ]] && server_args+=(--release)

@@ -71,10 +71,12 @@ export async function cmdSmoke(flags) {
       fs.mkdirSync(tmpDir, { recursive: true })
       try {
         runCmd("dpkg-deb", ["-x", resolvedArtifact, tmpDir])
-        const exePath = path.join(tmpDir, "usr/bin/shiro-reader-desktop")
+        const exePath = path.join(tmpDir, "usr/bin/shiro-reader-client")
         const pdfiumPath = path.join(tmpDir, "usr/lib/ShiroReader/native/libpdfium.so")
         for (const bin of [exePath, pdfiumPath]) {
-          if (!fs.existsSync(bin)) continue
+          if (!fs.existsSync(bin)) {
+            fail(`expected binary missing from Linux package: ${path.relative(tmpDir, bin)}`)
+          }
           const ldd = captureCmd("ldd", [bin])
           if (ldd.status !== 0 || ldd.stdout.includes("not found")) {
             fail(`unresolved dynamic libraries in ${bin}:\n${ldd.stdout}\n${ldd.stderr}`)

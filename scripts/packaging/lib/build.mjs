@@ -197,6 +197,15 @@ export async function cmdBuild(flags) {
     const env = { ...process.env }
     if (process.platform === "linux") {
       env.XWIN_CACHE_DIR = resolveXwinCacheDir()
+      const existingRustflags = env.CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS || ""
+      if (!existingRustflags.includes("/ignore:4099")) {
+        env.CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS = [
+          existingRustflags,
+          "-C link-arg=/ignore:4099",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      }
       args.push("--runner", "cargo-xwin", "--no-sign")
     }
     if (offline) {

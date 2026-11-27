@@ -1,10 +1,11 @@
-import { StrictMode } from "react"
+import { StrictMode, Suspense, lazy } from "react"
 import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { isTauriRuntime } from "@shiro/ui-shared/api/tauri-bridge"
 import { ErrorBoundary } from "@shiro/ui-shared/components/error-boundary"
 import "./index.css"
-import MobileApp from "./MobileApp.tsx"
+
+const LazyMobileApp = lazy(() => import("./MobileApp.tsx"))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +22,9 @@ function render(preview = false) {
     <StrictMode>
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <MobileApp preview={preview} />
+          <Suspense fallback={null}>
+            <LazyMobileApp preview={preview} />
+          </Suspense>
         </QueryClientProvider>
       </ErrorBoundary>
     </StrictMode>
