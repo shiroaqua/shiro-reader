@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { createMockReaderBridge } from "@shiro/ui-shared/api/reader-mock"
 import type {
-  BookLocator,
   BookNavigationData,
+  NavigationLocator,
   RelocationSnapshot,
 } from "@shiro/ui-shared/features/reader/contracts/engine"
 import { TOC_FLAG_EXTERNAL_LINK } from "@shiro/ui-shared/features/reader/contracts/engine"
@@ -287,7 +287,12 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
       parent: 0,
       depth: 1,
       subtree_end: 2,
-      locator: { kind: "epub", spine_index: 0, href: "ch1.xhtml", fragment: "s1", cfi: null },
+      locator: {
+        kind: "epub",
+        spine_index: 0,
+        href: "ch1.xhtml",
+        target: { kind: "fragment", fragment: "s1" },
+      },
     })
     expect(nav.toc[2]).toMatchObject({
       flags: TOC_FLAG_EXTERNAL_LINK,
@@ -416,14 +421,17 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
     const snap = relocations[0]!
     expect(snap.locator.kind).toBe("epub")
     if (snap.locator.kind === "epub") {
-      expect(snap.locator.cfi).not.toBe("epubcfi(/6/4!/999/BOGUS)")
-      expect(snap.locator.cfi).toContain("epubcfi(/6/4[ch1]!")
+      expect(snap.locator.target.kind).toBe("cfi")
+      if (snap.locator.target.kind === "cfi") {
+        expect(snap.locator.target.cfi).not.toBe("epubcfi(/6/4!/999/BOGUS)")
+        expect(snap.locator.target.cfi).toContain("epubcfi(/6/4[ch1]!")
+      }
     }
     expect(snap.activeTocIndex).toBe(0)
     expect(snap.pageStats).toEqual({ current: 2, total: 4 })
 
     // goToLocator must use renderer.goTo({ index, anchor }) and NEVER view.goTo(cfi)
-    const targetLocator: BookLocator = snap.locator
+    const targetLocator: NavigationLocator = snap.locator
     await instance.goToLocator(targetLocator)
     expect(fakeView.renderer.lastGoToTarget?.index).toBe(1)
     expect(typeof fakeView.renderer.lastGoToTarget?.anchor).toBe("function")
@@ -721,8 +729,10 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
         kind: "epub",
         spine_index: null,
         href: "missing.xhtml",
-        fragment: null,
-        cfi: "epubcfi(/6/999!/4)",
+        target: {
+          kind: "cfi",
+          cfi: "epubcfi(/6/999!/4)",
+        },
       },
       initialStyle: DEFAULT_TEST_STYLE,
       container,
@@ -762,8 +772,13 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
 
     expect(relocations).toHaveLength(1)
     if (relocations[0]!.locator.kind === "epub") {
-      expect(relocations[0]!.locator.cfi).toMatch(/^epubcfi\(\/6\/2!/)
-      expect(relocations[0]!.locator.cfi).not.toContain("epubcfi(epubcfi(")
+      expect(relocations[0]!.locator.target.kind).toBe("cfi")
+      if (relocations[0]!.locator.target.kind === "cfi") {
+        expect(relocations[0]!.locator.target.cfi).toMatch(/^epubcfi\(\/6\/2!/)
+        expect(relocations[0]!.locator.target.cfi).not.toContain(
+          "epubcfi(epubcfi("
+        )
+      }
     }
     // Live scrolled offset = 600/1000 = 0.6 -> picks Section 0 Mid (index 1) without lag
     expect(relocations[0]!.activeTocIndex).toBe(1)
@@ -998,7 +1013,10 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
     )
     expect(relocations).toHaveLength(1)
     if (relocations[0]!.locator.kind === "epub") {
-      expect(relocations[0]!.locator.cfi).not.toContain(",")
+      expect(relocations[0]!.locator.target.kind).toBe("cfi")
+      if (relocations[0]!.locator.target.kind === "cfi") {
+        expect(relocations[0]!.locator.target.cfi).not.toContain(",")
+      }
     }
 
     // 2. goToLocator with href#p-2 resolves visual anchor to syn2 instead of hidden p-2
@@ -1006,8 +1024,10 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
       kind: "epub",
       spine_index: 0,
       href: "OEBPS/ch0.xhtml",
-      fragment: "p-2",
-      cfi: null,
+      target: {
+        kind: "fragment",
+        fragment: "p-2",
+      },
     })
     expect(fakeView.renderer.lastGoToTarget?.anchor?.(doc)).toBe(syn2)
 
@@ -1106,8 +1126,7 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
               kind: "epub",
               spine_index: 0,
               href: "OEBPS/ch0.xhtml",
-              fragment: null,
-              cfi: null,
+              target: { kind: "start" },
             },
             unit_index: 0,
             unit_offset: 0,
@@ -1397,8 +1416,10 @@ describe("foliate-epub-engine helpers & lifecycle", () => {
         kind: "epub",
         spine_index: 0,
         href: "OEBPS/ch0.xhtml",
-        fragment: "p-2",
-        cfi: null,
+        target: {
+          kind: "fragment",
+          fragment: "p-2",
+        },
       })
     ).resolves.toBeUndefined()
     expect(navView.renderer.lastGoToTarget?.anchor?.(doc)).toBe(crossRealmP2)

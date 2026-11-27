@@ -35,7 +35,7 @@ export interface EphemeralReaderViewState {
 }
 
 /**
- * 直接镜像后端 `shiro_application::library::book::dto::BookLocatorOutput`
+ * 直接镜像后端 `shiro_application::library::book::dto::BookAnchorDto` 家族
  * 严格保持 `snake_case` 字段名且不附带额外属性。
  */
 export type PdfDest =
@@ -54,19 +54,54 @@ export type PdfDest =
       readonly normalized_top: number | null
     }
 
-export type BookLocator =
-  | {
-      readonly kind: "epub"
-      readonly spine_index: number | null
-      readonly href: string
-      readonly fragment: string | null
-      readonly cfi: string | null
-    }
-  | {
-      readonly kind: "pdf"
-      readonly page_index: number
-      readonly dest: PdfDest
-    }
+export type EpubNavTarget =
+  | { readonly kind: "start" }
+  | { readonly kind: "fragment"; readonly fragment: string }
+  | { readonly kind: "cfi"; readonly cfi: string }
+
+export type EpubPointTarget =
+  | { readonly kind: "cfi"; readonly cfi: string }
+  | { readonly kind: "unit_offset"; readonly offset: number }
+
+export interface EpubRangeTarget {
+  readonly cfi: string
+}
+
+export interface NormalizedRect {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+export interface PdfPageRects {
+  readonly page_index: number
+  readonly rects: readonly NormalizedRect[]
+}
+
+export interface PdfSelectionTarget {
+  readonly rects: readonly NormalizedRect[]
+  readonly extra_pages: readonly PdfPageRects[]
+}
+
+export interface EpubAnchor<T> {
+  readonly kind: "epub"
+  readonly spine_index: number | null
+  readonly href: string
+  readonly target: T
+}
+
+export interface PdfAnchor<T> {
+  readonly kind: "pdf"
+  readonly page_index: number
+  readonly target: T
+}
+
+export type BookAnchor<EpubT, PdfT> = EpubAnchor<EpubT> | PdfAnchor<PdfT>
+
+export type NavigationLocator = BookAnchor<EpubNavTarget, PdfDest>
+export type BookmarkLocator = BookAnchor<EpubPointTarget, PdfDest>
+export type HighlightLocator = BookAnchor<EpubRangeTarget, PdfSelectionTarget>
 
 export const TOC_FLAG_DEFAULT_COLLAPSED = 1
 export const TOC_FLAG_EXTERNAL_LINK = 2
@@ -77,7 +112,7 @@ export interface ReaderTocNode {
   readonly depth: number
   readonly subtree_end: number
   readonly title: string
-  readonly locator: BookLocator | null
+  readonly locator: NavigationLocator | null
   readonly unit_index: number | null
   readonly unit_offset: number
   readonly start_progression: number | null
@@ -108,7 +143,7 @@ export interface ReaderPageStats {
 
 /** 格式无关的实时阅读位置快照 */
 export interface RelocationSnapshot {
-  readonly locator: BookLocator
+  readonly locator: NavigationLocator
   readonly fraction: number
   readonly sectionIndex: number
   readonly sectionTotal: number
@@ -144,7 +179,7 @@ export interface OpenDocumentParams {
   readonly preloadedNavigation: BookNavigationData | null
   readonly reattachSessionId?: string | undefined
   readonly manageSessionLifecycleInFrontend?: boolean | undefined
-  readonly initialLocator: BookLocator | undefined
+  readonly initialLocator: NavigationLocator | undefined
   readonly initialViewState?: EphemeralReaderViewState | undefined
   readonly initialStyle: CompiledReaderStyle
   readonly container: HTMLElement
@@ -168,7 +203,7 @@ export interface ReaderDocumentInstance {
   goRight(): Promise<void>
   goPrev(): Promise<void>
   goNext(): Promise<void>
-  goToLocator(locator: BookLocator): Promise<void>
+  goToLocator(locator: NavigationLocator): Promise<void>
   goToFraction(fraction: number): Promise<void>
 
   clearSelection(): void

@@ -5216,6 +5216,7 @@ dependencies = [
  "dashmap",
  "futures-util",
  "serde",
+ "serde_json",
  "shiro-domain",
  "thiserror 2.0.21",
  "tokio",

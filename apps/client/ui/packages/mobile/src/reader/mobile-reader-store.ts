@@ -1,8 +1,8 @@
 import { useSyncExternalStore } from "react"
 import { readerBridge } from "@shiro/ui-shared/api/reader-bridge"
 import type {
-  BookLocator,
   EphemeralReaderViewState,
+  NavigationLocator,
   RelocationSnapshot,
 } from "@shiro/ui-shared/features/reader/contracts/engine"
 import { assertBookSupportedInReader } from "@shiro/ui-shared/features/reader/workspace/book-launch"
@@ -134,7 +134,7 @@ class MobileReaderStoreController {
     return this.tabStore.popHistory(tabId)
   }
 
-  getActiveLocator(tabId: string): BookLocator | null {
+  getActiveLocator(tabId: string): NavigationLocator | null {
     const tab = this.snapshot.tabs.find((item) => item.tabId === tabId)
     return tab?.lastRelocation?.locator ?? null
   }

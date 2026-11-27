@@ -23,6 +23,93 @@ export const shiroCfiFilter: CFI.CfiNodeFilter = (node: Node): number => {
   return NodeFilter.FILTER_ACCEPT
 }
 
+const VALID_RANGE_SIDE_PREFIX_CHARS = new Set(["/", ":", "[", "@", "~", "!"])
+
+function hasControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i)
+    if (code <= 0x1f || code === 0x7f) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Mirrors Rust `parse_cfi_structure` to determine whether a CFI string is a
+ * syntactically valid canonical EPUB range CFI (`epubcfi(parent,start,end)`).
+ */
+export function isCanonicalRangeCfi(cfi: string): boolean {
+  if (cfi !== cfi.trim() || hasControlChar(cfi)) {
+    return false
+  }
+  if (!cfi.startsWith("epubcfi(") || !cfi.endsWith(")")) {
+    return false
+  }
+  const body = cfi.slice("epubcfi(".length, -1)
+  if (!body || !body.startsWith("/")) {
+    return false
+  }
+
+  let inBracket = false
+  let escaped = false
+  let prevNonBracket: string | null = null
+  const commas: number[] = []
+
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (ch === "^") {
+      escaped = true
+      continue
+    }
+    if (ch === "[") {
+      if (inBracket) return false
+      inBracket = true
+      prevNonBracket = null
+      continue
+    }
+    if (ch === "]") {
+      if (!inBracket) return false
+      inBracket = false
+      prevNonBracket = null
+      continue
+    }
+    if (!inBracket) {
+      if (/\s/.test(ch)) return false
+      if (ch === "-" && prevNonBracket === "/") return false
+      if (ch === ",") {
+        commas.push(i)
+      }
+      prevNonBracket = ch
+    }
+  }
+
+  if (escaped || inBracket || commas.length !== 2) {
+    return false
+  }
+
+  const c1 = commas[0]!
+  const c2 = commas[1]!
+  const parent = body.slice(0, c1)
+  const start = body.slice(c1 + 1, c2)
+  const end = body.slice(c2 + 1)
+
+  if (!parent.startsWith("/") || (start.length === 0 && end.length === 0)) {
+    return false
+  }
+  if (start.length > 0 && !VALID_RANGE_SIDE_PREFIX_CHARS.has(start[0]!)) {
+    return false
+  }
+  if (end.length > 0 && !VALID_RANGE_SIDE_PREFIX_CHARS.has(end[0]!)) {
+    return false
+  }
+  return true
+}
+
 export interface SelectionOriginInspection {
   readonly textOrigin: SelectionTextOrigin
   readonly anchorBlockOriginalText: string | null

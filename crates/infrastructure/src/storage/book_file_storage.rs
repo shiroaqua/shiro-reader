@@ -1164,23 +1164,24 @@ mod tests {
         assert_eq!(nav.toc().len(), 2);
         assert_eq!(nav.toc()[0].unit_index(), Some(0));
         assert!(nav.toc()[0].unit_offset().value() > 0.0);
+        use shiro_domain::library::book::locator::{
+            BookAnchor, EpubAnchor, EpubNavTarget,
+        };
         assert!(matches!(
             nav.toc()[0].locator(),
-            Some(shiro_domain::library::book::value_objects::BookLocator::Epub {
+            Some(BookAnchor::Epub(EpubAnchor {
                 spine_index: Some(0),
-                path,
-                fragment: Some(frag),
-                cfi: None,
-            }) if path.as_str() == "EPUB/C%23_Ch1.xhtml" && frag == "sec-1"
+                href,
+                target: EpubNavTarget::Fragment(frag),
+            })) if href.as_str() == "EPUB/C%23_Ch1.xhtml" && frag.as_str() == "sec-1"
         ));
         assert!(matches!(
             nav.toc()[1].locator(),
-            Some(shiro_domain::library::book::value_objects::BookLocator::Epub {
+            Some(BookAnchor::Epub(EpubAnchor {
                 spine_index: Some(1),
-                path,
-                fragment: None,
-                cfi: None,
-            }) if path.as_str() == "EPUB/What%3F.xhtml"
+                href,
+                target: EpubNavTarget::Start,
+            })) if href.as_str() == "EPUB/What%3F.xhtml"
         ));
 
         let warn_or_error: Vec<_> = capture
@@ -1196,7 +1197,10 @@ mod tests {
 
     #[test]
     fn extract_epub_navigation_handles_colon_filenames_as_internal_and_uris_as_external() {
-        use shiro_domain::library::book::value_objects::{BookLocator, TocEntryFlags};
+        use shiro_domain::library::book::{
+            locator::{EpubAnchor, EpubNavTarget, NavigationLocator},
+            value_objects::TocEntryFlags,
+        };
 
         let capture = LogCapture::default();
         let epub = build_stored_zip(&[
@@ -1257,12 +1261,11 @@ mod tests {
         assert_eq!(nav.toc()[0].flags(), TocEntryFlags::empty());
         assert!(matches!(
             nav.toc()[0].locator(),
-            Some(BookLocator::Epub {
+            Some(NavigationLocator::Epub(EpubAnchor {
                 spine_index: Some(0),
-                path,
-                fragment: None,
-                cfi: None,
-            }) if path.as_str() == "Ch01:Intro.xhtml"
+                href,
+                target: EpubNavTarget::Start,
+            })) if href.as_str() == "Ch01:Intro.xhtml"
         ));
         assert_eq!(nav.toc()[1].flags(), TocEntryFlags::EXTERNAL_LINK);
         assert_eq!(nav.toc()[1].locator(), None);

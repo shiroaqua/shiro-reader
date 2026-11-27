@@ -2,15 +2,15 @@ import type { Book } from "@shiro/ui-shared/lib/types"
 import {
   normalizeBookFormat,
   type BookFormat,
-  type BookLocator,
   type EphemeralReaderViewState,
+  type NavigationLocator,
   type RelocationSnapshot,
 } from "../contracts/engine"
 
 export const MAX_NAVIGATION_HISTORY = 16
 
 export interface NavigationHistoryEntry {
-  readonly locator: BookLocator
+  readonly locator: NavigationLocator
   readonly fraction: number
   readonly label?: string | undefined
 }

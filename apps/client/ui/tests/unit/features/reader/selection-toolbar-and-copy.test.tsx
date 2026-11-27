@@ -381,8 +381,9 @@ describe("SelectionObserver, SelectionToolbar, and copyActionPlugin", () => {
         kind: "epub",
         spine_index: 0,
         href: "ch1.xhtml",
-        fragment: null,
-        cfi: "epubcfi(/6/2!/4/2/1:0)",
+        target: {
+          cfi: "epubcfi(/6/2!/4/2,/1:0,/1:22)",
+        },
       },
       anchor: {
         preferredPlacement: "top",

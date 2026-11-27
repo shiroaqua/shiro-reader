@@ -10,10 +10,12 @@ use pdfium_render::prelude::{
 };
 use rbook::{Epub, epub::toc::EpubTocEntry};
 use shiro_domain::library::book::{
-    navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-    value_objects::{
-        BookLocator, EpubResourcePath, PdfDestination, ReadingUnitOffset, TocEntryFlags,
+    locator::{
+        EpubFragment, EpubNavTarget, EpubResourcePath, NavigationLocator, PdfDestination,
+        ReadingUnitOffset,
     },
+    navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+    value_objects::TocEntryFlags,
 };
 
 use super::book_file_storage::BookFileContentReader;
@@ -255,18 +257,40 @@ fn collect_epub_toc_entries(
                         })
                         .unwrap_or(ReadingUnitOffset::ZERO);
 
-                    match BookLocator::epub(spine_index, normalized_href, fragment, None) {
-                        Ok(locator) => (TocEntryFlags::empty(), Some(locator), unit_offset),
-                        Err(err) => {
-                            tracing::warn!(
-                                hash = hash_hex,
-                                title = entry.label(),
-                                href = href.as_str(),
-                                error = %err,
-                                "failed to construct EPUB TOC locator"
-                            );
-                            (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO)
+                    let parsed_target = match fragment {
+                        Some(raw_frag) => match EpubFragment::parse(raw_frag) {
+                            Ok(parsed) => Some(EpubNavTarget::Fragment(parsed)),
+                            Err(err) => {
+                                tracing::warn!(
+                                    hash = hash_hex,
+                                    title = entry.label(),
+                                    href = href.as_str(),
+                                    error = %err,
+                                    "failed to parse EPUB TOC fragment"
+                                );
+                                None
+                            }
+                        },
+                        None => Some(EpubNavTarget::Start),
+                    };
+
+                    match parsed_target {
+                        Some(target) => {
+                            match NavigationLocator::epub(spine_index, normalized_href, target) {
+                                Ok(locator) => (TocEntryFlags::empty(), Some(locator), unit_offset),
+                                Err(err) => {
+                                    tracing::warn!(
+                                        hash = hash_hex,
+                                        title = entry.label(),
+                                        href = href.as_str(),
+                                        error = %err,
+                                        "failed to construct EPUB TOC locator"
+                                    );
+                                    (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO)
+                                }
+                            }
                         }
+                        None => (TocEntryFlags::empty(), None, ReadingUnitOffset::ZERO),
                     }
                 }
                 Err(err) => {
@@ -896,7 +920,7 @@ fn resolve_pdf_bookmark_target(
     page_count: PdfPageIndex,
     page_heights: &[Option<f32>],
     hash_hex: &str,
-) -> (Option<BookLocator>, ReadingUnitOffset, TocEntryFlags) {
+) -> (Option<NavigationLocator>, ReadingUnitOffset, TocEntryFlags) {
     if let Some(dest) = bookmark.destination() {
         let (locator, unit_offset) =
             build_pdf_locator(&dest, title, page_count, page_heights, hash_hex);
@@ -932,14 +956,14 @@ fn build_pdf_locator(
     page_count: PdfPageIndex,
     page_heights: &[Option<f32>],
     hash_hex: &str,
-) -> (Option<BookLocator>, ReadingUnitOffset) {
+) -> (Option<NavigationLocator>, ReadingUnitOffset) {
     match dest.page_index() {
         Ok(idx) if idx >= 0 && idx < page_count => {
             let page_index = idx as u32;
             let page_height = page_heights.get(idx as usize).copied().flatten();
             let pdf_dest = map_pdf_dest(dest, page_height);
             let unit_offset = pdf_dest.normalized_top().unwrap_or(ReadingUnitOffset::ZERO);
-            match BookLocator::pdf(page_index, pdf_dest) {
+            match NavigationLocator::pdf(page_index, pdf_dest) {
                 Ok(locator) => (Some(locator), unit_offset),
                 Err(err) => {
                     tracing::warn!(

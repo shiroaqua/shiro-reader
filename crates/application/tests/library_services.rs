@@ -14,7 +14,11 @@ use shiro_application::library::{
         commands::{
             GetBookFileMetaCommand, OpenBookFileRangeCommand, RestoreBookIdCommand,
         },
-        dto::BookFileDescriptor,
+        dto::{
+            BookFileDescriptor, BookmarkLocatorDto, EpubNavTargetDto, EpubPointTargetDto,
+            EpubRangeTargetDto, HighlightLocatorDto, NavigationLocatorDto, NormalizedRectDto,
+            PdfDestDto, PdfPageRectsDto, PdfSelectionTargetDto,
+        },
         errors::BookApplicationError,
         file::{
             errors::BookFileApplicationError,
@@ -34,11 +38,14 @@ use shiro_application::library::{
 use shiro_domain::library::{
     book::{
         entity::{Book, BookChange},
+        errors::BookDomainError,
         file::entity::BookFileType,
-        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{
-            BookId, BookLocator, BookTitle, EpubResourcePath, ReadingUnitOffset, TocEntryFlags,
+        locator::{
+            BookAnchor, EpubAnchor, EpubFragment, EpubNavTarget, EpubPointTarget,
+            EpubResourcePath, NavigationLocator, ReadingUnitOffset,
         },
+        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+        value_objects::{BookId, BookTitle, TocEntryFlags},
     },
     tag::{
         entity::{BookTag, BookTagChange, TagDefinition, TagDefinitionChange},
@@ -1195,10 +1202,7 @@ async fn book_file_service_eof_after_deadline_expiration_cannot_enter_finalizing
 
 #[tokio::test]
 async fn book_service_get_book_navigation_returns_navigation_and_enforces_invariants() {
-    use shiro_application::library::book::{
-        dto::BookLocatorOutput,
-        queries::GetBookNavigationQuery,
-    };
+    use shiro_application::library::book::queries::GetBookNavigationQuery;
 
     let payload = Bytes::from_static(b"navigation-book-bytes");
     let hash = blake3::hash(&payload);
@@ -1233,11 +1237,10 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
         vec![TocEntryDraft {
             title: "  Chapter   One ".to_owned(),
             locator: Some(
-                BookLocator::epub(
+                NavigationLocator::epub(
                     Some(0),
                     EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
-                    Some("sec-1".to_owned()),
-                    None,
+                    EpubNavTarget::Fragment(EpubFragment::parse("sec-1").unwrap()),
                 )
                 .unwrap(),
             ),
@@ -1276,11 +1279,12 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
     assert_eq!(output.toc[0].start_progression, Some(0.25));
     assert!(matches!(
         output.toc[0].locator,
-        Some(BookLocatorOutput::Epub {
+        Some(NavigationLocatorDto::Epub {
             spine_index: Some(0),
             ref href,
-            fragment: Some(ref frag),
-            cfi: None
+            target: EpubNavTargetDto::Fragment {
+                fragment: ref frag,
+            },
         }) if href == "EPUB/ch1.xhtml" && frag == "sec-1"
     ));
 
@@ -1319,5 +1323,185 @@ async fn book_service_get_book_navigation_returns_navigation_and_enforces_invari
         Err(LibraryApplicationError::BookFile(
             BookFileApplicationError::NotFound
         ))
+    ));
+}
+
+#[test]
+fn book_anchor_dtos_round_trip_normalize_paths_and_reject_invalid_payloads() {
+    // 1. NavigationLocatorDto (EPUB + PDF)
+    let epub_nav_dto = NavigationLocatorDto::Epub {
+        spine_index: Some(2),
+        href: "/OEBPS/./ch2.xhtml".to_owned(),
+        target: EpubNavTargetDto::Fragment {
+            fragment: "sec-2".to_owned(),
+        },
+    };
+    let epub_nav_domain = epub_nav_dto.try_into_domain().expect("valid epub nav");
+    assert_eq!(epub_nav_domain.epub_href().unwrap().as_str(), "OEBPS/ch2.xhtml");
+    let epub_nav_back = NavigationLocatorDto::from(&epub_nav_domain);
+    let epub_nav_json = serde_json::to_value(&epub_nav_back).unwrap();
+    assert_eq!(
+        epub_nav_json,
+        serde_json::json!({
+            "kind": "epub",
+            "spine_index": 2,
+            "href": "OEBPS/ch2.xhtml",
+            "target": {
+                "kind": "fragment",
+                "fragment": "sec-2"
+            }
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<NavigationLocatorDto>(epub_nav_json).unwrap(),
+        epub_nav_back
+    );
+
+    let pdf_nav_dto = NavigationLocatorDto::Pdf {
+        page_index: 5,
+        target: PdfDestDto::Xyz {
+            left: Some(10.0),
+            top: Some(200.0),
+            zoom: Some(1.5),
+            normalized_top: Some(0.25),
+        },
+    };
+    let pdf_nav_domain = pdf_nav_dto.clone().try_into_domain().expect("valid pdf nav");
+    let pdf_nav_back = NavigationLocatorDto::from(&pdf_nav_domain);
+    assert_eq!(pdf_nav_back, pdf_nav_dto);
+
+    // 2. BookmarkLocatorDto (EPUB point CFI + unit_offset, PDF FitPage)
+    let epub_bm_dto = BookmarkLocatorDto::Epub {
+        spine_index: Some(0),
+        href: "OEBPS/ch1.xhtml".to_owned(),
+        target: EpubPointTargetDto::Cfi {
+            cfi: "epubcfi(/6/4[ch1]!/4/2/1:8)".to_owned(),
+        },
+    };
+    let epub_bm_domain = epub_bm_dto.clone().try_into_domain().expect("valid epub bm");
+    assert_eq!(BookmarkLocatorDto::from(&epub_bm_domain), epub_bm_dto);
+
+    let epub_offset_bm_dto = BookmarkLocatorDto::Epub {
+        spine_index: Some(0),
+        href: "OEBPS/cover.xhtml".to_owned(),
+        target: EpubPointTargetDto::UnitOffset { offset: 0.5 },
+    };
+    let epub_offset_domain = epub_offset_bm_dto
+        .clone()
+        .try_into_domain()
+        .expect("valid offset bm");
+    assert_eq!(
+        BookmarkLocatorDto::from(&epub_offset_domain),
+        epub_offset_bm_dto
+    );
+
+    let pdf_bm_dto = BookmarkLocatorDto::Pdf {
+        page_index: 1,
+        target: PdfDestDto::FitPage,
+    };
+    let pdf_bm_domain = pdf_bm_dto.clone().try_into_domain().expect("valid pdf bm");
+    assert_eq!(BookmarkLocatorDto::from(&pdf_bm_domain), pdf_bm_dto);
+
+    // 3. HighlightLocatorDto (EPUB range CFI + PDF selection rects)
+    let epub_hl_dto = HighlightLocatorDto::Epub {
+        spine_index: Some(1),
+        href: "OEBPS/../OEBPS/ch1.xhtml".to_owned(),
+        target: EpubRangeTargetDto {
+            cfi: "epubcfi(/6/4[ch1]!/4/2,/1:0,/1:12)".to_owned(),
+        },
+    };
+    let epub_hl_domain = epub_hl_dto.try_into_domain().expect("valid epub highlight");
+    assert_eq!(epub_hl_domain.epub_href().unwrap().as_str(), "OEBPS/ch1.xhtml");
+    let epub_hl_json = serde_json::to_value(HighlightLocatorDto::from(&epub_hl_domain)).unwrap();
+    assert_eq!(
+        epub_hl_json,
+        serde_json::json!({
+            "kind": "epub",
+            "spine_index": 1,
+            "href": "OEBPS/ch1.xhtml",
+            "target": {
+                "cfi": "epubcfi(/6/4[ch1]!/4/2,/1:0,/1:12)"
+            }
+        })
+    );
+
+    let pdf_hl_dto = HighlightLocatorDto::Pdf {
+        page_index: 3,
+        target: PdfSelectionTargetDto {
+            rects: vec![NormalizedRectDto {
+                left: 0.1,
+                top: 0.2,
+                width: 0.6,
+                height: 0.05,
+            }],
+            extra_pages: vec![PdfPageRectsDto {
+                page_index: 4,
+                rects: vec![NormalizedRectDto {
+                    left: 0.1,
+                    top: 0.05,
+                    width: 0.4,
+                    height: 0.05,
+                }],
+            }],
+        },
+    };
+    let pdf_hl_domain = pdf_hl_dto.clone().try_into_domain().expect("valid pdf hl");
+    assert_eq!(HighlightLocatorDto::from(&pdf_hl_domain), pdf_hl_dto);
+    assert_eq!(
+        serde_json::from_value::<HighlightLocatorDto>(
+            serde_json::to_value(&pdf_hl_dto).unwrap()
+        )
+        .unwrap(),
+        pdf_hl_dto
+    );
+
+    // 4. Reject invalid payloads in try_into_domain and serde(deny_unknown_fields).
+    assert_eq!(
+        HighlightLocatorDto::Epub {
+            spine_index: Some(0),
+            href: "ch1.xhtml".to_owned(),
+            target: EpubRangeTargetDto {
+                cfi: "epubcfi(/6/4!/4/2/1:0)".to_owned(),
+            },
+        }
+        .try_into_domain()
+        .unwrap_err(),
+        BookDomainError::InvalidEpubCfi
+    );
+    assert_eq!(
+        BookmarkLocatorDto::Epub {
+            spine_index: Some(0),
+            href: "../../escape.xhtml".to_owned(),
+            target: EpubPointTargetDto::UnitOffset { offset: 0.0 },
+        }
+        .try_into_domain()
+        .unwrap_err(),
+        BookDomainError::InvalidEpubResourcePath
+    );
+    assert_eq!(
+        HighlightLocatorDto::Pdf {
+            page_index: 2,
+            target: PdfSelectionTargetDto {
+                rects: vec![],
+                extra_pages: vec![],
+            },
+        }
+        .try_into_domain()
+        .unwrap_err(),
+        BookDomainError::InvalidPdfSelection
+    );
+
+    // Verify BookAnchor / EpubAnchor / EpubPointTarget direct construction works as expected.
+    let direct_bm = BookAnchor::Epub(EpubAnchor {
+        spine_index: Some(0),
+        href: EpubResourcePath::parse("ch1.xhtml").unwrap(),
+        target: EpubPointTarget::UnitOffset(ReadingUnitOffset::ZERO),
+    });
+    assert!(matches!(
+        BookmarkLocatorDto::from(&direct_bm),
+        BookmarkLocatorDto::Epub {
+            target: EpubPointTargetDto::UnitOffset { offset },
+            ..
+        } if offset == 0.0
     ));
 }

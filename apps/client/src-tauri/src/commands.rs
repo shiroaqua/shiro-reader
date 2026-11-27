@@ -1,11 +1,11 @@
 use std::{io, path::PathBuf};
 
 use shiro_compatibility::{
-    AppTheme, BookLocatorOutput, BookNavigationOutput, BookTagOutput, BootstrapStateDto,
+    AppTheme, BookNavigationOutput, BookTagOutput, BootstrapStateDto,
     CloudOriginCheckResult, DeleteTagStrategyDto, EnqueueUploadItem, EpubSessionId, GetBookOutput,
-    InitialSetupRequest, OpenEpubResponseDto, ReaderProfileDto, ReaderProfilePatchDto,
-    ReaderSettingsSnapshotDto, RestoreBooksResult, SystemFontFamilyDto, TagDefinitionDto,
-    TagTreeNodeDto, TagValueType, TrashedBookOutput, UpdateSettingsRequest,
+    InitialSetupRequest, NavigationLocatorDto, OpenEpubResponseDto, ReaderProfileDto,
+    ReaderProfilePatchDto, ReaderSettingsSnapshotDto, RestoreBooksResult, SystemFontFamilyDto,
+    TagDefinitionDto, TagTreeNodeDto, TagValueType, TrashedBookOutput, UpdateSettingsRequest,
     UploadPanelSnapshotDto, UploadSourceLocator,
 };
 use shiro_error_catalog::{AppLocale, CommandErrorPayload, ErrorCode};
@@ -656,7 +656,7 @@ pub fn reader_update_tab_state(
     window_id: String,
     tab_id: String,
     session_id: Option<EpubSessionId>,
-    current_locator: Option<BookLocatorOutput>,
+    current_locator: Option<NavigationLocatorDto>,
     fraction: Option<f64>,
     translation_mode: Option<String>,
     target_language: Option<String>,

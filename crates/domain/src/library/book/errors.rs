@@ -36,6 +36,12 @@ pub enum BookDomainError {
     #[error("invalid pdf destination coordinate")]
     InvalidPdfDestination,
 
+    #[error("normalized rectangle coordinates must be finite within [0.0, 1.0] with positive dimensions")]
+    InvalidNormalizedRect,
+
+    #[error("invalid pdf selection target")]
+    InvalidPdfSelection,
+
     #[error("reading unit index {index} out of bounds (unit count: {unit_count})")]
     ReadingUnitOutOfBounds { index: u32, unit_count: usize },
 

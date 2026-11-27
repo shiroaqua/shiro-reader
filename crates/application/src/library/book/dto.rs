@@ -2,9 +2,14 @@ use blake3::Hash;
 use serde::{Deserialize, Serialize};
 use shiro_domain::library::book::{
     entity::Book,
+    errors::BookDomainError,
     file::entity::*,
+    locator::{
+        BookAnchor, EpubNavTarget, EpubPointCfi, EpubPointTarget, EpubRangeCfi,
+        EpubResourcePath, EpubFragment, NormalizedRect, PdfDestination, PdfPageRects,
+        PdfSelectionTarget, ReadingUnitOffset, ValidateEpubTarget, ValidatePdfTarget,
+    },
     navigation::{BookNavigation, ReadingUnit, TocEntry},
-    value_objects::{BookLocator, PdfDestination},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,7 +107,7 @@ pub struct TocNodeOutput {
     pub depth: u16,
     pub subtree_end: u32,
     pub title: String,
-    pub locator: Option<BookLocatorOutput>,
+    pub locator: Option<NavigationLocatorDto>,
     pub unit_index: Option<u32>,
     pub unit_offset: f32,
     pub start_progression: Option<f64>,
@@ -119,24 +124,44 @@ pub struct LinearUnitOutput {
     pub display_label: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum BookLocatorOutput {
-    Pdf {
-        page_index: u32,
-        dest: PdfDestOutput,
-    },
+pub enum BookAnchorDto<E, P> {
     Epub {
         spine_index: Option<u32>,
         href: String,
-        fragment: Option<String>,
-        cfi: Option<String>,
+        target: E,
     },
+    Pdf {
+        page_index: u32,
+        target: P,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EpubNavTargetDto {
+    Start,
+    Fragment { fragment: String },
+    Cfi { cfi: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum PdfDestOutput {
+pub enum EpubPointTargetDto {
+    Cfi { cfi: String },
+    UnitOffset { offset: f32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EpubRangeTargetDto {
+    pub cfi: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PdfDestDto {
     PageOnly,
     Xyz {
         left: Option<f32>,
@@ -151,9 +176,202 @@ pub enum PdfDestOutput {
     FitPage,
 }
 
-impl From<PdfDestination> for PdfDestOutput {
-    fn from(dest: PdfDestination) -> Self {
-        match dest {
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NormalizedRectDto {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PdfPageRectsDto {
+    pub page_index: u32,
+    pub rects: Vec<NormalizedRectDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PdfSelectionTargetDto {
+    pub rects: Vec<NormalizedRectDto>,
+    #[serde(default)]
+    pub extra_pages: Vec<PdfPageRectsDto>,
+}
+
+pub type NavigationLocatorDto = BookAnchorDto<EpubNavTargetDto, PdfDestDto>;
+pub type BookmarkLocatorDto = BookAnchorDto<EpubPointTargetDto, PdfDestDto>;
+pub type HighlightLocatorDto = BookAnchorDto<EpubRangeTargetDto, PdfSelectionTargetDto>;
+
+pub trait IntoDomainTarget {
+    type Domain;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError>;
+}
+
+impl IntoDomainTarget for EpubNavTargetDto {
+    type Domain = EpubNavTarget;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        match self {
+            Self::Start => Ok(EpubNavTarget::Start),
+            Self::Fragment { fragment } => Ok(EpubNavTarget::Fragment(EpubFragment::parse(fragment)?)),
+            Self::Cfi { cfi } => Ok(EpubNavTarget::Cfi(EpubPointCfi::parse(cfi)?)),
+        }
+    }
+}
+
+impl IntoDomainTarget for EpubPointTargetDto {
+    type Domain = EpubPointTarget;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        match self {
+            Self::Cfi { cfi } => Ok(EpubPointTarget::Cfi(EpubPointCfi::parse(cfi)?)),
+            Self::UnitOffset { offset } => Ok(EpubPointTarget::UnitOffset(ReadingUnitOffset::new(offset)?)),
+        }
+    }
+}
+
+impl IntoDomainTarget for EpubRangeTargetDto {
+    type Domain = EpubRangeCfi;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        EpubRangeCfi::parse(self.cfi)
+    }
+}
+
+impl IntoDomainTarget for PdfDestDto {
+    type Domain = PdfDestination;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        match self {
+            Self::PageOnly => Ok(PdfDestination::PageOnly),
+            Self::Xyz {
+                left,
+                top,
+                zoom,
+                normalized_top,
+            } => PdfDestination::xyz(
+                left,
+                top,
+                zoom,
+                normalized_top.map(ReadingUnitOffset::new).transpose()?,
+            ),
+            Self::FitH {
+                top,
+                normalized_top,
+            } => PdfDestination::fit_h(
+                top,
+                normalized_top.map(ReadingUnitOffset::new).transpose()?,
+            ),
+            Self::FitPage => Ok(PdfDestination::FitPage),
+        }
+    }
+}
+
+impl IntoDomainTarget for NormalizedRectDto {
+    type Domain = NormalizedRect;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        NormalizedRect::new(self.left, self.top, self.width, self.height)
+    }
+}
+
+impl IntoDomainTarget for PdfPageRectsDto {
+    type Domain = PdfPageRects;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        let rects = self
+            .rects
+            .into_iter()
+            .map(IntoDomainTarget::try_into_domain)
+            .collect::<Result<Vec<_>, _>>()?;
+        PdfPageRects::new(self.page_index, rects)
+    }
+}
+
+impl IntoDomainTarget for PdfSelectionTargetDto {
+    type Domain = PdfSelectionTarget;
+
+    fn try_into_domain(self) -> Result<Self::Domain, BookDomainError> {
+        let rects = self
+            .rects
+            .into_iter()
+            .map(IntoDomainTarget::try_into_domain)
+            .collect::<Result<Vec<_>, _>>()?;
+        let extra_pages = self
+            .extra_pages
+            .into_iter()
+            .map(IntoDomainTarget::try_into_domain)
+            .collect::<Result<Vec<_>, _>>()?;
+        PdfSelectionTarget::new(rects, extra_pages)
+    }
+}
+
+impl<EDto, PDto> BookAnchorDto<EDto, PDto>
+where
+    EDto: IntoDomainTarget,
+    PDto: IntoDomainTarget,
+    EDto::Domain: ValidateEpubTarget,
+    PDto::Domain: ValidatePdfTarget,
+{
+    pub fn try_into_domain(self) -> Result<BookAnchor<EDto::Domain, PDto::Domain>, BookDomainError> {
+        match self {
+            Self::Epub {
+                spine_index,
+                href,
+                target,
+            } => BookAnchor::epub(
+                spine_index,
+                EpubResourcePath::normalize(href)?,
+                target.try_into_domain()?,
+            ),
+            Self::Pdf { page_index, target } => {
+                BookAnchor::pdf(page_index, target.try_into_domain()?)
+            }
+        }
+    }
+}
+
+impl From<&EpubNavTarget> for EpubNavTargetDto {
+    fn from(target: &EpubNavTarget) -> Self {
+        match target {
+            EpubNavTarget::Start => Self::Start,
+            EpubNavTarget::Fragment(fragment) => Self::Fragment {
+                fragment: fragment.as_str().to_owned(),
+            },
+            EpubNavTarget::Cfi(cfi) => Self::Cfi {
+                cfi: cfi.as_str().to_owned(),
+            },
+        }
+    }
+}
+
+impl From<&EpubPointTarget> for EpubPointTargetDto {
+    fn from(target: &EpubPointTarget) -> Self {
+        match target {
+            EpubPointTarget::Cfi(cfi) => Self::Cfi {
+                cfi: cfi.as_str().to_owned(),
+            },
+            EpubPointTarget::UnitOffset(offset) => Self::UnitOffset {
+                offset: offset.value(),
+            },
+        }
+    }
+}
+
+impl From<&EpubRangeCfi> for EpubRangeTargetDto {
+    fn from(cfi: &EpubRangeCfi) -> Self {
+        Self {
+            cfi: cfi.as_str().to_owned(),
+        }
+    }
+}
+
+impl From<&PdfDestination> for PdfDestDto {
+    fn from(dest: &PdfDestination) -> Self {
+        match *dest {
             PdfDestination::PageOnly => Self::PageOnly,
             PdfDestination::Xyz {
                 left,
@@ -164,40 +382,70 @@ impl From<PdfDestination> for PdfDestOutput {
                 left,
                 top,
                 zoom,
-                normalized_top: normalized_top.map(|offset| offset.value()),
+                normalized_top: normalized_top.map(ReadingUnitOffset::value),
             },
             PdfDestination::FitH {
                 top,
                 normalized_top,
             } => Self::FitH {
                 top,
-                normalized_top: normalized_top.map(|offset| offset.value()),
+                normalized_top: normalized_top.map(ReadingUnitOffset::value),
             },
             PdfDestination::FitPage => Self::FitPage,
         }
     }
 }
 
-impl From<&BookLocator> for BookLocatorOutput {
-    fn from(locator: &BookLocator) -> Self {
-        match locator {
-            BookLocator::Pdf {
-                page_index,
-                destination,
-            } => Self::Pdf {
-                page_index: *page_index,
-                dest: (*destination).into(),
+impl From<PdfDestination> for PdfDestDto {
+    fn from(dest: PdfDestination) -> Self {
+        Self::from(&dest)
+    }
+}
+
+impl From<&NormalizedRect> for NormalizedRectDto {
+    fn from(rect: &NormalizedRect) -> Self {
+        Self {
+            left: rect.left(),
+            top: rect.top(),
+            width: rect.width(),
+            height: rect.height(),
+        }
+    }
+}
+
+impl From<&PdfPageRects> for PdfPageRectsDto {
+    fn from(page: &PdfPageRects) -> Self {
+        Self {
+            page_index: page.page_index(),
+            rects: page.rects().iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<&PdfSelectionTarget> for PdfSelectionTargetDto {
+    fn from(selection: &PdfSelectionTarget) -> Self {
+        Self {
+            rects: selection.rects().iter().map(Into::into).collect(),
+            extra_pages: selection.extra_pages().iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl<'a, E, P, EDto, PDto> From<&'a BookAnchor<E, P>> for BookAnchorDto<EDto, PDto>
+where
+    EDto: From<&'a E>,
+    PDto: From<&'a P>,
+{
+    fn from(anchor: &'a BookAnchor<E, P>) -> Self {
+        match anchor {
+            BookAnchor::Epub(epub) => Self::Epub {
+                spine_index: epub.spine_index,
+                href: epub.href.as_str().to_owned(),
+                target: (&epub.target).into(),
             },
-            BookLocator::Epub {
-                spine_index,
-                path,
-                fragment,
-                cfi,
-            } => Self::Epub {
-                spine_index: *spine_index,
-                href: path.as_str().to_owned(),
-                fragment: fragment.clone(),
-                cfi: cfi.clone(),
+            BookAnchor::Pdf(pdf) => Self::Pdf {
+                page_index: pdf.page_index,
+                target: (&pdf.target).into(),
             },
         }
     }

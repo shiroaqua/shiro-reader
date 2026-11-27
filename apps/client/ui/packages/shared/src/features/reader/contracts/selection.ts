@@ -1,6 +1,10 @@
 import type { ReactNode } from "react"
 import type { LocalTranslationKey } from "@shiro/ui-shared/lib/i18n"
-import type { BookFormat, BookLocator, EngineCapabilities } from "./engine"
+import type {
+  BookFormat,
+  EngineCapabilities,
+  HighlightLocator,
+} from "./engine"
 
 export interface SelectionAnchorGeometry {
   readonly preferredPlacement: "top" | "bottom" | "inside-top"
@@ -17,7 +21,7 @@ export interface SelectionContext {
   readonly bookHash: string
   readonly format: BookFormat
   readonly sectionIndex: number
-  readonly locator: BookLocator | null
+  readonly locator: HighlightLocator | null
   readonly textOrigin: SelectionTextOrigin
   readonly text: string
   readonly anchorBlockOriginalText: string | null

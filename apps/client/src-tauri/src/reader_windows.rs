@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use shiro_compatibility::{BookLocatorOutput, ClientRuntime, EpubSessionId};
+use shiro_compatibility::{ClientRuntime, EpubSessionId, NavigationLocatorDto};
 use shiro_error_catalog::{CommandErrorPayload, ErrorCode};
 use tauri::{AppHandle, Emitter};
 #[cfg(desktop)]
@@ -27,7 +27,7 @@ pub struct ReaderTabRecord {
     pub title: String,
     pub format: String,
     pub session_id: Option<EpubSessionId>,
-    pub current_locator: Option<BookLocatorOutput>,
+    pub current_locator: Option<NavigationLocatorDto>,
     pub fraction: f64,
     pub translation_mode: String,
     pub target_language: Option<String>,
@@ -108,7 +108,7 @@ pub struct OpenBookOutcome {
 #[derive(Debug, Clone, Default)]
 pub struct TabStateUpdate {
     pub session_id: Option<EpubSessionId>,
-    pub current_locator: Option<BookLocatorOutput>,
+    pub current_locator: Option<NavigationLocatorDto>,
     pub fraction: Option<f64>,
     pub translation_mode: Option<String>,
     pub target_language: Option<String>,
@@ -1907,7 +1907,7 @@ impl ReaderWindowCoordinator {
 mod tests {
     use std::collections::HashMap;
 
-    use shiro_compatibility::{BookLocatorOutput, EpubSessionId};
+    use shiro_compatibility::{EpubNavTargetDto, EpubSessionId, NavigationLocatorDto};
 
     use super::{
         BookOpenSpec, CoordinatorCore, TabStateUpdate, TearOffOutcome, WindowHitRect,
@@ -2023,11 +2023,12 @@ mod tests {
         let tab_a_id = snap_a.tabs[0].tab_id.clone();
 
         let sid = EpubSessionId::new();
-        let locator = BookLocatorOutput::Epub {
+        let locator = NavigationLocatorDto::Epub {
             spine_index: Some(2),
             href: "ch2.xhtml".to_owned(),
-            fragment: None,
-            cfi: Some("epubcfi(/6/6[ch2]!/4/12)".to_owned()),
+            target: EpubNavTargetDto::Cfi {
+                cfi: "epubcfi(/6/6[ch2]!/4/12)".to_owned(),
+            },
         };
 
         assert!(core.update_tab_state(
@@ -2342,11 +2343,12 @@ mod tests {
             &win.window_id,
             &t3,
             TabStateUpdate {
-                current_locator: Some(BookLocatorOutput::Epub {
+                current_locator: Some(NavigationLocatorDto::Epub {
                     spine_index: Some(1),
                     href: "ch1.xhtml".to_owned(),
-                    fragment: Some("p1".to_owned()),
-                    cfi: Some("epubcfi(/6/4!/4/2)".to_owned()),
+                    target: EpubNavTargetDto::Cfi {
+                        cfi: "epubcfi(/6/4!/4/2)".to_owned(),
+                    },
                 }),
                 ..Default::default()
             },
@@ -2358,6 +2360,8 @@ mod tests {
         let locator = &json["tabs"][0]["currentLocator"];
         assert_eq!(locator["kind"], "epub");
         assert_eq!(locator["spine_index"], 1);
+        assert_eq!(locator["target"]["kind"], "cfi");
+        assert_eq!(locator["target"]["cfi"], "epubcfi(/6/4!/4/2)");
         assert!(locator.get("spineIndex").is_none());
     }
 

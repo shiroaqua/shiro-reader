@@ -17,7 +17,7 @@ use shiro_application::library::{
 use shiro_domain::library::{
     book::{
         file::entity::BookFileType,
-        value_objects::BookLocator,
+        locator::NavigationLocator,
     },
     tag::value_objects::TagDeleteStrategy,
 };
@@ -536,10 +536,7 @@ async fn local_library_extract_navigation_handles_valid_epub_and_returns_empty_o
     assert!(!epub_nav.reading_units().is_empty());
     assert!(matches!(
         epub_nav.toc()[0].locator(),
-        Some(BookLocator::Epub {
-            spine_index: Some(_),
-            ..
-        })
+        Some(NavigationLocator::Epub(anchor)) if anchor.spine_index.is_some()
     ));
 
     // 3. PDF when Pdfium is not loaded returns empty navigation cleanly.

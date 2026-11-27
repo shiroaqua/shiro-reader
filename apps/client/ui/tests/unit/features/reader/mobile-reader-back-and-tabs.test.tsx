@@ -12,7 +12,7 @@ import {
 } from "@shiro/ui-shared/api/reader-bridge"
 import { createMockReaderBridge } from "@shiro/ui-shared/api/reader-mock"
 import type {
-  BookLocator,
+  NavigationLocator,
   OpenDocumentParams,
   ReaderDocumentInstance,
 } from "@shiro/ui-shared/features/reader/contracts/engine"
@@ -247,19 +247,23 @@ describe("MobileReaderOverlay back stack and multi-tab lifecycle", () => {
     const bookB = makeBook({ id: "book-b", title: "Book B", type: "epub" })
     const bookC = makeBook({ id: "book-c", title: "Book C", type: "epub" })
 
-    const locA: BookLocator = {
+    const locA: NavigationLocator = {
       kind: "epub",
       spine_index: 2,
       href: "ch2.xhtml",
-      fragment: null,
-      cfi: "epubcfi(/6/6!/4/10)",
+      target: {
+        kind: "cfi",
+        cfi: "epubcfi(/6/6!/4/10)",
+      },
     }
-    const locB: BookLocator = {
+    const locB: NavigationLocator = {
       kind: "epub",
       spine_index: 4,
       href: "ch4.xhtml",
-      fragment: null,
-      cfi: "epubcfi(/6/10!/4/4)",
+      target: {
+        kind: "cfi",
+        cfi: "epubcfi(/6/10!/4/4)",
+      },
     }
 
     const { user, container } = renderWithProviders(<MobileReaderOverlay />)

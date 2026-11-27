@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   CanonicalCfiResolver,
   canonicalCfiResolver,
+  isCanonicalRangeCfi,
 } from "@shiro/ui-shared/features/reader/engine/epub/canonical-cfi"
 import {
   createXhtmlElement,
@@ -503,5 +504,20 @@ describe("xhtml-dom and CanonicalCfiResolver (application/xhtml+xml)", () => {
       textOrigin: "original",
       anchorBlockOriginalText: null,
     })
+  })
+
+  it("isCanonicalRangeCfi mirrors Rust CFI range validation including escaped bracket commas", () => {
+    expect(isCanonicalRangeCfi("epubcfi(/6/4[ch1]!/4/2,/1:0,/3:15)")).toBe(true)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4!/4/2/1,:2,:9)")).toBe(true)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4!/4,,/2:5)")).toBe(true)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4[a,b^,c]!/4/2,/1:0,/1:5)")).toBe(true)
+
+    expect(isCanonicalRangeCfi("epubcfi(/6/4[ch1]!)")).toBe(false)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4[ch1]!/4/2/1:12[a,b^,c])")).toBe(false)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4!/4/-1,/1:0,/1:2)")).toBe(false)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4!/4,bad,/2)")).toBe(false)
+    expect(isCanonicalRangeCfi("epubcfi(/6/4!/4,,)")).toBe(false)
+    expect(isCanonicalRangeCfi(" epubcfi(/6/4!/4/2,/1:0,/1:5)")).toBe(false)
+    expect(isCanonicalRangeCfi("invalid")).toBe(false)
   })
 })

@@ -1,8 +1,11 @@
 import type { UUID } from "@shiro/ui-shared/lib/types"
-import type { BookLocator, RelocationSnapshot } from "./engine"
+import type { NavigationLocator, RelocationSnapshot } from "./engine"
 
 export interface ReadingProgressPort {
-  loadInitialLocator(bookId: UUID, bookHash: string): Promise<BookLocator | undefined>
+  loadInitialLocator(
+    bookId: UUID,
+    bookHash: string
+  ): Promise<NavigationLocator | undefined>
   reportRelocation(bookId: UUID, bookHash: string, snapshot: RelocationSnapshot): void
 }
 

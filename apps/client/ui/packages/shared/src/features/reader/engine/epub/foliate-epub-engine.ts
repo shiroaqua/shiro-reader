@@ -12,10 +12,10 @@ import { readerBridge, type ReaderBridge } from "@shiro/ui-shared/api/reader-bri
 import { isMobilePlatform } from "@shiro/ui-shared/hooks/use-mobile"
 import type { SectionAugmenter } from "../../contracts/augmentation"
 import type {
-  BookLocator,
   BookNavigationData,
   EngineCapabilities,
   EphemeralReaderViewState,
+  NavigationLocator,
   OpenDocumentParams,
   ReaderBookMetadata,
   ReaderDocumentInstance,
@@ -293,7 +293,7 @@ export function flattenFoliateToc(
     depth: number
     subtree_end: number
     title: string
-    locator: BookLocator | null
+    locator: NavigationLocator | null
     unit_index: number | null
     unit_offset: number
     start_progression: number | null
@@ -315,7 +315,7 @@ export function flattenFoliateToc(
         (book.isExternal?.(rawHref) ??
           /^(?!blob:)[a-z][a-z0-9+.-]*:/i.test(rawHref))
 
-      let locator: BookLocator | null = null
+      let locator: NavigationLocator | null = null
       let unitIndex: number | null = null
       let startProgression: number | null = null
       let flags = 0
@@ -347,8 +347,9 @@ export function flattenFoliateToc(
           kind: "epub",
           spine_index: unitIndex,
           href: normalizedHref,
-          fragment,
-          cfi: null,
+          target: fragment
+            ? { kind: "fragment", fragment }
+            : { kind: "start" },
         }
 
         const unit =
@@ -1219,12 +1220,13 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
         }
 
         const sectionId = activeBook.sections[sectionIndex]?.id
-        const locator: BookLocator = {
+        const locator: NavigationLocator = {
           kind: "epub",
           spine_index: sectionIndex,
           href: typeof sectionId === "string" ? sectionId : "",
-          fragment: null,
-          cfi: canonicalCfi,
+          target: canonicalCfi
+            ? { kind: "cfi", cfi: canonicalCfi }
+            : { kind: "start" },
         }
 
         lastRelocateSnapshot = {
@@ -1260,25 +1262,25 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
           | Pick<FoliateRendererElement, "goTo">
           | null
           | undefined,
-        locator: BookLocator
+        locator: NavigationLocator
       ): Promise<boolean> => {
         if (destroyed || locator.kind !== "epub" || !targetRenderer?.goTo) {
           return false
         }
         const sectionCount = activeBook.sections.length
 
-        if (locator.cfi) {
+        if (locator.target.kind === "cfi") {
           const explicitIndex =
             locator.spine_index !== null &&
             locator.spine_index >= 0 &&
             locator.spine_index < sectionCount
               ? locator.spine_index
               : null
+          const targetCfi = locator.target.cfi
           const sectionIndex =
             explicitIndex ??
-            safeResolveCfiIndex(activeView, locator.cfi, sectionCount)
+            safeResolveCfiIndex(activeView, targetCfi, sectionCount)
           if (sectionIndex !== null) {
-            const targetCfi = locator.cfi
             await targetRenderer.goTo({
               index: sectionIndex,
               anchor: (doc: Document) =>
@@ -1289,9 +1291,10 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
         }
 
         if (locator.href) {
-          const targetHref = locator.fragment
-            ? `${locator.href}#${locator.fragment}`
-            : locator.href
+          const targetHref =
+            locator.target.kind === "fragment"
+              ? `${locator.href}#${locator.target.fragment}`
+              : locator.href
           const resolved = activeBook.resolveHref?.(targetHref) ?? null
           if (
             resolved &&
@@ -1323,7 +1326,7 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
       }
 
       const enterContinuousScrollMode = async (
-        targetLocator: BookLocator | null
+        targetLocator: NavigationLocator | null
       ): Promise<void> => {
         const epoch = ++modeSwitchEpoch
         if (destroyed || continuousRenderer) return
@@ -1420,7 +1423,7 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
       }
 
       const exitContinuousScrollMode = async (
-        targetLocator: BookLocator | null
+        targetLocator: NavigationLocator | null
       ): Promise<void> => {
         const epoch = ++modeSwitchEpoch
         if (!continuousRenderer) return
@@ -1683,7 +1686,7 @@ export class FoliateEpubEngine implements ReaderEngineAdapter {
         { signal: lifecycleController.signal }
       )
 
-      const goToLocator = async (locator: BookLocator): Promise<void> => {
+      const goToLocator = async (locator: NavigationLocator): Promise<void> => {
         await navigateToLocatorWithRenderer(
           continuousRenderer ?? activeView.renderer,
           locator

@@ -1,6 +1,7 @@
 use super::{
     errors::BookDomainError,
-    value_objects::{BookLocator, BookProgression, ReadingUnitOffset, TocEntryFlags},
+    locator::{BookProgression, NavigationLocator, ReadingUnitOffset},
+    value_objects::TocEntryFlags,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,7 +14,7 @@ pub struct ReadingUnitDraft {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TocEntryDraft {
     pub title: String,
-    pub locator: Option<BookLocator>,
+    pub locator: Option<NavigationLocator>,
     pub unit_offset: ReadingUnitOffset,
     pub flags: TocEntryFlags,
     pub children: Vec<TocEntryDraft>,
@@ -58,7 +59,7 @@ pub struct TocEntry {
     depth: u16,
     subtree_end: u32,
     title: String,
-    locator: Option<BookLocator>,
+    locator: Option<NavigationLocator>,
     unit_index: Option<u32>,
     unit_offset: ReadingUnitOffset,
     start_progression: Option<BookProgression>,
@@ -82,7 +83,7 @@ impl TocEntry {
         &self.title
     }
 
-    pub const fn locator(&self) -> Option<&BookLocator> {
+    pub const fn locator(&self) -> Option<&NavigationLocator> {
         self.locator.as_ref()
     }
 
@@ -176,7 +177,7 @@ impl BookNavigation {
                         locator.validate()?;
                     }
 
-                    let unit_index = draft.locator.as_ref().and_then(BookLocator::unit_index);
+                    let unit_index = draft.locator.as_ref().and_then(NavigationLocator::unit_index);
                     if let Some(idx) = unit_index
                         && (idx as usize) >= reading_units.len()
                     {

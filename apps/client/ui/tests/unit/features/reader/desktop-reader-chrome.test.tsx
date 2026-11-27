@@ -206,8 +206,10 @@ describe("DesktopReaderChrome Zen mode & mock preview lifecycle", () => {
           kind: "epub",
           spine_index: 1,
           href: "ch2.xhtml",
-          fragment: null,
-          cfi: "epubcfi(/6/4!/4/2/1:0)",
+          target: {
+            kind: "cfi",
+            cfi: "epubcfi(/6/4!/4/2/1:0)",
+          },
         },
         fraction: 0.55,
         sectionIndex: 1,

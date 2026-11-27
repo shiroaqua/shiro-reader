@@ -15,9 +15,9 @@ import { useTranslation } from "@shiro/ui-shared/lib/i18n"
 import { cn } from "cn"
 import type {
   BookFormat,
-  BookLocator,
   EngineCapabilities,
   EphemeralReaderViewState,
+  NavigationLocator,
   ReaderDocumentInstance,
   RelocationSnapshot,
 } from "../contracts/engine"
@@ -66,7 +66,7 @@ export interface ReaderViewportProps {
   readonly reattachSessionId?: string | null | undefined
   readonly manageSessionLifecycleInFrontend?: boolean | undefined
   readonly keepBackendSessionOnUnmount?: boolean | undefined
-  readonly initialLocator?: BookLocator | undefined
+  readonly initialLocator?: NavigationLocator | undefined
   readonly initialViewState?: EphemeralReaderViewState | undefined
   readonly compiledStyle: CompiledReaderStyle
   readonly tapZonesEnabled?: boolean | undefined

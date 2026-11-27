@@ -43,6 +43,8 @@ impl From<BookDomainError> for BookApplicationError {
             | BookDomainError::InvalidEpubFragment
             | BookDomainError::InvalidEpubCfi
             | BookDomainError::InvalidPdfDestination
+            | BookDomainError::InvalidNormalizedRect
+            | BookDomainError::InvalidPdfSelection
             | BookDomainError::ReadingUnitOutOfBounds { .. }
             | BookDomainError::TooManyReadingUnits
             | BookDomainError::TooManyTocEntries

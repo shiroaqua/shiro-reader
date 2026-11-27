@@ -3,8 +3,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event"
 import { CommandError, isCommandErrorPayload } from "./tauri-bridge"
 import type {
   BookFormat,
-  BookLocator,
   BookNavigationData,
+  NavigationLocator,
   TranslationDisplayMode,
 } from "@shiro/ui-shared/features/reader/contracts/engine"
 import type {
@@ -44,7 +44,7 @@ export interface ReaderWindowTabDto {
   readonly title: string
   readonly format: BookFormat
   readonly sessionId: string | null
-  readonly currentLocator: BookLocator | null
+  readonly currentLocator: NavigationLocator | null
   readonly fraction: number
   readonly translationMode: TranslationDisplayMode
   readonly targetLanguage: string | null
@@ -83,7 +83,7 @@ export interface UpdateTabRuntimeStateRequest {
   readonly windowId: string
   readonly tabId: string
   readonly sessionId?: string | undefined
-  readonly currentLocator?: BookLocator | undefined
+  readonly currentLocator?: NavigationLocator | undefined
   readonly fraction?: number | undefined
   readonly translationMode?: TranslationDisplayMode | undefined
   readonly targetLanguage?: string | null | undefined

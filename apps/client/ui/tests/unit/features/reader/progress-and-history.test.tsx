@@ -2,7 +2,7 @@ import { useState } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ProgressScrubber } from "@shiro/ui-shared/features/reader/components/progress-scrubber"
-import type { BookLocator } from "@shiro/ui-shared/features/reader/contracts/engine"
+import type { NavigationLocator } from "@shiro/ui-shared/features/reader/contracts/engine"
 import {
   InWindowTabStore,
   NavigationHistoryStack,
@@ -17,8 +17,7 @@ describe("ProgressScrubber and NavigationHistoryStack", () => {
           kind: "epub",
           spine_index: i,
           href: `ch${i}.xhtml`,
-          fragment: null,
-          cfi: null,
+          target: { kind: "start" },
         },
         fraction: i / 20,
       })
@@ -42,12 +41,14 @@ describe("ProgressScrubber and NavigationHistoryStack", () => {
     })
     const tabId = tab!.tabId
 
-    const initialLocator: BookLocator = {
+    const initialLocator: NavigationLocator = {
       kind: "epub",
       spine_index: 0,
       href: "ch0.xhtml",
-      fragment: null,
-      cfi: "epubcfi(/6/2!/4/2)",
+      target: {
+        kind: "cfi",
+        cfi: "epubcfi(/6/2!/4/2)",
+      },
     }
 
     const goToFractionSpy = vi.fn()
@@ -107,7 +108,7 @@ describe("ProgressScrubber and NavigationHistoryStack", () => {
     const backPill = screen.getByTestId("reader-history-back-pill")
     expect(backPill).toBeInTheDocument()
 
-    // Clicking Back restores original BookLocator and hides pill
+    // Clicking Back restores original NavigationLocator and hides pill
     fireEvent.click(backPill)
     expect(goToLocatorSpy).toHaveBeenCalledWith(initialLocator)
     expect(screen.queryByTestId("reader-history-back-pill")).not.toBeInTheDocument()

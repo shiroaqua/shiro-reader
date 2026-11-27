@@ -477,7 +477,7 @@ fn build_custom_navigation_epub() -> Vec<u8> {
 #[tokio::test]
 async fn book_navigation_returns_epub_and_pdf_chapters_and_enforces_contracts() {
     use shiro_reader_server::application::library::book::dto::{
-        BookLocatorOutput, BookNavigationOutput, PdfDestOutput,
+        BookNavigationOutput, EpubNavTargetDto, NavigationLocatorDto, PdfDestDto,
     };
 
     let app = TestApp::new().await;
@@ -508,11 +508,10 @@ async fn book_navigation_returns_epub_and_pdf_chapters_and_enforces_contracts() 
         let expected_href = format!("EPUB/chapter{}.xhtml", i + 1);
         assert!(matches!(
             &node.locator,
-            Some(BookLocatorOutput::Epub {
+            Some(NavigationLocatorDto::Epub {
                 spine_index: Some(_),
                 href,
-                fragment: None,
-                cfi: None,
+                target: EpubNavTargetDto::Start,
             }) if href == &expected_href
         ));
     }
@@ -530,9 +529,9 @@ async fn book_navigation_returns_epub_and_pdf_chapters_and_enforces_contracts() 
         assert_eq!(node.start_progression, Some(expected_page as f64 / 8.0));
         assert!(matches!(
             node.locator,
-            Some(BookLocatorOutput::Pdf {
+            Some(NavigationLocatorDto::Pdf {
                 page_index,
-                dest: PdfDestOutput::FitPage
+                target: PdfDestDto::FitPage
             }) if page_index == expected_page
         ));
     }
@@ -560,7 +559,7 @@ async fn book_navigation_returns_epub_and_pdf_chapters_and_enforces_contracts() 
 #[tokio::test]
 async fn book_navigation_supports_nested_fragments_nonlinear_units_and_failure_fallback() {
     use shiro_reader_server::application::library::book::dto::{
-        BookLocatorOutput, BookNavigationOutput,
+        BookNavigationOutput, EpubNavTargetDto, NavigationLocatorDto,
     };
 
     let app = TestApp::new().await;
@@ -611,11 +610,10 @@ async fn book_navigation_supports_nested_fragments_nonlinear_units_and_failure_f
     assert!(nav.toc[2].start_progression > nav.toc[1].start_progression);
     assert!(matches!(
         &nav.toc[2].locator,
-        Some(BookLocatorOutput::Epub {
+        Some(NavigationLocatorDto::Epub {
             spine_index: Some(1),
             href,
-            fragment: Some(frag),
-            cfi: None,
+            target: EpubNavTargetDto::Fragment { fragment: frag },
         }) if href == "EPUB/chapter1.xhtml" && frag == "section-2"
     ));
 

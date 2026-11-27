@@ -2,11 +2,15 @@ use shiro_domain::library::{
     book::{
         entity::{Book, BookFields},
         errors::BookDomainError,
-        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
-        value_objects::{
-            BookId, BookLocator, BookProgression, BookStatus, BookTitle, EpubResourcePath,
-            PdfDestination, ReadingUnitOffset, TocEntryFlags,
+        file::entity::BookFileType,
+        locator::{
+            BookAnchor, BookProgression, BookmarkLocator, EpubAnchor, EpubCfi, EpubFragment,
+            EpubNavTarget, EpubPointCfi, EpubPointTarget, EpubRangeCfi, EpubResourcePath,
+            HighlightLocator, NavigationLocator, NormalizedRect, PdfAnchor, PdfDestination,
+            PdfPageRects, PdfSelectionTarget, ReadingUnitOffset, SectionKey,
         },
+        navigation::{BookNavigation, ReadingUnitDraft, TocEntryDraft},
+        value_objects::{BookId, BookStatus, BookTitle, TocEntryFlags},
     },
     tag::{
         entity::TagDefinition,
@@ -223,11 +227,10 @@ fn book_navigation_builds_invariants_and_queries() {
                     TocEntryDraft {
                         title: "Chapter 1".to_owned(),
                         locator: Some(
-                            BookLocator::epub(
+                            NavigationLocator::epub(
                                 Some(1),
                                 href_ch1.clone(),
-                                Some("intro".to_owned()),
-                                None,
+                                EpubNavTarget::Fragment(EpubFragment::parse("intro").unwrap()),
                             )
                             .unwrap(),
                         ),
@@ -236,11 +239,12 @@ fn book_navigation_builds_invariants_and_queries() {
                         children: vec![TocEntryDraft {
                             title: "Section 1.1".to_owned(),
                             locator: Some(
-                                BookLocator::epub(
+                                NavigationLocator::epub(
                                     Some(1),
                                     href_ch1,
-                                    Some("sec-1-1".to_owned()),
-                                    Some("epubcfi(/6/4!/4/2)".to_owned()),
+                                    EpubNavTarget::Cfi(
+                                        EpubPointCfi::parse("epubcfi(/6/4!/4/2)").unwrap(),
+                                    ),
                                 )
                                 .unwrap(),
                             ),
@@ -252,7 +256,8 @@ fn book_navigation_builds_invariants_and_queries() {
                     TocEntryDraft {
                         title: "Chapter 2".to_owned(),
                         locator: Some(
-                            BookLocator::epub(Some(2), href_ch2, None, None).unwrap(),
+                            NavigationLocator::epub(Some(2), href_ch2, EpubNavTarget::Start)
+                                .unwrap(),
                         ),
                         unit_offset: ReadingUnitOffset::ZERO,
                         flags: TocEntryFlags::empty(),
@@ -455,21 +460,50 @@ fn book_navigation_validates_value_objects_and_unit_bounds() {
 
     let href = EpubResourcePath::parse("ch1.xhtml").unwrap();
     assert_eq!(
-        BookLocator::epub(None, href.clone(), Some("#sec".to_owned()), None).unwrap_err(),
+        EpubFragment::parse("#sec").unwrap_err(),
         BookDomainError::InvalidEpubFragment
     );
     assert_eq!(
-        BookLocator::epub(None, href.clone(), Some(String::new()), None).unwrap_err(),
+        EpubFragment::parse("").unwrap_err(),
         BookDomainError::InvalidEpubFragment
     );
     assert_eq!(
-        BookLocator::epub(None, href, None, Some("   ".to_owned())).unwrap_err(),
+        EpubFragment::parse(" sec ").unwrap_err(),
+        BookDomainError::InvalidEpubFragment
+    );
+    assert_eq!(
+        EpubFragment::parse("sec\n1").unwrap_err(),
+        BookDomainError::InvalidEpubFragment
+    );
+
+    assert_eq!(
+        EpubPointCfi::parse("   ").unwrap_err(),
+        BookDomainError::InvalidEpubCfi
+    );
+    assert_eq!(
+        EpubPointCfi::parse("epubcfi(/6/2!/4/2,/1:0,/1:5)").unwrap_err(),
+        BookDomainError::InvalidEpubCfi
+    );
+    assert_eq!(
+        EpubRangeCfi::parse("epubcfi(/6/2!/4/2/1:0)").unwrap_err(),
         BookDomainError::InvalidEpubCfi
     );
 
-    let pdf_loc = BookLocator::pdf(3, PdfDestination::FitPage).unwrap();
+    let pdf_loc = NavigationLocator::pdf(3, PdfDestination::FitPage).unwrap();
     assert_eq!(pdf_loc.unit_index(), Some(3));
     assert_eq!(pdf_loc.default_unit_offset(), ReadingUnitOffset::ZERO);
+    assert_eq!(pdf_loc.file_type(), BookFileType::PDF);
+    assert_eq!(pdf_loc.section_key(), SectionKey::Pdf(3));
+    assert_eq!(pdf_loc.epub_href(), None);
+
+    let epub_loc =
+        NavigationLocator::epub(Some(0), href, EpubNavTarget::Start).unwrap();
+    assert_eq!(epub_loc.file_type(), BookFileType::EPUB);
+    assert_eq!(
+        epub_loc.section_key(),
+        SectionKey::Epub(EpubResourcePath::parse("ch1.xhtml").unwrap())
+    );
+    assert_eq!(epub_loc.epub_href().unwrap().as_str(), "ch1.xhtml");
 
     let oob_err = BookNavigation::build(
         vec![TocEntryDraft {
@@ -502,11 +536,10 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
             TocEntryDraft {
                 title: "Cover".to_owned(),
                 locator: Some(
-                    BookLocator::epub(
+                    NavigationLocator::epub(
                         Some(0),
                         EpubResourcePath::parse("EPUB/cover.xhtml").unwrap(),
-                        None,
-                        None,
+                        EpubNavTarget::Start,
                     )
                     .unwrap(),
                 ),
@@ -517,11 +550,10 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
             TocEntryDraft {
                 title: "Chapter 1".to_owned(),
                 locator: Some(
-                    BookLocator::epub(
+                    NavigationLocator::epub(
                         Some(2),
                         EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
-                        None,
-                        None,
+                        EpubNavTarget::Start,
                     )
                     .unwrap(),
                 ),
@@ -530,11 +562,10 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
                 children: vec![TocEntryDraft {
                     title: "Section 1.0".to_owned(),
                     locator: Some(
-                        BookLocator::epub(
+                        NavigationLocator::epub(
                             Some(2),
                             EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
-                            Some("top".to_owned()),
-                            None,
+                            EpubNavTarget::Fragment(EpubFragment::parse("top").unwrap()),
                         )
                         .unwrap(),
                     ),
@@ -546,11 +577,10 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
             TocEntryDraft {
                 title: "Chapter 2".to_owned(),
                 locator: Some(
-                    BookLocator::epub(
+                    NavigationLocator::epub(
                         Some(3),
                         EpubResourcePath::parse("EPUB/ch2.xhtml").unwrap(),
-                        None,
-                        None,
+                        EpubNavTarget::Start,
                     )
                     .unwrap(),
                 ),
@@ -561,11 +591,10 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
             TocEntryDraft {
                 title: "Frontmatter Note".to_owned(),
                 locator: Some(
-                    BookLocator::epub(
+                    NavigationLocator::epub(
                         Some(1),
                         EpubResourcePath::parse("EPUB/front.xhtml").unwrap(),
-                        None,
-                        None,
+                        EpubNavTarget::Start,
                     )
                     .unwrap(),
                 ),
@@ -617,4 +646,184 @@ fn active_toc_index_handles_non_monotonic_toc_and_nonlinear_units() {
     assert_eq!(nav.active_toc_index(0, ReadingUnitOffset::ZERO), Some(0));
     // Out-of-bounds unit index returns None.
     assert_eq!(nav.active_toc_index(99, ReadingUnitOffset::ZERO), None);
+}
+
+#[test]
+fn book_anchor_validates_cfi_variants_pdf_selections_and_conversions() {
+    // 1. Point CFI, section base CFI, and text assertions with commas/escapes.
+    assert!(EpubPointCfi::parse("epubcfi(/6/4[chapter-1]!)").is_ok());
+    assert!(EpubPointCfi::parse("epubcfi(/6/4[ch1]!/4/2/1:12[a,b^,c])").is_ok());
+    assert!(EpubCfi::parse("epubcfi(/6/4!/4/2/1:0)").unwrap().is_point());
+
+    for invalid in [
+        "",
+        " epubcfi(/6/4!)",
+        "epubcfi(/6/4!)\n",
+        "epubcfi()",
+        "epubcfi(6/4)",
+        "epubcfi(/6/4!/4/-1)",
+        "epubcfi(/6/4[unclosed!)",
+        "epubcfi(/6/4[[nested]])",
+        "epubcfi(/6/4!/4 /2)",
+        "epubcfi(/6/4!/4^)",
+        "epubcfi(/6/4!/4,/2)",
+        "epubcfi(/6/4!/4,,)",
+        "epubcfi(/6/4!/4,bad,/2)",
+        "epubcfi(/6/4!/4,/2,bad)",
+        "epubcfi(/6/4!/4,/2,/3,/4)",
+    ] {
+        assert_eq!(
+            EpubCfi::parse(invalid).unwrap_err(),
+            BookDomainError::InvalidEpubCfi,
+            "expected InvalidEpubCfi for {invalid:?}"
+        );
+    }
+
+    // 2. Range CFI parsing & start/end point extraction.
+    let range = EpubRangeCfi::parse("epubcfi(/6/4[ch1]!/4/2,/1:0,/3:15)").unwrap();
+    assert_eq!(
+        range.start_point().as_str(),
+        "epubcfi(/6/4[ch1]!/4/2/1:0)"
+    );
+    assert_eq!(
+        range.end_point().as_str(),
+        "epubcfi(/6/4[ch1]!/4/2/3:15)"
+    );
+
+    let same_node_range = EpubRangeCfi::parse("epubcfi(/6/4!/4/2/1,:2,:9)").unwrap();
+    assert_eq!(
+        same_node_range.start_point().as_str(),
+        "epubcfi(/6/4!/4/2/1:2)"
+    );
+    assert_eq!(
+        same_node_range.end_point().as_str(),
+        "epubcfi(/6/4!/4/2/1:9)"
+    );
+
+    let half_empty_range = EpubRangeCfi::parse("epubcfi(/6/4!/4,,/2:5)").unwrap();
+    assert_eq!(half_empty_range.start_point().as_str(), "epubcfi(/6/4!/4)");
+    assert_eq!(half_empty_range.end_point().as_str(), "epubcfi(/6/4!/4/2:5)");
+
+    let wrapped: EpubCfi = range.clone().into();
+    assert!(wrapped.is_range());
+    assert!(!wrapped.is_point());
+    assert!(wrapped.clone().into_point().is_err());
+    assert_eq!(wrapped.into_range().unwrap(), range);
+
+    // 3. HighlightLocator <-> BookmarkLocator <-> NavigationLocator conversions (EPUB).
+    let epub_hl = HighlightLocator::epub(
+        Some(1),
+        EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
+        range,
+    )
+    .unwrap();
+    assert_eq!(
+        epub_hl.covered_section_keys(),
+        vec![SectionKey::Epub(
+            EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap()
+        )]
+    );
+    let epub_bm = epub_hl.to_bookmark_locator();
+    assert_eq!(epub_bm.default_unit_offset(), ReadingUnitOffset::ZERO);
+    assert_eq!(
+        epub_bm.to_navigation_locator(),
+        NavigationLocator::epub(
+            Some(1),
+            EpubResourcePath::parse("EPUB/ch1.xhtml").unwrap(),
+            EpubNavTarget::Cfi(EpubPointCfi::parse("epubcfi(/6/4[ch1]!/4/2/1:0)").unwrap()),
+        )
+        .unwrap()
+    );
+
+    let offset_bm = BookmarkLocator::epub(
+        Some(0),
+        EpubResourcePath::parse("EPUB/cover.xhtml").unwrap(),
+        EpubPointTarget::UnitOffset(ReadingUnitOffset::new(0.4).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        offset_bm.default_unit_offset(),
+        ReadingUnitOffset::new(0.4).unwrap()
+    );
+    assert_eq!(
+        offset_bm.to_navigation_locator(),
+        NavigationLocator::epub(
+            Some(0),
+            EpubResourcePath::parse("EPUB/cover.xhtml").unwrap(),
+            EpubNavTarget::Start,
+        )
+        .unwrap()
+    );
+
+    // 4. NormalizedRect, PdfPageRects, PdfSelectionTarget & HighlightLocator (PDF).
+    assert_eq!(
+        NormalizedRect::new(-0.1, 0.1, 0.2, 0.2).unwrap_err(),
+        BookDomainError::InvalidNormalizedRect
+    );
+    assert_eq!(
+        NormalizedRect::new(0.1, 0.1, 0.0, 0.2).unwrap_err(),
+        BookDomainError::InvalidNormalizedRect
+    );
+    assert_eq!(
+        NormalizedRect::new(0.6, 0.2, 0.5, 0.2).unwrap_err(),
+        BookDomainError::InvalidNormalizedRect
+    );
+    assert_eq!(
+        NormalizedRect::new(0.1, 0.8, 0.2, f32::NAN).unwrap_err(),
+        BookDomainError::InvalidNormalizedRect
+    );
+    assert_eq!(
+        PdfPageRects::new(2, vec![]).unwrap_err(),
+        BookDomainError::InvalidPdfSelection
+    );
+    assert_eq!(
+        PdfSelectionTarget::new(vec![], vec![]).unwrap_err(),
+        BookDomainError::InvalidPdfSelection
+    );
+
+    let r1 = NormalizedRect::new(0.1, 0.45, 0.7, 0.05).unwrap();
+    let r2 = NormalizedRect::new(0.1, 0.25, 0.5, 0.05).unwrap();
+    let r_next = NormalizedRect::new(0.1, 0.1, 0.6, 0.04).unwrap();
+    let p4 = PdfPageRects::new(4, vec![r_next]).unwrap();
+    let p3 = PdfPageRects::new(3, vec![r_next]).unwrap();
+
+    // Extra pages must strictly increase within target and relative to anchor start page.
+    assert_eq!(
+        PdfSelectionTarget::new(vec![r1], vec![p4.clone(), p3.clone()]).unwrap_err(),
+        BookDomainError::InvalidPdfSelection
+    );
+    let pdf_sel = PdfSelectionTarget::new(vec![r1, r2], vec![p3, p4]).unwrap();
+    assert_eq!(
+        HighlightLocator::pdf(3, pdf_sel.clone()).unwrap_err(),
+        BookDomainError::InvalidPdfSelection
+    );
+
+    let pdf_hl = HighlightLocator::pdf(2, pdf_sel).unwrap();
+    assert_eq!(
+        pdf_hl.covered_section_keys(),
+        vec![SectionKey::Pdf(2), SectionKey::Pdf(3), SectionKey::Pdf(4)]
+    );
+    assert_eq!(
+        pdf_hl.to_bookmark_locator(),
+        BookAnchor::Pdf(PdfAnchor {
+            page_index: 2,
+            target: PdfDestination::FitH {
+                top: None,
+                normalized_top: Some(ReadingUnitOffset::new(0.25).unwrap()),
+            },
+        })
+    );
+    assert_eq!(
+        pdf_hl.to_navigation_locator().default_unit_offset(),
+        ReadingUnitOffset::new(0.25).unwrap()
+    );
+
+    // map_targets preserves container fields cleanly.
+    let mapped = BookAnchor::<u8, u8>::Epub(EpubAnchor {
+        spine_index: Some(0),
+        href: EpubResourcePath::parse("a.xhtml").unwrap(),
+        target: 1u8,
+    })
+    .map_targets(|n| n + 1, |n| n);
+    assert!(matches!(mapped, BookAnchor::Epub(EpubAnchor { target: 2, .. })));
 }

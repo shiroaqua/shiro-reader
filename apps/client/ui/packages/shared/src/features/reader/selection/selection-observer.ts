@@ -1,8 +1,9 @@
-import type { BookFormat, BookLocator } from "../contracts/engine"
+import type { BookFormat, HighlightLocator } from "../contracts/engine"
 import type { SelectionContext } from "../contracts/selection"
 import {
   CanonicalCfiResolver,
   canonicalCfiResolver,
+  isCanonicalRangeCfi,
 } from "../engine/epub/canonical-cfi"
 import {
   projectSelectionGeometry,
@@ -491,14 +492,15 @@ export class SelectionObserver {
         : null
     const inspection = this.resolver.inspectSelectionOrigin(range)
 
-    const locator: BookLocator | null =
-      this.format === "EPUB" && canonicalCfi
+    const locator: HighlightLocator | null =
+      this.format === "EPUB" && canonicalCfi && isCanonicalRangeCfi(canonicalCfi)
         ? {
             kind: "epub",
             spine_index: sectionIndex,
             href: this.getSectionHref(sectionIndex),
-            fragment: null,
-            cfi: canonicalCfi,
+            target: {
+              cfi: canonicalCfi,
+            },
           }
         : null
 
