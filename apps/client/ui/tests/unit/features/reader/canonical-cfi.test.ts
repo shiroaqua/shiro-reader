@@ -520,4 +520,76 @@ describe("xhtml-dom and CanonicalCfiResolver (application/xhtml+xml)", () => {
     expect(isCanonicalRangeCfi(" epubcfi(/6/4!/4/2,/1:0,/1:5)")).toBe(false)
     expect(isCanonicalRangeCfi("invalid")).toBe(false)
   })
+
+  it("indexes table cells (td/th/caption), appends synthetic translations inside cells, and keeps CFI & original text pure", () => {
+    const tableXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <body>
+    <table id="toc-table">
+      <caption id="cap-1">Table of Contents</caption>
+      <thead><tr><th id="th-1">Section</th><th id="th-2">Page</th></tr></thead>
+      <tbody>
+        <tr id="tr-1"><td id="td-1"><a href="ch1.xhtml">Moonlight Chapter</a></td><td id="td-2">12</td></tr>
+      </tbody>
+    </table>
+  </body>
+</html>`
+    const doc = new DOMParser().parseFromString(tableXhtml, "application/xhtml+xml")
+    const handles = indexTranslatableBlocks(doc, 7)
+
+    expect(handles.map((h) => h.element.id)).toEqual([
+      "cap-1",
+      "th-1",
+      "th-2",
+      "td-1",
+      "td-2",
+    ])
+    expect(handles[3]?.sourceText).toBe("Moonlight Chapter")
+
+    const td1 = doc.getElementById("td-1")!
+    const synthTd1 = injectSyntheticTranslation(doc, td1, "月光章节")
+    const tr1 = doc.getElementById("tr-1")!
+
+    // Synthetic node MUST live inside <td>, never as an invalid sibling under <tr>
+    expect(synthTd1.parentElement).toBe(td1)
+    expect(tr1.children).toHaveLength(2)
+
+    setDocumentTranslationMode(doc, "translated_only")
+    const transRange = doc.createRange()
+    transRange.selectNodeContents(synthTd1)
+    expect(canonicalCfiResolver.inspectSelectionOrigin(transRange)).toEqual({
+      textOrigin: "translation",
+      anchorBlockOriginalText: "Moonlight Chapter",
+    })
+
+    const cfi = canonicalCfiResolver.rangeToCanonicalCfi(
+      doc,
+      SECTION_BASE_CFI,
+      transRange
+    )
+    expect(cfi).not.toBeNull()
+    expect(cfi).toMatch(/^epubcfi\(.+\)$/)
+
+    const resolvedPoint = canonicalCfiResolver.canonicalCfiToRange(doc, cfi!)
+    expect(resolvedPoint?.collapsed).toBe(true)
+    expect(resolvedPoint?.startContainer).toBe(
+      td1.querySelector("a")!.firstChild
+    )
+
+    const anchorTarget = canonicalCfiResolver.resolveVisualAnchor(doc, cfi!)
+    expect(anchorTarget).toBe(synthTd1)
+
+    // Cross-block selection spanning <th> to <td> yields a canonical range CFI
+    const th1 = doc.getElementById("th-1")!
+    const crossRange = doc.createRange()
+    crossRange.setStart(th1.firstChild!, 0)
+    crossRange.setEnd(td1.querySelector("a")!.firstChild!, 5)
+    const crossCfi = canonicalCfiResolver.rangeToCanonicalCfi(
+      doc,
+      SECTION_BASE_CFI,
+      crossRange
+    )
+    expect(crossCfi).not.toBeNull()
+    expect(isCanonicalRangeCfi(crossCfi!)).toBe(true)
+  })
 })

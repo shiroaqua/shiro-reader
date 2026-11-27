@@ -11,6 +11,7 @@ import {
   readerEngineRegistry,
 } from "@shiro/ui-shared/features/reader/engine/engine-registry"
 import {
+  decodeEpubText,
   EpubIpcLoader,
   sha1Bytes,
   sha1PureJs,
@@ -306,5 +307,29 @@ describe("ReaderEngineRegistry & UnsupportedPdfEngine", () => {
         err.code === READER_ERROR_CODES.UNSUPPORTED_FORMAT &&
         err.format === "UNKNOWN"
     )
+  })
+
+  it("decodes UTF-16 BOM, declared GBK/Shift_JIS XML/HTML charsets, and raw invalid UTF-8 fallback", () => {
+    // UTF-16LE BOM + "Hi"
+    const utf16Le = new Uint8Array([0xff, 0xfe, 0x48, 0x00, 0x69, 0x00])
+    expect(decodeEpubText(utf16Le.buffer)).toBe("Hi")
+
+    // XML declaration encoding="gbk" with GBK bytes for "中文" (0xD6 0xD0 0xCE 0xC4)
+    const xmlPrefix = new TextEncoder().encode('<?xml version="1.0" encoding="gbk"?><p>')
+    const xmlSuffix = new TextEncoder().encode("</p>")
+    const gbkXml = new Uint8Array(xmlPrefix.length + 4 + xmlSuffix.length)
+    gbkXml.set(xmlPrefix, 0)
+    gbkXml.set([0xd6, 0xd0, 0xce, 0xc4], xmlPrefix.length)
+    gbkXml.set(xmlSuffix, xmlPrefix.length + 4)
+    expect(decodeEpubText(gbkXml.buffer)).toContain("中文")
+
+    // Undeclared raw GB18030 bytes falling back from strict UTF-8
+    const rawPrefix = new TextEncoder().encode("<p>")
+    const rawSuffix = new TextEncoder().encode("</p>")
+    const rawGbk = new Uint8Array(rawPrefix.length + 4 + rawSuffix.length)
+    rawGbk.set(rawPrefix, 0)
+    rawGbk.set([0xd6, 0xd0, 0xce, 0xc4], rawPrefix.length)
+    rawGbk.set(rawSuffix, rawPrefix.length + 4)
+    expect(decodeEpubText(rawGbk.buffer)).toBe("<p>中文</p>")
   })
 })

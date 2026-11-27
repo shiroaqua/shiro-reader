@@ -378,14 +378,29 @@ export function compileReaderStyle(
 ${fontFamilyRule}${fontWeightRule}${textAlignRule}${hyphensRule}}${scrolledBodyMarginRule ? `\n\n${scrolledBodyMarginRule}` : ""}`)
 
   if (!isFixedLayout) {
+    const codeBg = `color-mix(in srgb, ${palette.foregroundHex} 7%, ${palette.backgroundHex})`
+    const markBg = palette.isDark
+      ? "rgba(250, 204, 21, 0.24)"
+      : "rgba(253, 224, 71, 0.45)"
     cssParts.push(`html:root {
   background-color: ${palette.backgroundHex} !important;
   background-image: none !important;
 }
 html:root body,
-html:root body *:not(img, picture, video, canvas, svg, svg *, hr, [data-shiro-synthetic], [data-shiro-synthetic] *) {
+html:root body *:not(img, picture, video, canvas, svg, svg *, hr, pre, code, kbd, samp, mark, [data-shiro-synthetic], [data-shiro-synthetic] *) {
   background-color: transparent !important;
   background-image: none !important;
+}
+:where(pre, code, kbd, samp) {
+  background-color: ${codeBg} !important;
+  background-image: none !important;
+}
+:where(pre) :where(code, kbd, samp) {
+  background-color: transparent !important;
+}
+:where(mark) {
+  background-color: ${markBg} !important;
+  color: ${palette.foregroundHex} !important;
 }`)
   }
 
@@ -410,7 +425,7 @@ ${indentRule}}`)
     const protectedResetAlign =
       profile.typography.textAlign !== "auto" ? "  text-align: start;\n" : ""
     const protectedSubtree =
-      "pre, pre *, code, code *, kbd, kbd *, samp, samp *, math, math *, svg, svg *, rt, rt *, rp, rp *"
+      "pre, pre *, code, code *, kbd, kbd *, samp, samp *, math, math *, svg, svg *, rt, rt *, rp, rp *, table, table *"
 
     cssParts.push(`body:not([data-shiro-synthetic="translation"]),
 p:not([data-shiro-synthetic="translation"], ${protectedSubtree}),
@@ -440,6 +455,12 @@ ${protectedResetWeight}  text-align: center;
   line-height: 1.2;
   letter-spacing: normal;
   word-spacing: normal;
+}
+:where(table) {
+  line-height: 1.4;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-indent: 0;
 }`)
   }
 
@@ -453,7 +474,7 @@ ${protectedResetWeight}  text-align: center;
   color: ${palette.foregroundHex} !important;
 }`
     cssParts.push(`${darkBgRule}
-p:not([data-shiro-synthetic="translation"]), div:not([data-shiro-synthetic="translation"]), span:not([data-shiro-synthetic="translation"]), li:not([data-shiro-synthetic="translation"]), blockquote:not([data-shiro-synthetic="translation"]), h1, h2, h3, h4, h5, h6, dt, dd:not([data-shiro-synthetic="translation"]), figcaption {
+p:not([data-shiro-synthetic="translation"]), div:not([data-shiro-synthetic="translation"]), span:not([data-shiro-synthetic="translation"]), li:not([data-shiro-synthetic="translation"]), blockquote:not([data-shiro-synthetic="translation"]), h1, h2, h3, h4, h5, h6, dt, dd:not([data-shiro-synthetic="translation"]), figcaption, em:not([data-shiro-synthetic="translation"]), strong:not([data-shiro-synthetic="translation"]), i:not([data-shiro-synthetic="translation"]), b:not([data-shiro-synthetic="translation"]), u:not([data-shiro-synthetic="translation"]), s:not([data-shiro-synthetic="translation"]), del:not([data-shiro-synthetic="translation"]), ins:not([data-shiro-synthetic="translation"]), sub:not([data-shiro-synthetic="translation"]), sup:not([data-shiro-synthetic="translation"]), small:not([data-shiro-synthetic="translation"]), cite:not([data-shiro-synthetic="translation"]), q:not([data-shiro-synthetic="translation"]), dfn:not([data-shiro-synthetic="translation"]), abbr:not([data-shiro-synthetic="translation"]), time:not([data-shiro-synthetic="translation"]), var:not([data-shiro-synthetic="translation"]), samp:not([data-shiro-synthetic="translation"]), kbd:not([data-shiro-synthetic="translation"]), code:not([data-shiro-synthetic="translation"]), pre:not([data-shiro-synthetic="translation"]), caption:not([data-shiro-synthetic="translation"]), label:not([data-shiro-synthetic="translation"]), summary:not([data-shiro-synthetic="translation"]) {
   color: inherit !important;
 }
 table, thead, tbody, tr, th, td {
@@ -464,8 +485,17 @@ table, thead, tbody, tr, th, td {
 a {
   color: ${palette.linkHex} !important;
 }
-img, picture, video, svg, canvas {
+img, picture, video, svg:has(image), canvas {
   filter: none;
+}
+svg:not(:has(image)) {
+  color: ${palette.foregroundHex};
+}
+svg:not(:has(image)) :is([stroke="#000" i], [stroke="#000000" i], [stroke="black" i], [stroke="rgb(0,0,0)" i], [stroke="rgb(0, 0, 0)" i]) {
+  stroke: ${palette.foregroundHex} !important;
+}
+svg:not(:has(image)) :is([fill="#000" i], [fill="#000000" i], [fill="black" i], [fill="rgb(0,0,0)" i], [fill="rgb(0, 0, 0)" i]) {
+  fill: ${palette.foregroundHex} !important;
 }`)
   }
 
@@ -494,8 +524,20 @@ html[data-shiro-trans-mode="bilingual"] [data-shiro-synthetic="translation"] {
   color: var(--shiro-trans-fg-muted) !important;
   break-inside: auto;
 }
-html[data-shiro-trans-mode="translated_only"] [data-shiro-has-translation="ready"] {
+html[data-shiro-trans-mode="translated_only"] [data-shiro-has-translation="ready"]:not(td, th, caption) {
   display: none !important;
+}
+html[data-shiro-trans-mode="translated_only"] :is(td, th, caption)[data-shiro-has-translation="ready"] {
+  font-size: 0 !important;
+  line-height: 0 !important;
+  color: transparent !important;
+}
+html[data-shiro-trans-mode="translated_only"] :is(td, th, caption)[data-shiro-has-translation="ready"] > :not([data-shiro-synthetic="translation"]) {
+  display: none !important;
+}
+html[data-shiro-trans-mode="translated_only"] :is(td, th, caption)[data-shiro-has-translation="ready"] > [data-shiro-synthetic="translation"] {
+  font-size: var(--shiro-body-size) !important;
+  line-height: var(--shiro-body-line-height) !important;
 }
 html[data-shiro-trans-mode="translated_only"] [data-shiro-synthetic="translation"] {
   display: block;

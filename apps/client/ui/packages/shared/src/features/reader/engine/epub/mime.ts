@@ -4,9 +4,12 @@ const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   html: "text/html",
   htm: "text/html",
   svg: "image/svg+xml",
+  svgz: "image/svg+xml",
   xml: "application/xml",
   opf: "application/oebps-package+xml",
   ncx: "application/x-dtbncx+xml",
+  xpgt: "application/vnd.adobe-page-template+xml",
+  smil: "application/smil+xml",
   css: "text/css",
   js: "text/javascript",
   mjs: "text/javascript",
@@ -15,6 +18,7 @@ const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   ttf: "font/ttf",
   otf: "font/otf",
   ttc: "font/collection",
+  eot: "application/vnd.ms-fontobject",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
@@ -25,6 +29,7 @@ const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   m4a: "audio/mp4",
   ogg: "audio/ogg",
   mp4: "video/mp4",
+  webm: "video/webm",
 }
 
 function stripQueryAndFragment(rawPath: string): string {
@@ -74,13 +79,29 @@ export function resolveArchiveEntryPath(
   if (Object.hasOwn(entries, normalized)) return normalized
 
   const decoded = safeDecodeURIComponent(normalized)
-  if (decoded !== null) {
-    const normalizedDecoded = normalizePathSegments(decoded)
+  const normalizedDecoded =
+    decoded !== null ? normalizePathSegments(decoded) : null
+  if (
+    normalizedDecoded !== null &&
+    normalizedDecoded.length > 0 &&
+    Object.hasOwn(entries, normalizedDecoded)
+  ) {
+    return normalizedDecoded
+  }
+
+  const targetExactLower = normalized.toLowerCase()
+  const targetDecodedLower =
+    normalizedDecoded && normalizedDecoded.length > 0
+      ? normalizedDecoded.toLowerCase()
+      : null
+
+  for (const key of Object.keys(entries)) {
+    const keyLower = key.toLowerCase()
     if (
-      normalizedDecoded.length > 0 &&
-      Object.hasOwn(entries, normalizedDecoded)
+      keyLower === targetExactLower ||
+      (targetDecodedLower !== null && keyLower === targetDecodedLower)
     ) {
-      return normalizedDecoded
+      return key
     }
   }
 

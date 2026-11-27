@@ -22,6 +22,9 @@ const CANDIDATE_BLOCK_TAGS = new Set([
   "dt",
   "figcaption",
   "div",
+  "td",
+  "th",
+  "caption",
 ])
 
 const EXCLUDED_SUBTREE_TAGS = new Set([
@@ -217,7 +220,7 @@ function hasDescendantCandidateBlock(element: Element): boolean {
   return false
 }
 
-function extractTranslatableText(element: Element): string {
+export function extractTranslatableText(element: Element): string {
   let buffer = ""
 
   const walk = (node: Node): void => {
@@ -319,13 +322,27 @@ export function indexTranslatableBlocks(
   return handles
 }
 
+const TABLE_INNER_INJECTION_TAGS = new Set(["td", "th", "caption"])
+
 function resolveSyntheticTagSpec(
   hostElement: Element,
   parent: Node
-): { readonly tagName: string; readonly style: string | undefined } {
+): {
+  readonly tagName: string
+  readonly style: string | undefined
+  readonly appendInsideHost: boolean
+} {
   const hostTag = getLocalTagName(hostElement)
   const parentTag =
     parent.nodeType === 1 ? getLocalTagName(parent as Element) : ""
+
+  if (TABLE_INNER_INJECTION_TAGS.has(hostTag)) {
+    return {
+      tagName: "div",
+      style: undefined,
+      appendInsideHost: true,
+    }
+  }
 
   if (
     hostTag === "li" ||
@@ -336,6 +353,7 @@ function resolveSyntheticTagSpec(
     return {
       tagName: "li",
       style: "display: block; list-style: none;",
+      appendInsideHost: false,
     }
   }
 
@@ -343,12 +361,14 @@ function resolveSyntheticTagSpec(
     return {
       tagName: "dd",
       style: undefined,
+      appendInsideHost: false,
     }
   }
 
   return {
     tagName: "div",
     style: undefined,
+    appendInsideHost: false,
   }
 }
 
@@ -372,7 +392,10 @@ export function injectSyntheticTranslation(
     )
   }
 
-  const { tagName, style } = resolveSyntheticTagSpec(hostElement, parent)
+  const { tagName, style, appendInsideHost } = resolveSyntheticTagSpec(
+    hostElement,
+    parent
+  )
   const readyValue = options?.ready === false ? "streaming" : "ready"
   const existing = findSyntheticTranslationForBlock(doc, blockId)
 
@@ -396,7 +419,11 @@ export function injectSyntheticTranslation(
     translatedText
   )
 
-  parent.insertBefore(syntheticEl, hostElement.nextSibling)
+  if (appendInsideHost) {
+    hostElement.appendChild(syntheticEl)
+  } else {
+    parent.insertBefore(syntheticEl, hostElement.nextSibling)
+  }
   hostElement.setAttribute(SHIRO_HAS_TRANS_ATTR, readyValue)
   return syntheticEl
 }

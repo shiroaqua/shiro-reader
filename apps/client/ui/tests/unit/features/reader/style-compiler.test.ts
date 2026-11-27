@@ -748,4 +748,33 @@ describe("StyleCompiler and reader settings store", () => {
       container.remove()
     }
   })
+
+  it("protects code/mark backgrounds and tables, preserves dark inline text & pure-vector black SVGs, and keeps table cell visibility in translated_only", () => {
+    const base = getDefaultReaderProfile(false)
+    const darkOverride = compileReaderStyle(
+      {
+        ...base,
+        appearance: { surface: "night_dark" },
+        typography: { ...base.typography, overridePublisherStyles: true },
+      },
+      "default",
+      [],
+      "shiro-font://localhost/font/",
+      false,
+      1280
+    )
+
+    expect(darkOverride.chapterCss).toContain("pre, code, kbd, samp, mark")
+    expect(darkOverride.chapterCss).toContain("table, table *")
+    expect(darkOverride.chapterCss).toContain('em:not([data-shiro-synthetic="translation"])')
+    expect(darkOverride.chapterCss).toContain('strong:not([data-shiro-synthetic="translation"])')
+    expect(darkOverride.chapterCss).toContain('svg:has(image)')
+    expect(darkOverride.chapterCss).toContain('svg:not(:has(image))')
+    expect(darkOverride.chapterCss).toContain(
+      'html[data-shiro-trans-mode="translated_only"] [data-shiro-has-translation="ready"]:not(td, th, caption)'
+    )
+    expect(darkOverride.chapterCss).toContain(
+      ':is(td, th, caption)[data-shiro-has-translation="ready"] > [data-shiro-synthetic="translation"]'
+    )
+  })
 })

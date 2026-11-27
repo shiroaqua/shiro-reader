@@ -1,6 +1,7 @@
 import * as CFI from "foliate-js/epubcfi.js"
 import type { SelectionTextOrigin } from "../../contracts/selection"
 import {
+  extractTranslatableText,
   findHostElementByBlockId,
   findSyntheticAncestor,
   getDocumentTranslationMode,
@@ -320,6 +321,10 @@ function isNodeVisuallyHiddenForSelection(
 ): boolean {
   if (!node) return false
   const mode = getDocumentTranslationMode(doc)
+  const syntheticAncestor = findSyntheticAncestor(node)
+  if (syntheticAncestor !== null) {
+    return mode === "original" || isElementDisplayNone(doc, syntheticAncestor)
+  }
   let current: Node | null = node
   while (current !== null) {
     if (isElementNode(current)) {
@@ -705,7 +710,7 @@ export class CanonicalCfiResolver {
       if (!syntheticEl) return null
       const host = resolveHostElementForSynthetic(doc, syntheticEl, "start")
       if (!host) return null
-      const normalized = normalizeBlockText(host.textContent ?? "")
+      const normalized = extractTranslatableText(host)
       return normalized.length > 0 ? normalized : null
     }
 

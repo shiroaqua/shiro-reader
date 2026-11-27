@@ -125,6 +125,82 @@ export interface EpubIpcLoaderOpenOptions {
   readonly onSessionChange?: ((sessionId: string) => void) | undefined
 }
 
+function extractDeclaredCharset(headText: string): string | null {
+  const xmlMatch = headText.match(/<\?xml\b[^>]*\bencoding\s*=\s*["']([^"']+)["']/i)
+  if (xmlMatch?.[1]) {
+    return xmlMatch[1].trim()
+  }
+  const metaCharsetMatch = headText.match(/<meta\b[^>]*\bcharset\s*=\s*["']?\s*([a-zA-Z0-9._-]+)/i)
+  if (metaCharsetMatch?.[1]) {
+    return metaCharsetMatch[1].trim()
+  }
+  const httpEquivMatch = headText.match(
+    /<meta\b[^>]*http-equiv\s*=\s*["']?content-type["']?[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([a-zA-Z0-9._-]+)/i
+  )
+  if (httpEquivMatch?.[1]) {
+    return httpEquivMatch[1].trim()
+  }
+  return null
+}
+
+function tryDecodeWithLabel(bytes: Uint8Array, label: string, fatal: boolean): string | null {
+  try {
+    return new TextDecoder(label, { fatal }).decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+export function decodeEpubText(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  if (bytes.length === 0) return ""
+
+  // 1. BOM checks (UTF-8, UTF-16LE, UTF-16BE)
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xef &&
+    bytes[1] === 0xbb &&
+    bytes[2] === 0xbf
+  ) {
+    return new TextDecoder("utf-8").decode(bytes)
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return tryDecodeWithLabel(bytes, "utf-16le", false) ?? new TextDecoder("utf-8").decode(bytes)
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return tryDecodeWithLabel(bytes, "utf-16be", false) ?? new TextDecoder("utf-8").decode(bytes)
+  }
+
+  // 2. Sniff declared XML/HTML encoding in first 512 bytes (ASCII-compatible prefix)
+  const headLen = Math.min(bytes.length, 512)
+  const asciiPrefix = new TextDecoder("latin1").decode(bytes.subarray(0, headLen))
+  const declared = extractDeclaredCharset(asciiPrefix)
+  if (declared) {
+    const lower = declared.toLowerCase()
+    if (lower !== "utf-8" && lower !== "utf8") {
+      const decoded = tryDecodeWithLabel(bytes, declared, false)
+      if (decoded !== null) {
+        return decoded
+      }
+    }
+  }
+
+  // 3. Strict UTF-8 first; on invalid byte sequences fall back through legacy CJK/Western encodings
+  const strictUtf8 = tryDecodeWithLabel(bytes, "utf-8", true)
+  if (strictUtf8 !== null) {
+    return strictUtf8
+  }
+
+  for (const fallbackEncoding of ["gb18030", "shift_jis", "big5", "windows-1252"]) {
+    const decoded = tryDecodeWithLabel(bytes, fallbackEncoding, true)
+    if (decoded !== null) {
+      return decoded
+    }
+  }
+
+  return new TextDecoder("utf-8").decode(bytes)
+}
+
 export class EpubIpcLoader implements EpubLoader {
   readonly bookId: string
   readonly fileSize: number
@@ -136,7 +212,6 @@ export class EpubIpcLoader implements EpubLoader {
   private currentEntries: Readonly<Record<string, number>>
   private reopenPromise: Promise<string> | null = null
   private disposed = false
-  private readonly textDecoder = new TextDecoder("utf-8")
 
   private constructor(
     initial: OpenEpubResponse,
@@ -212,7 +287,7 @@ export class EpubIpcLoader implements EpubLoader {
     if (buffer === null) {
       return null
     }
-    return this.textDecoder.decode(buffer)
+    return decodeEpubText(buffer)
   }
 
   sha1 = (str: string): Promise<Uint8Array> => {

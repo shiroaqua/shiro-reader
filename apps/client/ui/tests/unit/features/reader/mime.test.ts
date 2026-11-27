@@ -55,5 +55,18 @@ describe("EPUB archive path normalization & MIME inference", () => {
       "application/octet-stream"
     )
     expect(inferEpubEntryMime("mimetype")).toBe("application/octet-stream")
+    expect(inferEpubEntryMime("OEBPS/page-template.XPGT")).toBe(
+      "application/vnd.adobe-page-template+xml"
+    )
+    expect(inferEpubEntryMime("OEBPS/fonts/legacy.EOT")).toBe(
+      "application/vnd.ms-fontobject"
+    )
+    expect(inferEpubEntryMime("OEBPS/diagram.svgz")).toBe("image/svg+xml")
+
+    const caseEntries = { "OEBPS/Images/Cover.JPG": 2048 } as const
+    expect(resolveArchiveEntryPath("oebps/images/cover.jpg", caseEntries)).toBe(
+      "OEBPS/Images/Cover.JPG"
+    )
+    expect(lookupEntrySize("OEBPS/images/COVER.jpg", caseEntries)).toBe(2048)
   })
 })
