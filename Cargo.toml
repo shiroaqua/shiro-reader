@@ -70,3 +70,9 @@ ttf-parser = "0.25.1"
 url = "2.5.9"
 uuid = { version = "1.29.3", features = ["serde", "v4"] }
 zeroize = { version = "1.9.2", features = ["derive"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = "symbols"
