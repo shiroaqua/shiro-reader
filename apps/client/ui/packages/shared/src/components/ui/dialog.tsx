@@ -11,7 +11,12 @@ function isWithinFloatingOverlay(target: EventTarget | null): boolean {
 
 export function shouldCancelUnderlyingModalDismiss(
   open: boolean,
-  eventDetails: { reason: string; event: Event; cancel: () => void },
+  eventDetails: {
+    reason: string
+    event: Event
+    cancel: () => void
+    allowPropagation?: () => void
+  },
   protectOutsideOverlays: boolean
 ): boolean {
   if (open) return false
@@ -20,6 +25,10 @@ export function shouldCancelUnderlyingModalDismiss(
     document.querySelector('[data-upload-panel][role="dialog"]') !== null
   ) {
     eventDetails.cancel()
+    // Keep Escape bubbling past the underlying modal's portal so the
+    // top-level MobileUploadScreen document listener can dismiss itself even
+    // when focus is still inside the underlying modal.
+    eventDetails.allowPropagation?.()
     return true
   }
   if (

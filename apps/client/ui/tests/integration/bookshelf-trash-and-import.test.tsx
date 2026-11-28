@@ -1028,5 +1028,77 @@ describe("Bookshelf, Trash, and Upload integration", () => {
       expect(screen.queryByText("Color Theme")).not.toBeInTheDocument()
       expect(tauriTestHost.exitCalls).toHaveLength(0)
     })
+
+    it("closes MobileUploadScreen on Escape even when focus remains inside an underlying dialog", async () => {
+      tauriTestHost.reset()
+      tauriTestHost.setPlatform("android")
+      const library = new FakeLibrary()
+
+      const { user } = renderMobileApp({
+        bootstrap: readyLocalState({
+          canPickLibraryDir: false,
+          canImportBooks: true,
+        }),
+        library,
+      })
+
+      expect(
+        await screen.findByText("Bookshelf has no books yet.")
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole("button", { name: "More" }))
+      await user.click(await screen.findByText("Settings"))
+      expect(await screen.findByText("Color Theme")).toBeInTheDocument()
+
+      const langButton = screen.getByRole("button", { name: "English" })
+      act(() => {
+        langButton.focus()
+      })
+      expect(langButton).toHaveFocus()
+
+      const snap = makeUploadSnapshot({
+        revision: 1,
+        visible: true,
+        concurrency: 4,
+        stats: {
+          total: 1,
+          remaining: 1,
+          active: 1,
+          succeeded: 0,
+          failed: 0,
+        },
+        tasks: [makeUploadTask({ id: 1, fileName: "FocusRace.epub" })],
+      })
+      act(() => {
+        library.setUploadSnapshot(snap)
+        tauriTestHost.emitUploadState(snap)
+        tauriTestHost.emitUploadOpenUi()
+      })
+      expect(document.querySelector("[data-upload-panel]")).not.toBeNull()
+
+      await user.click(
+        screen.getByRole("button", { name: "Upload concurrency settings" })
+      )
+      const concurrencyInput = await screen.findByLabelText(/Concurrent uploads/i)
+      await user.click(concurrencyInput)
+
+      act(() => {
+        tauriTestHost.triggerAndroidBack()
+      })
+      expect(document.querySelector("[data-upload-panel]")).toBeNull()
+
+      act(() => {
+        langButton.focus()
+        tauriTestHost.emitUploadOpenUi()
+      })
+      expect(document.querySelector("[data-upload-panel]")).not.toBeNull()
+
+      await user.keyboard("{Escape}")
+      expect(document.querySelector("[data-upload-panel]")).toBeNull()
+      expect(screen.getByText("Color Theme")).toBeInTheDocument()
+
+      await user.keyboard("{Escape}")
+      expect(screen.queryByText("Color Theme")).not.toBeInTheDocument()
+    })
   })
 })
